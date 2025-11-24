@@ -388,6 +388,11 @@ class Diagram(frobenius.Diagram):
                  cod: Ty,
                  mem: Ty,
                  initial_state: Diagram = None) -> Diagram:
+        # check if mem, cod and dom are compatible
+        assert self.dom[-len(mem):] == cod[-len(mem):], (
+            "The feedback types do not match. " +
+            f"Expected {self.dom[-len(mem):]}, got {cod[-len(mem):]}"
+        )
 
         dom_stream = stream.Ty[Ty](
             now=dom,
@@ -396,7 +401,7 @@ class Diagram(frobenius.Diagram):
         mem_stream = stream.Ty[Ty](mem)
 
         if initial_state is None:
-           f0 = self
+            f0 = self
         else:
             f0 = self << dom @ initial_state
         stream_diagram = stream.Stream[Diagram](
@@ -404,7 +409,7 @@ class Diagram(frobenius.Diagram):
             dom=dom_stream,
             cod=cod_stream,
             mem=stream.Ty[Ty](),
-            _later= lambda: stream.Stream[Diagram](self)
+            _later=lambda: stream.Stream[Diagram](self)
         )
 
         diagram = self._get_trace(n=len(mem))
@@ -458,12 +463,15 @@ class Diagram(frobenius.Diagram):
                 other_stream_diagram = other.feedback(
                     dom=other.dom, cod=other.cod, mem=Ty()
                 ).stream_diagram
-            result.stream_diagram = self_stream_diagram >> other_stream_diagram
+            result.stream_diagram = (
+                self_stream_diagram >>
+                other_stream_diagram
+            )
         return result
 
     def _get_trace(self, n=1):
         # check if cod[-n] matches dom[-n]
-        if n==0:
+        if n == 0:
             return self
         traced_dom = self.dom[-n:]
         cup = Id(traced_dom @ traced_dom)
@@ -471,32 +479,42 @@ class Diagram(frobenius.Diagram):
             cup = (
                 cup >>
                 (
-                    Id(self.dom[-n:-i]) @ Cup(self.dom[-i], self.dom[-i]) @
+                    Id(self.dom[-n:-i]) @
+                    Cup(self.dom[-i], self.dom[-i]) @
                     Id(self.dom[-n:-i][::-1])
                 )
             )
         traced_cod = self.cod[-n:]
         cap = Cap(traced_cod[-n], traced_cod[-n])
         for i in range(1, n):
-            cap = ( cap >>
+            cap = (
+                cap >>
                 (
-                    Id(self.dom[-n:-n+i]) @ Cap(self.cod[-n+i], self.cod[-n+i]) @
+                    Id(self.dom[-n:-n+i]) @
+                    Cap(self.cod[-n+i], self.cod[-n+i]) @
                     Id(self.dom[-n:-n+i][::-1])
                 )
             )
 
-        return self.dom[:-n] @ cap >> self @ self.dom[-n:][::-1] >> self.cod[:-n] @ cup
+        return (
+            self.dom[:-n] @ cap >>
+            self @ self.dom[-n:][::-1] >>
+            self.cod[:-n] @ cup
+        )
 
     @staticmethod
-    def delay(initial_state: Diagram) -> Diagram:
+    def delay(ty, initial_state: Diagram) -> Diagram:
         """
         Create a delay diagram with initial state.
 
         Parameters:
             initial_state : State to initialise the delay.
         """
-        return Swap(qmode, qmode).feedback(
-            dom=qmode, cod=qmode, mem=qmode, initial_state=initial_state)
+        from discopy.utils import assert_isatomic
+
+        assert_isatomic(ty), "Delay type must be atomic."
+        return Swap(ty, ty).feedback(
+            dom=ty, cod=ty, mem=ty, initial_state=initial_state)
 
     def to_dual_rail(self):
         """Convert to dual-rail encoding."""
@@ -816,6 +834,7 @@ class Spider(frobenius.Spider, Channel):  # pragma: no cover
             n_legs_in, n_legs_out, typ.single()
         )
         self.env = diagram.Ty()
+
 
 class Cup(frobenius.Cup, Channel):  # pragma: no cover
 
