@@ -389,9 +389,9 @@ class Diagram(frobenius.Diagram):
                  mem: Ty,
                  initial_state: Diagram = None) -> Diagram:
         # check if mem, cod and dom are compatible
-        assert self.dom[-len(mem):] == cod[-len(mem):], (
+        assert self.dom[-len(mem):] == self.cod[-len(mem):], (
             "The feedback types do not match. " +
-            f"Expected {self.dom[-len(mem):]}, got {cod[-len(mem):]}"
+            f"Expected {self.dom[-len(mem):]}, got {self.cod[-len(mem):]}"
         )
 
         dom_stream = stream.Ty[Ty](
