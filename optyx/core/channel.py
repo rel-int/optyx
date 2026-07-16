@@ -384,17 +384,15 @@ class Diagram(frobenius.Diagram):
                  dom: Ty,
                  cod: Ty,
                  mem: Ty,
-                 initial_state: tuple[Diagram, Ty, Ty, Ty] = None) -> Stream:
+                 initial_state: Diagram = None) -> Stream:
 
-        def check_type_compatibility(diagram: Diagram) -> bool:
-            # check if mem, cod and dom are compatible
-            assert diagram.dom[-len(mem):] == mem and diagram.cod[-len(mem):] == mem, (
-                f"The feedback types do not match for {diagram}. " +
-                f"Expected dom and cod to end with {mem}, got "+
-                f"{diagram.dom[-len(mem):]}, and {diagram.cod[-len(mem):]}"
-            )
+        # check if mem, cod and dom are compatible
+        assert self.dom[-len(mem):] == mem and self.cod[-len(mem):] == mem, (
+            f"The feedback types do not match for {self}. " +
+            f"Expected dom and cod to end with {mem}, got "+
+            f"{self.dom[-len(mem):]}, and {self.cod[-len(mem):]}"
+        )
 
-        check_type_compatibility(self)
         stream_dom = stream_Ty(dom)
         stream_cod = stream_Ty(cod)
         stream_mem = stream_Ty(mem)
@@ -404,22 +402,21 @@ class Diagram(frobenius.Diagram):
             dom=stream_dom,
             cod=stream_cod,
             mem=stream_mem,
-            _later=lambda: self_stream
         )
 
         stream_diagram = None
 
         if initial_state is None:
-            f0 = self
             stream_diagram = self_stream
         else:
-            check_type_compatibility(initial_state[0])
-            f0 = initial_state[0]
-            stream_dom = stream_Ty(initial_state[1], _later= lambda: stream_Ty(dom))
-            stream_cod = stream_Ty(initial_state[2], _later= lambda: stream_Ty(cod))
-            stream_mem = stream_Ty(initial_state[3], _later= lambda: stream_Ty(mem))
+            assert initial_state.dom == Ty() and initial_state.cod == mem, (
+                f"The initial state cod does not match with {self}. " +
+                f"Expected dom to be void type and cod to be {mem}, got "+
+                f"diagram.dom={initial_state.dom}, and diagram.cod={initial_state.cod}, with mem={mem}"
+            )
+            stream_mem = stream_Ty(Ty(), _later= lambda: stream_Ty(mem))
             stream_diagram = Stream(
-                now=f0,
+                now=Id(dom) @ initial_state >> self,
                 dom=stream_dom,
                 cod=stream_cod,
                 mem=stream_mem,
