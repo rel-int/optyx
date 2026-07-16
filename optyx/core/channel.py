@@ -247,7 +247,6 @@ class Diagram(frobenius.Diagram):
     ty_factory = Ty
     grad = tensor.Diagram.grad
     ob = Ty
-    _stream_diagram = None
 
     def needs_inflation(self) -> bool:
         """
@@ -380,6 +379,54 @@ class Diagram(frobenius.Diagram):
             ar=lambda arr: arr._decomp(),
             cod=frobenius.Category(Ty, Diagram),
         )(self)
+
+    def feedback(self,
+                 dom: Ty,
+                 cod: Ty,
+                 mem: Ty,
+                 initial_state: tuple[Diagram, Ty, Ty, Ty] = None) -> Stream:
+
+        def check_type_compatibility(diagram: Diagram) -> bool:
+            # check if mem, cod and dom are compatible
+            assert diagram.dom[-len(mem):] == mem and diagram.cod[-len(mem):] == mem, (
+                f"The feedback types do not match for {diagram}. " +
+                f"Expected dom and cod to end with {mem}, got "+
+                f"{diagram.dom[-len(mem):]}, and {diagram.cod[-len(mem):]}"
+            )
+
+        check_type_compatibility(self)
+        stream_dom = stream_Ty(dom)
+        stream_cod = stream_Ty(cod)
+        stream_mem = stream_Ty(mem)
+
+        self_stream = Stream(
+            now=self,
+            dom=stream_dom,
+            cod=stream_cod,
+            mem=stream_mem,
+            _later=lambda: self_stream
+        )
+
+        stream_diagram = None
+
+        if initial_state is None:
+            f0 = self
+            stream_diagram = self_stream
+        else:
+            check_type_compatibility(initial_state[0])
+            f0 = initial_state[0]
+            stream_dom = stream_Ty(initial_state[1], _later= lambda: stream_Ty(dom))
+            stream_cod = stream_Ty(initial_state[2], _later= lambda: stream_Ty(cod))
+            stream_mem = stream_Ty(initial_state[3], _later= lambda: stream_Ty(mem))
+            stream_diagram = Stream(
+                now=f0,
+                dom=stream_dom,
+                cod=stream_cod,
+                mem=stream_mem,
+                _later=lambda: self_stream
+            )
+        return stream_diagram
+
 
     def to_dual_rail(self):
         """Convert to dual-rail encoding."""
@@ -570,12 +617,6 @@ class Diagram(frobenius.Diagram):
         from optyx.core.backends import QuimbBackend
         if backend is None:
             backend = QuimbBackend()
-
-        if self._stream_diagram is not None:
-            raise ValueError(
-                "The diagram needs to be unrolled before evaluation."
-            )
-
         return backend.eval(self, **kwargs)
 
 _ALLOWED = frozenset({"bit", "mode", "qubit", "qmode"})
