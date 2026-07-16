@@ -20,7 +20,7 @@ from optyx.core.channel import (
     mode,
     qmode,
     qubit,
-    bit
+    bit,
 )
 
 from optyx._version import (

@@ -239,42 +239,6 @@ bit = Ty("bit")
 mode = Ty("mode")
 qubit = Ty("qubit")
 qmode = Ty("qmode")
-_ALLOWED = frozenset({"bit", "mode", "qubit", "qmode"})
-
-def _bad_names(ty):
-    """Prohibited symbols in a Ty (empty list if all are permitted)."""
-    return [ob.name for ob in ty.inside if ob.name not in _ALLOWED]
-
-class stream_Ty(stream.Ty[Ty]):
-    """Stream types built from classical and quantum types."""
-    def __init__(self, now: Ty = None,
-                 _later: Callable[[], "stream.Ty[Ty]"] = None):
-        stream.Ty[Ty].__init__(self, now, _later)
-        if self.now is not None:
-            bad = [ob.name for ob in self.now.inside if ob.name not in _ALLOWED]
-            if bad:
-                raise ValueError(
-                    f"Not allowed types : {bad}. "
-                    f"Only {sorted(_ALLOWED)} are allowed."
-                )
-                
-@factory # not sure about this one
-class Stream(stream.Stream[Diagram]):
-    """Stream built from optyx Diagrams"""
-    ob_factory = Ob # not sure about this one
-
-    def unroll(self, n_steps=1):
-        """Unroll in optyx needs to check ALL types:
-        the boundaries of the diagram + each internal box."""
-        x = super().unroll(n_steps)
-        bad = set(_bad_names(x.now.dom)) | set(_bad_names(x.now.cod))
-        for layer in x.now.inside:
-            left, box, right = layer.inside[0]
-            for ty in (left, right, box.dom, box.cod):
-                bad |= set(_bad_names(ty))
-        if bad:
-            raise ValueError(f"Not allowed types : {bad}. Only {sorted(_ALLOWED)}.")
-        return x
 
 @factory
 class Diagram(frobenius.Diagram):
@@ -614,7 +578,25 @@ class Diagram(frobenius.Diagram):
 
         return backend.eval(self, **kwargs)
 
-
+_ALLOWED = frozenset({"bit", "mode", "qubit", "qmode"})
+class stream_Ty(stream.Ty[Ty]):
+    """Stream types built from classical and quantum types."""
+    def __init__(self, now: Ty = None,
+                 _later: Callable[[], "stream.Ty[Ty]"] = None):
+        stream.Ty[Ty].__init__(self, now, _later)
+        if self.now is not None:
+            bad = [ob.name for ob in self.now.inside if ob.name not in _ALLOWED]
+            if bad:
+                raise ValueError(
+                    f"Not allowed types : {bad}. "
+                    f"Only {sorted(_ALLOWED)} are allowed."
+                )
+                
+@factory # not sure about this one
+class Stream(stream.Stream[Diagram]):
+    """Stream built from optyx Diagrams"""
+    pass
+        
 class Channel(Diagram, frobenius.Box):
     """
     Channel initialised by its Kraus map.
