@@ -5,6 +5,8 @@ from optyx.core import backends
 from optyx.core import diagram
 from optyx.core import control
 from optyx.core.channel import (
+    stream_Ty,
+    Stream,
     Channel,
     CQMap,
     Discard,
@@ -18,7 +20,7 @@ from optyx.core.channel import (
     mode,
     qmode,
     qubit,
-    bit
+    bit,
 )
 
 from optyx._version import (

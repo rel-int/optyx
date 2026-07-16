@@ -235,12 +235,10 @@ class Ty(frobenius.Ty):
                 *(o**d if o.needs_inflation() else o for o in self)
         )
 
-
 bit = Ty("bit")
 mode = Ty("mode")
 qubit = Ty("qubit")
 qmode = Ty("qmode")
-
 
 @factory
 class Diagram(frobenius.Diagram):
@@ -249,7 +247,6 @@ class Diagram(frobenius.Diagram):
     ty_factory = Ty
     grad = tensor.Diagram.grad
     ob = Ty
-    _stream_diagram = None
 
     def needs_inflation(self) -> bool:
         """
@@ -387,134 +384,46 @@ class Diagram(frobenius.Diagram):
                  dom: Ty,
                  cod: Ty,
                  mem: Ty,
-                 initial_state: Diagram = None) -> Diagram:
+                 initial_state: Diagram = None) -> Stream:
+
         # check if mem, cod and dom are compatible
-        assert self.dom[-len(mem):] == cod[-len(mem):], (
-            "The feedback types do not match. " +
-            f"Expected {self.dom[-len(mem):]}, got {cod[-len(mem):]}"
+        assert self.dom[-len(mem):] == mem and self.cod[-len(mem):] == mem, (
+            f"The feedback types do not match for {self}. " +
+            f"Expected dom and cod to end with {mem}, got "+
+            f"{self.dom[-len(mem):]}, and {self.cod[-len(mem):]}"
         )
 
-        dom_stream = stream.Ty[Ty](
-            now=dom,
+        stream_dom = stream_Ty(dom)
+        stream_cod = stream_Ty(cod)
+        stream_mem = stream_Ty(mem)
+
+        self_stream = Stream(
+            now=self,
+            dom=stream_dom,
+            cod=stream_cod,
+            mem=stream_mem,
         )
-        cod_stream = stream.Ty[Ty](self.cod)
-        mem_stream = stream.Ty[Ty](mem)
+
+        stream_diagram = None
 
         if initial_state is None:
-            f0 = self
+            stream_diagram = self_stream
         else:
-            f0 = self << dom @ initial_state
-        stream_diagram = stream.Stream[Diagram](
-            now=f0,
-            dom=dom_stream,
-            cod=cod_stream,
-            mem=stream.Ty[Ty](),
-            _later=lambda: stream.Stream[Diagram](self)
-        )
-
-        diagram = self._get_trace(n=len(mem))
-
-        diagram.stream_diagram = stream_diagram.feedback(
-            dom=stream.Ty[Ty](dom),
-            cod=stream.Ty[Ty](cod),
-            mem=mem_stream
-        )
-
-        return diagram
-
-    @property
-    def stream_diagram(self):
-        return self._stream_diagram
-
-    @stream_diagram.setter
-    def stream_diagram(self, value):
-        self._stream_diagram = value
-
-    def unroll(self, n: int) -> Diagram:
-        """
-        Unroll a feedback diagram for n steps.
-
-        Parameters:
-            n : Number of unrolling steps.
-        """
-        if self._stream_diagram is None:
-            self.stream_diagram = self.feedback(
-                dom=self.dom,
-                cod=self.cod,
-                mem=Ty()
-            ).stream_diagram
-        return self.stream_diagram.unroll(n).now
-
-    def then(self, other, *others):
-        result = super().then(other, *others)
-        if (
-            self._stream_diagram is not None or
-            other._stream_diagram is not None
-        ):
-            self_stream_diagram = self.stream_diagram
-            other_stream_diagram = other.stream_diagram
-
-            if self_stream_diagram is None:
-                self_stream_diagram = self.feedback(
-                    dom=self.dom, cod=self.cod, mem=Ty()
-                )
-
-            if other_stream_diagram is None:
-                other_stream_diagram = other.feedback(
-                    dom=other.dom, cod=other.cod, mem=Ty()
-                ).stream_diagram
-            result.stream_diagram = (
-                self_stream_diagram >>
-                other_stream_diagram
+            assert initial_state.dom == Ty() and initial_state.cod == mem, (
+                f"The initial state cod does not match with {self}. " +
+                f"Expected dom to be void type and cod to be {mem}, got "+
+                f"diagram.dom={initial_state.dom}, and diagram.cod={initial_state.cod}, with mem={mem}"
             )
-        return result
-
-    def _get_trace(self, n=1):
-        # check if cod[-n] matches dom[-n]
-        if n == 0:
-            return self
-        traced_dom = self.dom[-n:]
-        cup = Id(traced_dom @ traced_dom)
-        for i in range(1, n+1):
-            cup = (
-                cup >>
-                (
-                    Id(self.dom[-n:-i]) @
-                    Cup(self.dom[-i], self.dom[-i]) @
-                    Id(self.dom[-n:-i][::-1])
-                )
+            stream_mem = stream_Ty(Ty(), _later= lambda: stream_Ty(mem))
+            stream_diagram = Stream(
+                now=Id(dom) @ initial_state >> self,
+                dom=stream_dom,
+                cod=stream_cod,
+                mem=stream_mem,
+                _later=lambda: self_stream
             )
-        traced_cod = self.cod[-n:]
-        cap = Cap(traced_cod[-n], traced_cod[-n])
-        for i in range(1, n):
-            cap = (
-                cap >>
-                (
-                    Id(self.dom[-n:-n+i]) @
-                    Cap(self.cod[-n+i], self.cod[-n+i]) @
-                    Id(self.dom[-n:-n+i][::-1])
-                )
-            )
+        return stream_diagram
 
-        return (
-            self.dom[:-n] @ cap >>
-            self @ self.dom[-n:][::-1] >>
-            self.cod[:-n] @ cup
-        )
-
-    @staticmethod
-    def delay(ty, initial_state: Diagram) -> Diagram:
-        """
-        Create a delay diagram with initial state.
-
-        Parameters:
-            initial_state : State to initialise the delay.
-        """
-        from discopy.utils import assert_isatomic
-
-        assert_isatomic(ty), "Delay type must be atomic."
-        return Swap(ty, ty).feedback(
-            dom=ty, cod=ty, mem=ty, initial_state=initial_state)
 
     def to_dual_rail(self):
         """Convert to dual-rail encoding."""
@@ -705,15 +614,27 @@ class Diagram(frobenius.Diagram):
         from optyx.core.backends import QuimbBackend
         if backend is None:
             backend = QuimbBackend()
-
-        if self._stream_diagram is not None:
-            raise ValueError(
-                "The diagram needs to be unrolled before evaluation."
-            )
-
         return backend.eval(self, **kwargs)
 
-
+_ALLOWED = frozenset({"bit", "mode", "qubit", "qmode"})
+class stream_Ty(stream.Ty[Ty]):
+    """Stream types built from classical and quantum types."""
+    def __init__(self, now: Ty = None,
+                 _later: Callable[[], "stream.Ty[Ty]"] = None):
+        stream.Ty[Ty].__init__(self, now, _later)
+        if self.now is not None:
+            bad = [ob.name for ob in self.now.inside if ob.name not in _ALLOWED]
+            if bad:
+                raise ValueError(
+                    f"Not allowed types : {bad}. "
+                    f"Only {sorted(_ALLOWED)} are allowed."
+                )
+                
+@factory # not sure about this one
+class Stream(stream.Stream[Diagram]):
+    """Stream built from optyx Diagrams"""
+    pass
+        
 class Channel(Diagram, frobenius.Box):
     """
     Channel initialised by its Kraus map.
