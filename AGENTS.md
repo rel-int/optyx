@@ -14,7 +14,7 @@ package:
 
 - @README.md contains a high-level description of the features along with some examples.
 - @CONTRIBUTING.md contains setup instructions, our philosophy and a code style guide.
-- @TODO.md contains the current refactoring roadmap; check whether your change overlaps with a planned work item before starting.
+- The [refactor roadmap](https://github.com/rel-int/optyx/issues/5) tracks planned work; check whether your change overlaps with a planned item before starting.
 
 ## Where
 

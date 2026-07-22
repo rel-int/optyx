@@ -20,10 +20,11 @@ pip install -e '.[test]'
 ```
 
 Note: optyx currently tracks the `main` branch of DisCoPy rather than a
-released version; see `pyproject.toml` and [TODO.md](TODO.md) (item W1) for
-the current pin. Packaging is planned to move to
-[uv](https://docs.astral.sh/uv/), matching DisCoPy (TODO item W8) — these
-instructions will be updated when that lands.
+released version; see `pyproject.toml` and the
+[refactor roadmap](https://github.com/rel-int/optyx/issues/5) for the current
+pin. Packaging is planned to move to [uv](https://docs.astral.sh/uv/),
+matching DisCoPy (also tracked in the roadmap) — these instructions will be
+updated when that lands.
 
 ## Run the tests
 
