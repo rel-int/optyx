@@ -53,11 +53,17 @@ from math import pi
 from typing import List
 
 import numpy as np
+import pyzx
 from discopy import cat
 from discopy.utils import factory_name
 from discopy.frobenius import Dim
 from discopy import tensor
 from optyx.core import diagram, zw
+
+# optyx emits float phases (in units of pi) to pyzx. Since pyzx 0.8 the default
+# rejects float phases; opt into the legacy behaviour rather than rounding at
+# every call site. The proper fix is to emit Fraction phases (see TODO.md, W8).
+pyzx.settings.strict_phase_types = False
 
 
 class ZXDiagram(diagram.Diagram):

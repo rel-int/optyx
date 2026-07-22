@@ -10,7 +10,7 @@ env:
   SRC_DIR: optyx
   TEST_DIR: test
   DOCS_DIR: docs
-  PYTHON_VERSION: 3.11
+  PYTHON_VERSION: 3.12
 
 jobs:
   lint:
@@ -45,10 +45,17 @@ jobs:
         pip install .[test]
     - name: Test
       run:
-        coverage run -m pytest
+        coverage run -m pytest -v
     - name: Coverage
-      run:
-        coverage report --fail-under=95 --show-missing
+      # The report also lands in the Actions run summary for every build.
+      run: |
+        {
+          echo '### Coverage report'
+          echo '```'
+          coverage report --show-missing
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+        coverage report --fail-under=95
   docs:
     runs-on: ubuntu-latest
     steps:
