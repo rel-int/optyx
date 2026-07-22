@@ -178,7 +178,8 @@ This produces the same protocol as an identity operation:
     currently evaluate to the identity channel (it yields the Choi matrix of
     a maximally entangled state instead). This is a pre-existing bug —
     unrelated to the DisCoPy migration, it reproduces on the released DisCoPy
-    the code was written for — tracked in TODO.md.
+    the code was written for — tracked in the refactor roadmap
+    (rel-int/optyx#5).
 
 **Interfacing with external tools**
 

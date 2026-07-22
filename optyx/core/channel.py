@@ -197,7 +197,7 @@ class Ob(frobenius.Ob):
 class Ty(frobenius.Ty):
     """Classical and quantum types."""
 
-    ob_factory = Ob
+    generator_factory = Ob
 
     def single(self):
         """Returns the diagram.Ty obtained by mapping
@@ -224,7 +224,7 @@ class Ty(frobenius.Ty):
         """
         Diagrams with at least one :code:`qmode` need inflation.
         """
-        return "qmode" in self.name
+        return any(ob.name == "qmode" for ob in self.inside)
 
     # pylint: disable=invalid-name
     def inflate(self, d) -> Ty:
@@ -246,7 +246,7 @@ qmode = Ty("qmode")
 class Diagram(frobenius.Diagram):
     """Classical-quantum circuits over qubits and optical modes"""
 
-    ty_factory = Ty
+    ob = Ty
     grad = tensor.Diagram.grad
 
     def needs_inflation(self) -> bool:
@@ -264,24 +264,20 @@ class Diagram(frobenius.Diagram):
         assert isinstance(d, int), "Dimension must be an integer"
         assert d > 0, "Dimension must be positive"
 
-        dom = frobenius.Category(Ty, Diagram)
-        cod = frobenius.Category(Ty, Diagram)
-
         return frobenius.Functor(
             lambda x: x.inflate(d),
             lambda f: f.inflate(d),
-            dom,
-            cod
+            dom=Diagram,
+            cod=Diagram,
         )(self)
 
     def double(self):
         """Returns the diagram.Diagram obtained by
         doubling every quantum dimension
         and building the completely positive map."""
-        dom = frobenius.Category(Ty, Diagram)
-        cod = frobenius.Category(diagram.Ty, diagram.Diagram)
         return frobenius.Functor(
-            lambda x: x.double(), lambda f: f.double(), dom, cod
+            lambda x: x.double(), lambda f: f.double(),
+            dom=Diagram, cod=diagram.Diagram
         )(self)
 
     @property
@@ -368,17 +364,17 @@ class Diagram(frobenius.Diagram):
         assert self.is_pure, "Diagram must be pure to convert to path."
 
         return frobenius.Functor(
-            ob=len,
-            ar=lambda f: f.get_kraus().to_path(dtype),
-            cod=frobenius.Category(int, path.Matrix[dtype]),
+            ob_map=len,
+            ar_map=lambda f: f.get_kraus().to_path(dtype),
+            cod=path.Matrix[dtype],
         )(self)
 
     def decomp(self):
         # pylint: disable=protected-access
         return frobenius.Functor(
-            ob=lambda x: qubit**len(x),
-            ar=lambda arr: arr._decomp(),
-            cod=frobenius.Category(Ty, Diagram),
+            ob_map=lambda x: qubit**len(x),
+            ar_map=lambda arr: arr._decomp(),
+            cod=Diagram,
         )(self)
 
     def to_dual_rail(self):
@@ -387,9 +383,9 @@ class Diagram(frobenius.Diagram):
         assert self.is_pure, "Diagram must be pure to convert to dual rail."
 
         return frobenius.Functor(
-            ob=lambda x: qmode**(2*len(x)),
-            ar=lambda arr: arr._to_dual_rail(),
-            cod=frobenius.Category(Ty, Diagram),
+            ob_map=lambda x: qmode**(2*len(x)),
+            ar_map=lambda arr: arr._to_dual_rail(),
+            cod=Diagram,
         )(self.decomp())
 
     def to_tket(self):  # pragma: no cover
@@ -903,32 +899,21 @@ class Discard(Channel):
         return Discard(self.dom.inflate(d))
 
 
-class Category(frobenius.Category):  # pragma: no cover
-    """
-    A hypergraph category is a compact category with a method :code:`spiders`.
-    Parameters:
-        ob : The objects of the category, default is :class:`Ty`.
-        ar : The arrows of the category, default is :class:`Diagram`.
-    """
-    ob, ar = Ty, Diagram
-
-
-class Functor(frobenius.Functor):  # pragma: no cover
+class Functor(frobenius.Functor):
     """
     A hypergraph functor is a compact functor that preserves spiders.
-    Parameters:
-        ob (Mapping[Ty, Ty]) : Map from atomic :class:`Ty` to :code:`cod.ob`.
-        ar (Mapping[Box, Diagram]) : Map from :class:`Box` to :code:`cod.ar`.
-        cod (Category) : The codomain of the functor.
-    """
-    dom = cod = Category()
 
-    def __call__(self, other):
-        return frobenius.Functor.__call__(self, other)
+    Parameters:
+        ob_map (Mapping[Ty, Ty]) :
+            Map from atomic :class:`Ty` to :code:`cod.ob`.
+        ar_map (Mapping[Box, Diagram]) : Map from :class:`Box` to :code:`cod`.
+        cod : The codomain of the functor, a :class:`Diagram` subclass.
+    """
+    dom = cod = Diagram
 
 
 class Hypergraph(hypergraph.Hypergraph):  # pragma: no cover
-    category, functor = Category, Functor
+    functor = Functor
 
 
 Id = Diagram.id
@@ -940,7 +925,6 @@ Scalar = lambda s: Channel(  # noqa: E731
 )
 
 
-Hypergraph.ty_factory = Ty
 Diagram.spider_factory = Spider
 Diagram.hypergraph_factory = Hypergraph
 Diagram.braid_factory = Swap
