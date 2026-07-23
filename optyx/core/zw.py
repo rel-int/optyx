@@ -39,7 +39,7 @@ or using :code:`quimb` (with :code:`tensor.to_quimb()`).
 
 **W commutativity**
 
->>> from optyx.utils.misc import compare_arrays_of_different_sizes
+>>> from optyx.core.diagram import compare_arrays_of_different_sizes
 >>> from discopy.drawing import Equation
 >>> bSym_l = W(2)
 >>> bSym_r = W(2) >> SWAP
@@ -150,12 +150,8 @@ import numpy as np
 from discopy.frobenius import Dim
 from discopy import tensor
 from optyx.core import diagram
-from optyx.utils.misc import (
-    occupation_numbers,
-    multinomial,
-    BasisTransition
-)
-from optyx.core.path import Matrix
+from optyx.core.diagram import BasisTransition
+from optyx.core.path import Matrix, occupation_numbers, multinomial
 
 
 class ZWBox(diagram.Box, diagram.Diagram):
@@ -834,3 +830,83 @@ LO_ELEMENTS = (
     diagram.Swap,
     Add
 )
+
+
+def w_layer(n_nonzero_counts, dagger=False):
+    """Layer of W nodes splitting each wire into its nonzero count."""
+    layer = Id(0)
+    for count in n_nonzero_counts:
+        if count > 1:
+            w_gate = W(count)
+            layer @= w_gate.dagger() if dagger else w_gate
+        elif count == 1:
+            layer @= Id(1)
+    return layer
+
+
+def matrix_to_zw(U):
+    """Decompose a matrix into a :class:`zw` diagram of
+    splits, endomorphisms and merges."""
+    # pylint: disable=import-outside-toplevel
+    from sympy import Expr
+
+    n = U.shape[0]
+    result = Id(0)
+
+    if isinstance(U[0, 0], Expr):
+        n_cols_nonzero = [U.shape[1]] * n
+    else:
+        n_cols_nonzero = np.abs(np.sign(U)).sum(axis=1).astype(int)
+    result @= w_layer(n_cols_nonzero, dagger=False)
+
+    endo_layer = Id(0)
+    rows, cols = np.nonzero(U)
+    for r, c in zip(rows, cols):
+        endo_layer @= Endo(U[r, c])
+
+    result >>= endo_layer
+
+    nonzero_indices = np.nonzero(U)
+    row_indices = nonzero_indices[0]
+    col_indices = nonzero_indices[1]
+    sorted_indices = np.lexsort((row_indices, col_indices))
+    sorted_rows = row_indices[sorted_indices]
+    sorted_cols = col_indices[sorted_indices]
+
+    swap_list = []
+    for r, c in zip(sorted_rows, sorted_cols):
+        swap_list.append(int(n * r + c))
+
+    if not isinstance(U[0, 0], Expr):
+        n_s_output_flat = np.abs(np.sign(U)).flatten()
+        adjusted_swap_list = []
+        for idx in swap_list:
+            sum_missing = np.abs(np.array(n_s_output_flat)[:idx] - 1).sum()
+            adjusted_swap_list.append(int(idx - sum_missing))
+    else:
+        adjusted_swap_list = swap_list
+
+    if adjusted_swap_list:
+        result = result.permute(*adjusted_swap_list)
+
+    if isinstance(U[0, 0], Expr):
+        n_rows_nonzero = [U.shape[0]] * U.shape[1]
+    else:
+        n_rows_nonzero = np.abs(np.sign(U)).sum(axis=0).astype(int)
+    result >>= w_layer(n_rows_nonzero, dagger=True)
+
+    return result
+
+
+def filter_occupation_numbers(
+    allowed_occupation_configurations: list[list[int]],
+    input_dims: list[int],
+) -> list[list[int]]:
+    """Filter the occupation numbers based on the input dimensions"""
+    return [
+        config
+        for config in allowed_occupation_configurations
+        if all(
+            list(config[i] <= input_dims[i] for i in range(len(input_dims)))
+        )
+    ]

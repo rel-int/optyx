@@ -932,6 +932,37 @@ class Scalar(Channel):
         )
 
 
+def explode_channel(
+    kraus,
+    channel_class=None,
+    circuit_class=None,
+):
+    """Split a kraus diagram into one channel per layer."""
+    if channel_class is None:
+        channel_class = Channel
+    if circuit_class is None:
+        circuit_class = Diagram
+
+    arrows = []
+    for layer in kraus:
+        generator = layer.inside[0][1]
+        box = channel_class(
+            generator.name,
+            generator,
+        )
+
+        arrows.append(
+            Ty.from_optyx(layer.inside[0][0]) @
+            box @
+            Ty.from_optyx(layer.inside[0][2])
+        )
+
+    if len(arrows) == 0:
+        return channel_class("Id", kraus)
+
+    return channel_class.then(*arrows)
+
+
 Diagram.spider_factory = Spider
 Diagram.hypergraph_factory = Hypergraph
 Diagram.braid_factory = Swap

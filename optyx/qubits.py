@@ -310,7 +310,7 @@ import graphix
 from discopy import quantum as quantum_discopy
 from discopy import symmetric
 from sympy import lambdify
-from optyx.utils.misc import explode_channel
+from optyx.core.channel import explode_channel
 from optyx.core import (
     channel,
     diagram,

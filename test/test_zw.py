@@ -2,7 +2,8 @@ import math
 
 from optyx.core.zw import *
 from optyx.core.diagram import mode, DualRail, EmbeddingTensor, Swap, Diagram, Mode, Spider, Scalar
-from optyx.utils.misc import compare_arrays_of_different_sizes, calculate_num_creations_selections
+from optyx.core.diagram import compare_arrays_of_different_sizes
+from optyx.core.path import calculate_num_creations_selections
 import optyx.core.zx as zx
 from optyx import photonic
 import itertools

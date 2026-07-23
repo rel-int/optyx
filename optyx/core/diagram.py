@@ -121,7 +121,6 @@ We can check their equivalence as tensors.
 Let's check the branching law from [FC23]_.
 
 >>> from optyx.core.zw import Create, W
->>> from optyx.utils.misc import compare_arrays_of_different_sizes
 >>> branching_l = Create(1) >> W(2)
 >>> branching_r = Create(1) @ Create(0) + Create(0) @ Create(1)
 
@@ -207,14 +206,225 @@ from discopy.cat import factory, rsubs
 from discopy.frobenius import Dim
 from discopy.quantum.gates import format_number
 from enum import Enum
-from optyx.utils.misc import (
-    BasisTransition,
-    calculate_right_offset,
-    get_max_dim_for_box
-)
-from typing import List, Tuple, Iterable
+from numbers import Number
+from typing import List, NamedTuple, Tuple, Iterable
 
 MAX_DIM = 10
+
+
+class BasisTransition(NamedTuple):
+    """
+    A single non-zero transition emitted by `truncation_specification`.
+
+    For a fixed input basis index `input_index`, a box yields zero or more
+    `Transition` objects, each describing one reachable output index and its
+    amplitude. The caller (`Box.truncation`) writes `amp` into the result
+    tensor at index `out + input_index` (output indices first, then input).
+
+    Attributes
+    ----------
+    out : Tuple[int, ...]
+        Output multi-index in the box's codomain for this transition.
+        Must satisfy: len(out) == len(self.cod) and
+        0 <= out[i] < output_dims[i] for all i.
+    amp : Union[complex, float, int, sympy.Expr]
+        The complex (or symbolic) amplitude associated with this output.
+    """
+    out: Tuple[int, ...]
+    amp: Number
+
+
+def is_identity(box):
+    """Whether a diagram has no boxes."""
+    return len(box.boxes) == 0 and len(box.offsets) == 0
+
+
+def is_diagram_LO(dgrm):
+    """Whether every box of a diagram is a linear-optical generator."""
+    # pylint: disable=import-outside-toplevel
+    from optyx.core.zw import LO_ELEMENTS
+    if is_identity(dgrm):
+        return True
+
+    for box in dgrm.boxes:
+        if is_identity(box):
+            continue
+        if not isinstance(box, LO_ELEMENTS):
+            return False
+
+    return True
+
+
+def compare_arrays_of_different_sizes(
+    array_1: list | np.ndarray, array_2: list | np.ndarray, tol: float = 1e-08
+) -> bool:
+    """ZW diagrams which are equal in infinite dimensions
+    might be intrepreted as arrays of different dimensions
+    if we truncate them to a finite number of dimensions"""
+    a, b = np.array(array_1).flatten(), np.array(array_2).flatten()
+    n = min(len(a), len(b))
+    return np.flatnonzero(np.abs(a[:n] - b[:n]) > tol).size == 0
+
+
+def calculate_right_offset(
+        total_wires: int,
+        left_offset: int,
+        span_len: int
+) -> int:
+    """Right offset = number of wires to the right of a span."""
+    return total_wires - span_len - left_offset
+
+
+def is_previous_box_connected_to_current_box(
+    wires_in_light_cone: List[bool],
+    previous_left_offset: int,
+    previous_box_cod_len: int,
+    previous_right_offset: int,
+) -> bool:
+    """
+    Do the current light-cone wires intersect the COD of the previous box?
+    """
+    mask = (
+        [False] * previous_left_offset
+        + [True] * previous_box_cod_len
+        + [False] * previous_right_offset
+    )
+    assert len(mask) == len(wires_in_light_cone), (
+        (f"Mask/wires length mismatch: {len(mask)}"
+         + f" != {len(wires_in_light_cone)}")
+    )
+
+    return any(w and m for w, m in zip(wires_in_light_cone, mask))
+
+
+def get_previous_box_cod_index_in_light_cone(
+    wires_in_light_cone: List[bool],
+    previous_left_offset: int,
+    previous_box_cod_len: int,
+    previous_right_offset: int,
+) -> List[int]:
+    """
+    Get the indices of the cod of the previous box
+    that are in the current light-cone.
+    """
+    mask = (
+        [False] * previous_left_offset
+        + [True] * previous_box_cod_len
+        + [False] * previous_right_offset
+    )
+    assert len(mask) == len(wires_in_light_cone), (
+        (f"Mask/wires length mismatch: {len(mask)}"
+         + f" != {len(wires_in_light_cone)}")
+    )
+
+    return [
+        i - previous_left_offset for i, (w, m) in
+        enumerate(zip(wires_in_light_cone, mask))
+        if w and m
+    ]
+
+
+def update_connections(
+    wires_in_light_cone: List[bool],
+    previous_left_offset: int,
+    previous_box,
+    previous_right_offset: int,
+) -> List[bool]:
+    """
+    Replace the previous box's cod segment in the light-cone by a dom-length
+    segment that is either all True (if connected) or all False.
+    This pulls the cone one layer backward.
+    """
+    connected = is_previous_box_connected_to_current_box(
+        wires_in_light_cone,
+        previous_left_offset,
+        len(previous_box.cod),
+        previous_right_offset,
+    )
+
+    start = previous_left_offset
+    end = len(wires_in_light_cone) - previous_right_offset
+
+    return (
+        wires_in_light_cone[:start]
+        + [connected if t == mode else False for t in previous_box.dom]
+        + wires_in_light_cone[end:]
+    )
+
+
+def get_max_dim_for_box(
+    left_offset: int,
+    box,
+    right_offset: int,
+    input_dims: List[int],
+    prev_layers,
+):
+    """Bound the truncation dimension of a box by the number of photons
+    in its past light-cone."""
+    # pylint: disable=import-outside-toplevel
+    from optyx.core.zw import Create, Endo, Divide, Multiply
+
+    if (
+        len(box.dom) == 0 or
+        isinstance(box, (Swap, Endo, Divide, Multiply))
+    ):
+        return 1e20
+
+    dim_for_box = 0
+
+    wires_in_light_cone: List[bool] = (
+        [False] * left_offset
+        + [True if t == mode else False for t in box.dom]
+        + [False] * right_offset
+    )
+
+    for previous_left_offset, previous_box in prev_layers[::-1]:
+        total = len(wires_in_light_cone)
+        cod_len = len(previous_box.cod)
+
+        max_left = max(0, total - cod_len)
+        adj_left = previous_left_offset
+        if adj_left < 0:
+            adj_left = 0
+        elif adj_left > max_left:
+            adj_left = max_left
+
+        previous_right_offset = \
+            calculate_right_offset(total, adj_left, cod_len)
+
+        if is_previous_box_connected_to_current_box(
+            wires_in_light_cone,
+            adj_left,
+            cod_len,
+            previous_right_offset,
+        ):
+            if isinstance(previous_box, Create):
+                idxs = get_previous_box_cod_index_in_light_cone(
+                    wires_in_light_cone,
+                    adj_left,
+                    cod_len,
+                    previous_right_offset,
+                )
+                if idxs:
+                    dim_for_box += sum(previous_box.photons[i] for i in idxs)
+
+        if isinstance(previous_box, Swap):
+            wires_in_light_cone = (
+                wires_in_light_cone[:adj_left]
+                + [wires_in_light_cone[adj_left + 1]]
+                + [wires_in_light_cone[adj_left]]
+                + wires_in_light_cone[adj_left + 2:]
+            )
+        else:
+            wires_in_light_cone = update_connections(
+                wires_in_light_cone,
+                adj_left,
+                previous_box,
+                previous_right_offset,
+            )
+    dim_for_box += sum(2 * dim for wire, dim in
+                       zip(wires_in_light_cone, input_dims) if wire) + 1
+    return max(dim_for_box, 2)
 
 
 class PhotonNumberPreservation(Enum):
@@ -318,7 +528,6 @@ class Diagram(frobenius.Diagram):
     ) -> tensor.Diagram:
         """Returns a :class:`tensor.Diagram` for evaluation"""
         from optyx.core import zw
-        from optyx.utils.misc import is_identity
 
         if input_dims is None:
             input_dims = [2 for _ in range(len(self.dom))]

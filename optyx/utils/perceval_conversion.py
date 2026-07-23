@@ -1,13 +1,22 @@
-from optyx.utils.misc import matrix_to_zw, invert_perm
-from optyx import Channel, mode, qmode, photonic, bit
-from optyx.classical import ClassicalFunction, BitControlledGate
 from perceval.components.detector import DetectionType
-from optyx.core.channel import Spider, Diagram, Measure
+from optyx import photonic
 from optyx.photonic import Create, Select
+from optyx.classical import ClassicalFunction, BitControlledGate
+from optyx.core.channel import (
+    bit, mode, qmode, Channel, Spider, Diagram, Measure
+)
+from optyx.core.zw import Endo, matrix_to_zw
 from optyx.utils.postselect_parser import compile_postselect
-from optyx.core.zw import Endo
 import numpy as np
 import perceval as pcvl
+
+
+def invert_perm(p):
+    """Invert a permutation given as a list of images."""
+    q = [0] * len(p)
+    for out, inn in enumerate(p):
+        q[inn] = out
+    return q
 
 
 def _default_action(component):

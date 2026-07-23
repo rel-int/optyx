@@ -260,7 +260,7 @@ from optyx.core import (
 )
 
 from optyx.classical import ClassicalFunction, DiscardMode
-from optyx.utils.misc import matrix_to_zw
+from optyx.core.zw import matrix_to_zw
 
 from optyx.core.channel import (
     bit,
