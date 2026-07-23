@@ -852,9 +852,4 @@ class Bra(Channel):
         super().__init__(f"<{value}|", kraus, dom=dom)
 
 
-def Id(n):
-    """
-    Qubit identity wire.
-    """
-    return Diagram.id(n) if \
-        isinstance(n, channel.Ty) else Diagram.id(qubit**n)
+Id = diagram.id_factory(Diagram, qubit)

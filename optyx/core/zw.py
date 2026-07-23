@@ -611,7 +611,7 @@ class Endo(ZWBox):
     def grad(self, var):
         """Compute the gradient of the scalar with respect to a variable."""
         if var not in self.free_symbols:
-            return self.sum_factory((), self.dom, self.cod)
+            return self.zero_grad()
         s = self.scalar.diff(var) / self.scalar
         num_op = Split(2) >> Id(1) @ (Select() >> Create()) >> Merge(2)
         d = diagram.Scalar(s) @ (self >> num_op)
@@ -822,9 +822,7 @@ def Merge(n):
     return W(n).dagger()
 
 
-def Id(n):
-    return diagram.Diagram.id(n) if \
-          isinstance(n, diagram.Ty) else diagram.Diagram.id(diagram.Mode(n))
+Id = diagram.id_factory(diagram.Diagram, diagram.mode)
 
 
 LO_ELEMENTS = (

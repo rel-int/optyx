@@ -692,10 +692,4 @@ CtrlZ = Channel(
 )
 
 
-def Id(n):
-    """
-    Classical identity wire.
-    """
-    if isinstance(n, channel.Ty):
-        return Diagram.id(n)
-    raise TypeError(f"Expected a channel.Ty, got {type(n)}")
+Id = diagram.id_factory(Diagram)

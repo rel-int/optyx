@@ -285,6 +285,10 @@ class Diagram(frobenius.Diagram):
 
     grad = tensor.Diagram.grad
 
+    def zero_grad(self) -> Diagram:
+        """The empty sum of diagrams, the gradient of a constant."""
+        return self.sum_factory((), self.dom, self.cod)
+
     def conjugate(self) -> Diagram:
         """Conjugates every box in the diagram"""
         return symmetric.Functor(
@@ -391,23 +395,16 @@ class Diagram(frobenius.Diagram):
         n_modes,
         operators,
         scalar=1
-    ):  # pragma: no cover
+    ):
         """Create a :class:`zw` diagram from a bosonic operator."""
         # pylint: disable=import-outside-toplevel
         from optyx.core import zw
 
-        # pylint: disable=invalid-name
-        d = cls.id(Mode(n_modes))
         annil = zw.Split(2) >> zw.Select(1) @ zw.Id(1)
-        create = annil.dagger()
-        for idx, dagger in operators:
-            if not 0 <= idx < n_modes:
-                raise ValueError(f"Index {idx} out of bounds.")
-            box = create if dagger else annil
-            d = d >> zw.Id(idx) @ box @ zw.Id(n_modes - idx - 1)
-
+        # pylint: disable=invalid-name
+        d = bosonic_operators(
+            mode, annil, annil.dagger(), n_modes, operators)
         if scalar != 1:
-            # pylint: disable=invalid-name
             d = Scalar(scalar) @ d
         return d
 
@@ -774,7 +771,7 @@ class Sum(symmetric.Sum, Box):
     def grad(self, var, **params):
         """Gradient with respect to :code:`var`."""
         if var not in self.free_symbols:
-            return self.sum_factory((), self.dom, self.cod)
+            return self.zero_grad()
         return sum(term.grad(var, **params) for term in self.terms)
 
 
@@ -1083,6 +1080,31 @@ class Hypergraph(hypergraph.Hypergraph):  # pragma: no cover
 
 bit = Bit(1)
 mode = Mode(1)
+
+
+def id_factory(diagram_cls, ob=None):
+    """Identity helper for ``diagram_cls`` turning an integer ``n``
+    into the type ``ob ** n``."""
+    def identity(n):
+        if isinstance(n, diagram_cls.ob):
+            return diagram_cls.id(n)
+        if ob is None:
+            raise TypeError(f"Expected a {diagram_cls.ob}, got {type(n)}")
+        return diagram_cls.id(ob ** n)
+    return identity
+
+
+def bosonic_operators(ty, annil, create, n_modes, operators):
+    """Compose the creations and annihilations of a bosonic operator
+    acting on ``n_modes`` wires of type ``ty``."""
+    result = annil.id(ty ** n_modes)
+    for idx, dagger in operators:
+        if not 0 <= idx < n_modes:
+            raise ValueError(f"Index {idx} out of bounds.")
+        box = create if dagger else annil
+        result = result >> ty ** idx @ box @ ty ** (n_modes - idx - 1)
+    return result
+
 
 Diagram.hypergraph_factory = Hypergraph
 Diagram.braid_factory, Diagram.spider_factory = Swap, Spider

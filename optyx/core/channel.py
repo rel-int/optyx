@@ -148,9 +148,11 @@ dual-rail encoding. For example, we can create a GHZ state:
 
 from __future__ import annotations
 
+from sympy import lambdify
+from sympy.core import Symbol, Mul
 from discopy import tensor
 from discopy import symmetric, frobenius, hypergraph
-from discopy.cat import factory
+from discopy.cat import factory, rsubs
 from pytket.extensions.pyzx import pyzx_to_tk
 from pyzx import extract_circuit
 from optyx.core import diagram
@@ -248,6 +250,7 @@ class Diagram(frobenius.Diagram):
 
     ob = Ty
     grad = tensor.Diagram.grad
+    zero_grad = diagram.Diagram.zero_grad
 
     def needs_inflation(self) -> bool:
         """
@@ -448,20 +451,12 @@ class Diagram(frobenius.Diagram):
         """Create a :class:`zw` diagram from a bosonic operator."""
         # pylint: disable=import-outside-toplevel
         from optyx.core import zw
-        from optyx.photonic import Scalar
 
-        # pylint: disable=invalid-name
-        d = Diagram.id(qmode**n_modes)
         annil = Channel("annil", zw.Split(2) >> zw.Select(1) @ zw.Id(1))
-        create = annil.dagger()
-        for idx, dagger in operators:
-            if not 0 <= idx < n_modes:
-                raise ValueError(f"Index {idx} out of bounds.")
-            box = create if dagger else annil
-            d = d >> qmode**idx @ box @ qmode**(n_modes - idx - 1)
-
+        # pylint: disable=invalid-name
+        d = diagram.bosonic_operators(
+            qmode, annil, annil.dagger(), n_modes, operators)
         if scalar != 1:
-            # pylint: disable=invalid-name
             d = Scalar(scalar) @ d
         return d
 
@@ -696,7 +691,7 @@ class Sum(symmetric.Sum, Diagram):
     def grad(self, var, **params):
         """Gradient with respect to :code:`var`."""
         if var not in self.free_symbols:
-            return self.sum_factory((), self.dom, self.cod)
+            return self.zero_grad()
         return sum(term.grad(var, **params) for term in self.terms)
 
     def get_kraus(self):
@@ -908,12 +903,33 @@ class Hypergraph(hypergraph.Hypergraph):  # pragma: no cover
 
 
 Id = Diagram.id
-Scalar = lambda s: Channel(  # noqa: E731
-    name=f"Scalar({s})",
-    kraus=diagram.Scalar(s),
-    dom=Ty(),
-    cod=Ty()
-)
+
+
+class Scalar(Channel):
+    """Scalar channel with a complex or symbolic value."""
+
+    def __init__(self, value):
+        if not isinstance(value, (Symbol, Mul)):
+            self.scalar = complex(value)
+        else:
+            self.scalar = value
+        super().__init__(f"{value}", diagram.Scalar(value))
+        self.data = value
+
+    def subs(self, *args):
+        return type(self)(rsubs(self.scalar, *args))
+
+    # pylint: disable=unused-argument
+    def grad(self, var, **params):
+        """Gradient with respect to :code:`var`."""
+        if var not in self.free_symbols:
+            return self.zero_grad()
+        return type(self)(self.scalar.diff(var))
+
+    def lambdify(self, *symbols, **kwargs):
+        return lambda *xs: type(self)(
+            lambdify(symbols, self.scalar, **kwargs)(*xs)
+        )
 
 
 Diagram.spider_factory = Spider

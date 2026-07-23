@@ -426,9 +426,7 @@ def scalar(data):
     return diagram.Scalar(data)
 
 
-def Id(n):
-    return diagram.Diagram.id(n) if isinstance(n, diagram.Ty) \
-          else diagram.Diagram.id(diagram.Bit(n))
+Id = diagram.id_factory(diagram.Diagram, diagram.bit)
 
 
 H = ZXBox("H", 1, 1)
