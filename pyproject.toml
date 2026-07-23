@@ -27,16 +27,9 @@ classifiers = [
     "Topic :: Scientific/Engineering"
 ]
 dependencies = [
-  # optyx tracks discopy main: it needs the ob_map/ar_map Functor rename and
-  # related API changes, which are not in a release yet. Pinned just before
-  # the einsum rewrite (discopy#402) whose single-einsum eval fails above 52
-  # indices (discopy/discopy#447); move the pin forward once that is fixed,
-  # and relax to a version bound once discopy ships a release
-  # (rel-int/optyx#5).
-  "discopy @ git+https://github.com/discopy/discopy@d44acb3e",
+  "discopy @ git+https://github.com/discopy/discopy@88895277",
+  "opt_einsum",
   "sympy",
-  # perceval 1.x reworked the post-selection and simulator APIs optyx relies
-  # on; cap below 1.0 until optyx is ported (rel-int/optyx#5).
   "perceval-quandela >=0.12,<1.0",
   "networkx >= 3.2",
   "graphix == 0.2.16",

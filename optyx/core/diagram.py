@@ -245,11 +245,9 @@ class Ob(frobenius.Ob):
 class Ty(frobenius.Ty):
     """Optical and (qu)bit types.
 
-    Equality is structural rather than nominal, so that a :class:`Mode` or
-    :class:`Bit` equals the plain :class:`Ty` with the same objects. DisCoPy
-    slices a type down to its factory (:class:`Ty`) when it builds a box, and
-    the composability check then compares that slice against the original
-    :class:`Bit`/:class:`Mode` domain, mirroring :class:`discopy.monoidal.PRO`.
+    Equality is structural rather than nominal: a :class:`Mode` or
+    :class:`Bit` equals the plain :class:`Ty` with the same objects,
+    mirroring :class:`discopy.monoidal.PRO`.
     """
 
     generator_factory = Ob

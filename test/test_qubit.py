@@ -8,7 +8,6 @@ from optyx.core import zx
 import numpy as np
 
 def _extract(graph):
-    # Since pyzx 0.8, extract_circuit requires a graph-like diagram.
     graph = graph.copy()
     pyzx.simplify.full_reduce(graph)
     return pyzx.extract_circuit(graph)

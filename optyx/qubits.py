@@ -174,12 +174,9 @@ This produces the same protocol as an identity operation:
 
 .. note::
 
-    The assertion above is skipped: this teleportation example does not
-    currently evaluate to the identity channel (it yields the Choi matrix of
-    a maximally entangled state instead). This is a pre-existing bug —
-    unrelated to the DisCoPy migration, it reproduces on the released DisCoPy
-    the code was written for — tracked in the refactor roadmap
-    (rel-int/optyx#5).
+    The assertion above is skipped: this example does not currently evaluate
+    to the identity channel, see the refactor roadmap
+    (`#5 <https://github.com/rel-int/optyx/issues/5>`_).
 
 **Interfacing with external tools**
 

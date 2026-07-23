@@ -47,7 +47,6 @@ jobs:
       run:
         coverage run -m pytest -v
     - name: Coverage
-      # The report also lands in the Actions run summary for every build.
       run: |
         {
           echo '### Coverage report'
