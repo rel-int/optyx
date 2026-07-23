@@ -9,11 +9,12 @@ and classical feedback, and evaluates diagrams as tensor networks.
 
 ## Context
 
-Please read the following documents before attempting any serious work on the
-package:
+Read the following documents before any work on the package:
 
+- @RULES.md describes a protocol based on checkboxes as mutex, follow it exactly.
+- @STYLE.md describes coding guidelines that all your work should try to follow.
 - @README.md contains a high-level description of the features along with some examples.
-- @CONTRIBUTING.md contains setup instructions, our philosophy and a code style guide.
+- @CONTRIBUTING.md contains setup instructions and our general coding philosophy.
 - The [refactor roadmap](https://github.com/rel-int/optyx/issues/5) tracks planned work; check whether your change overlaps with a planned item before starting.
 
 ## Where
@@ -36,4 +37,4 @@ Before pushing anything, make sure that:
 - you have reported any bugs or confusing docs that you encounter even if unrelated
 - you have added docs and tests that are complete but concise as best as you can
 - you have run both `pflake8 optyx` and `coverage run -m pytest` as described in @CONTRIBUTING.md
-- you have respected the [code style guide](CONTRIBUTING.md#code-style-guide)
+- you have respected the [code style guide](STYLE.md)
