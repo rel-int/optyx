@@ -310,7 +310,6 @@ import graphix
 from discopy import quantum as quantum_discopy
 from discopy import symmetric
 from sympy import lambdify
-# from pytket import circuit as tket_circuit
 from optyx.utils.misc import explode_channel
 from optyx.core import (
     channel,
@@ -360,8 +359,6 @@ class Circuit(Diagram):
             return ImportObjectType.DISCOPY
         if isinstance(underlying_circuit, BaseGraph):
             return ImportObjectType.PYZX
-        # if isinstance(underlying_circuit, tket_circuit.Circuit):
-        #     return ImportObjectType.TKET
         if isinstance(underlying_circuit, Diagram):
             return ImportObjectType.ZX
         if isinstance(underlying_circuit, graphix.pattern.Pattern):
@@ -378,23 +375,11 @@ class Circuit(Diagram):
             return cls._to_optyx_from_discopy(underlying_circuit)
         if type_ == ImportObjectType.PYZX:
             return cls._to_optyx_from_pyzx(underlying_circuit)
-        # if type_ == ImportObjectType.TKET:
-        #     return cls._to_optyx_from_tket(underlying_circuit)
         if type_ == ImportObjectType.ZX:
             return cls._to_optyx_from_zx(underlying_circuit)
         if type_ == ImportObjectType.GRAPHIX:
             return cls._to_optyx_from_graphix(underlying_circuit)
         raise TypeError("Unsupported circuit type")  # pragma: no cover
-
-    # @classmethod
-    # def _to_optyx_from_tket(cls, underlying_circuit):
-    #     """
-    #     Convert a tket circuit to an optyx channel diagram.
-    #     """
-    #     underlying_circuit = quantum_discopy.circuit.Circuit.from_tk(
-    #         underlying_circuit, init_and_discard=False
-    #     )
-    #     return cls._to_optyx_from_discopy(underlying_circuit)
 
     @classmethod
     def _to_optyx_from_pyzx(cls, underlying_circuit):
@@ -455,28 +440,6 @@ class Circuit(Diagram):
 class QubitChannel(Channel):
     """Qubit channel."""
 
-    # def decomp(self):
-    #     """Decompose into elementary gates."""
-    #     from optyx.utils.misc import decomp_ar
-    #     from discopy import symmetric
-    #     return symmetric.Functor(
-    #         ob=lambda x: qubit**len(x),
-    #         ar=decomp_ar,
-    #         cod=symmetric.Category(channel.Ty, channel.Diagram),
-    #     )(self)
-
-    # def to_dual_rail(self):
-    #     """Convert to dual-rail encoding."""
-    #     from optyx.utils.misc import ar_zx2path
-    #     from optyx import qmode
-    #     from discopy import symmetric
-
-    #     return symmetric.Functor(
-    #         ob=lambda x: qmode**(2 * len(x)),
-    #         ar=lambda ar : ar_zx2path(ar.decomp()),
-    #         cod=symmetric.Category(channel.Ty, channel.Diagram),
-    #     )(self)
-
     # pylint: disable=too-many-locals
     # pylint: disable=too-many-return-statements
     # pylint: disable=too-many-branches
@@ -486,18 +449,13 @@ class QubitChannel(Channel):
         # pylint: disable=import-outside-toplevel
         from discopy.quantum.gates import (
             Rz, Rx,
-            CX, CZ, Controlled  # , Digits
+            CX, CZ, Controlled
         )
         from discopy.quantum.gates import (
             Bra as Bra_,
             Ket as Ket_
         )
         from discopy.quantum.gates import Scalar as GatesScalar
-        # from optyx import classical
-
-        # pylint: disable=invalid-name
-        def get_perm(n):
-            return sorted(sorted(list(range(n))), key=lambda i: i % 2)
 
         root2 = Scalar(2**0.5)
         if isinstance(discopy_circuit, (Bra_, Ket_)):
@@ -526,16 +484,6 @@ class QubitChannel(Channel):
                 (Z(2, 1) >> X(1, 0, -discopy_circuit.phase / 2)) @
                 Id(1) @ root2
             )
-        # if isinstance(discopy_circuit, Digits):
-        #     dgrm = Diagram.id(bit**0)
-        #     # pylint: disable=invalid-name
-        #     for d in discopy_circuit.digits:
-        #         if d > 1:
-        #             raise ValueError(
-        #                 "Only qubits supported. Digits must be 0 or 1."
-        #             )
-        #      dgrm @= classical.X(0, 1, 0.5**d) @ classical.Scalar(0.5**0.5)
-        #     return dgrm
         if isinstance(discopy_circuit, quantum_discopy.CU1):
             return (
                 Z(1, 2, discopy_circuit.phase) @
@@ -550,25 +498,6 @@ class QubitChannel(Channel):
                       Controlled) and discopy_circuit.distance != 1:
             # pylint: disable=protected-access
             return Circuit(discopy_circuit._decompose())
-        # if isinstance(discopy_circuit, quantum_discopy.Discard):
-        #     return Discard(len(discopy_circuit.dom))
-        # if isinstance(discopy_circuit, quantum_discopy.Measure):
-        #     no_qubits = sum([1 if i.name == "qubit" else
-        #                      0 for i in discopy_circuit.dom])
-        #     dgrm = Measure(no_qubits)
-        #     if discopy_circuit.override_bits:
-        #         dgrm @= DiscardChannel(bit**no_qubits)
-        #     if discopy_circuit.destructive:
-        #         return dgrm
-        #     dgrm >>= classical.CopyBit(2)**no_qubits
-        #     dgrm >>= Diagram.permutation(
-        #         get_perm(2 * no_qubits), bit**(2 * no_qubits)
-        #     )
-        #     dgrm >>= (
-        #         Encode(no_qubits) @
-        #         Diagram.id(bit**no_qubits)
-        #     )
-        #     return dgrm
         if isinstance(discopy_circuit, quantum_discopy.Encode):
             raise NotImplementedError(
                 "Converting Encode to QubitChannel is not implemented."

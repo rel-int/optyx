@@ -5,14 +5,14 @@ Overview
 
 The category :class:`Matrix` and the syntax :class:`Diagram`
 of matrices with creations and post-selections. The module
-supports representing the :class:`lo` fragment
+supports representing the linear-optical fragment
 of Optyx diagrams as matrices. It enables the
 computation of the amplitudes and probabilities
 of the diagrams by evaluting
 permanents of underlying matrices (either directly
 or via Perceval [FGL+23]_). The :code:`to_path` method
 of Optyx diagrams which belong to the W fragment of the
-:class:`zw` calculus (including :class:`lo` circuits,
+:class:`zw` calculus (including linear-optical circuits,
 n-photon states and effects)
 returns a :class:`Matrix` object.
 

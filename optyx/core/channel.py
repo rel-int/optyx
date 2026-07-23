@@ -443,15 +443,6 @@ class Diagram(frobenius.Diagram):
         from optyx.qubits import Circuit
         return Circuit(discopy_circuit)
 
-    # @classmethod
-    # def from_bosonic_operator(cls, n_modes, operators, scalar=1):
-    #     return Channel(
-    #         "Bosonic operator",
-    #         diagram.Diagram.from_bosonic_operator(
-    #             n_modes, operators, scalar=scalar
-    #         )
-    #     )
-
     @classmethod
     def from_bosonic_operator(cls, n_modes, operators, scalar=1):
         """Create a :class:`zw` diagram from a bosonic operator."""

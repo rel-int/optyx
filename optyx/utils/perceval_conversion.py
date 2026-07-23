@@ -100,12 +100,6 @@ def _feedforward_common(*, component, wires, circuit,
     n_action = len(default_action.dom)
     n_offset = abs(component._offset)
 
-    # build permutation domains for input permutation
-    # if use_provider_dom:
-    #    perm_dom_neg = qmode**(n_action + n_offset) @ mode**n_classical
-    #    perm_dom_pos = mode**n_classical @ qmode**(n_action + n_offset)
-    # else:
-    # configurator: the dom is a slice of the current circuit wires
     perm_dom_neg = circuit.cod[min(wires) - n_offset -
                                n_action: max(wires) + 1]
     perm_dom_pos = circuit.cod[min(wires): max(wires) +

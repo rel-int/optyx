@@ -7,12 +7,12 @@ mapping to :class:`tensor.Diagram` from
 DisCoPy [FTC21]_. :class:`zw` enables
 us to express a wider class of linear maps
 on the bosonic Fock space than by simply using
-the physically motivated diagarms of
-:class:`lo`. This however means that some of the
+the physically motivated diagrams of
+:mod:`optyx.photonic`. This however means that some of the
 maps might not be directly physically realisable.
 
-The calculus is encompassing both the :class:`lo`
-and :class:`path` calculi.
+The calculus is encompassing both the linear-optical
+circuits of :mod:`optyx.photonic` and the :class:`path` calculus.
 
 Generators and diagrams
 ------------------------
