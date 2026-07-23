@@ -1,4 +1,8 @@
-from optyx.core.zw import *
+from discopy import tensor
+from discopy.frobenius import Dim
+from optyx.core import diagram
+from optyx.core.zw import Create, Id, IndexableAmplitudes, W, ZWBox
+from optyx.core.path import Matrix, multinomial, occupation_numbers
 from optyx.core.diagram import mode, Swap
 import numpy as np
 import pytest

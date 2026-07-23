@@ -1,6 +1,7 @@
+from optyx.core.zw import Create, Endo, Id, Select
 import pytest
 import math
-from optyx.core.zw import *
+
 from optyx.photonic import (
     BS as BS_,
 	BBS as BBS_,

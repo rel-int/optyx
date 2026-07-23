@@ -1,4 +1,4 @@
-from optyx.core.zx import *
+from optyx.core.zx import X, Z, np
 from optyx.core.diagram import Scalar
 import itertools
 import pytest

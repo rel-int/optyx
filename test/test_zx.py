@@ -1,11 +1,12 @@
+from optyx.core.zx import H, SWAP, X, Z, ZXDiagram, scalar
 import random
 
 import numpy as np
 from pytest import raises, fixture
 
-from discopy.quantum.gates import CRz, CRx, CU1, Ket, Rx, H
+from discopy.quantum.gates import CRz, CRx, CU1, Ket, Rx
 from discopy import quantum
-from optyx.core.zx import *
+
 from optyx import qubits
 from optyx.core.diagram import Diagram, Bit
 

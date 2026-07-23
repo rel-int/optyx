@@ -1,6 +1,15 @@
+from optyx.core.zw import (
+    Create,
+    Id,
+    IndexableAmplitudes,
+    SWAP,
+    Select,
+    W,
+    ZBox
+)
 import math
 
-from optyx.core.zw import *
+
 from optyx.core.diagram import mode, DualRail, EmbeddingTensor, Swap, Diagram, Mode, Spider, Scalar
 from optyx.core.diagram import compare_arrays_of_different_sizes
 from optyx.core.path import calculate_num_creations_selections

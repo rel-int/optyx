@@ -1,4 +1,26 @@
-from optyx.classical import *
+from optyx.classical import (
+    Add,
+    And,
+    Bit,
+    CopyBit,
+    CopyN,
+    Digit,
+    Divide,
+    H,
+    Mod2,
+    Multiply,
+    Not,
+    Or,
+    PostselectBit,
+    PostselectDigit,
+    Scalar,
+    Sub,
+    SwapBit,
+    SwapN,
+    X,
+    Xor,
+    Z
+)
 from optyx.core.diagram import compare_arrays_of_different_sizes
 
 def test_addn():

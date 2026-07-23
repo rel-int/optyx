@@ -1,8 +1,14 @@
+from optyx.core.control import (
+    BinaryMatrixBox,
+    BitControlledBox,
+    ClassicalFunctionBox,
+    ControlledPhaseShift
+)
 import pytest
 import numpy as np
 import copy as cp
 
-from optyx.core.control import *
+
 from optyx.core.zw import Create, W, ZBox
 from optyx.core.diagram import PhotonThresholdDetector, Mode, Swap, Bit, Id
 from optyx.photonic import Phase, BS, MZI
