@@ -148,9 +148,11 @@ dual-rail encoding. For example, we can create a GHZ state:
 
 from __future__ import annotations
 
+from sympy import lambdify
+from sympy.core import Symbol, Mul
 from discopy import tensor
 from discopy import symmetric, frobenius, hypergraph
-from discopy.cat import factory
+from discopy.cat import factory, rsubs
 from pytket.extensions.pyzx import pyzx_to_tk
 from pyzx import extract_circuit
 from optyx.core import diagram
@@ -248,6 +250,7 @@ class Diagram(frobenius.Diagram):
 
     ob = Ty
     grad = tensor.Diagram.grad
+    zero_grad = diagram.Diagram.zero_grad
 
     def needs_inflation(self) -> bool:
         """
@@ -443,34 +446,17 @@ class Diagram(frobenius.Diagram):
         from optyx.qubits import Circuit
         return Circuit(discopy_circuit)
 
-    # @classmethod
-    # def from_bosonic_operator(cls, n_modes, operators, scalar=1):
-    #     return Channel(
-    #         "Bosonic operator",
-    #         diagram.Diagram.from_bosonic_operator(
-    #             n_modes, operators, scalar=scalar
-    #         )
-    #     )
-
     @classmethod
     def from_bosonic_operator(cls, n_modes, operators, scalar=1):
         """Create a :class:`zw` diagram from a bosonic operator."""
         # pylint: disable=import-outside-toplevel
         from optyx.core import zw
-        from optyx.photonic import Scalar
 
-        # pylint: disable=invalid-name
-        d = Diagram.id(qmode**n_modes)
         annil = Channel("annil", zw.Split(2) >> zw.Select(1) @ zw.Id(1))
-        create = annil.dagger()
-        for idx, dagger in operators:
-            if not 0 <= idx < n_modes:
-                raise ValueError(f"Index {idx} out of bounds.")
-            box = create if dagger else annil
-            d = d >> qmode**idx @ box @ qmode**(n_modes - idx - 1)
-
+        # pylint: disable=invalid-name
+        d = diagram.bosonic_operators(
+            qmode, annil, annil.dagger(), n_modes, operators)
         if scalar != 1:
-            # pylint: disable=invalid-name
             d = Scalar(scalar) @ d
         return d
 
@@ -705,7 +691,7 @@ class Sum(symmetric.Sum, Diagram):
     def grad(self, var, **params):
         """Gradient with respect to :code:`var`."""
         if var not in self.free_symbols:
-            return self.sum_factory((), self.dom, self.cod)
+            return self.zero_grad()
         return sum(term.grad(var, **params) for term in self.terms)
 
     def get_kraus(self):
@@ -917,12 +903,64 @@ class Hypergraph(hypergraph.Hypergraph):  # pragma: no cover
 
 
 Id = Diagram.id
-Scalar = lambda s: Channel(  # noqa: E731
-    name=f"Scalar({s})",
-    kraus=diagram.Scalar(s),
-    dom=Ty(),
-    cod=Ty()
-)
+
+
+class Scalar(Channel):
+    """Scalar channel with a complex or symbolic value."""
+
+    def __init__(self, value):
+        if not isinstance(value, (Symbol, Mul)):
+            self.scalar = complex(value)
+        else:
+            self.scalar = value
+        super().__init__(f"{value}", diagram.Scalar(value))
+        self.data = value
+
+    def subs(self, *args):
+        return type(self)(rsubs(self.scalar, *args))
+
+    # pylint: disable=unused-argument
+    def grad(self, var, **params):
+        """Gradient with respect to :code:`var`."""
+        if var not in self.free_symbols:
+            return self.zero_grad()
+        return type(self)(self.scalar.diff(var))
+
+    def lambdify(self, *symbols, **kwargs):
+        return lambda *xs: type(self)(
+            lambdify(symbols, self.scalar, **kwargs)(*xs)
+        )
+
+
+def explode_channel(
+    kraus,
+    channel_class=None,
+    circuit_class=None,
+):
+    """Split a kraus diagram into one channel per layer."""
+    if channel_class is None:
+        channel_class = Channel
+    if circuit_class is None:
+        circuit_class = Diagram
+
+    arrows = []
+    for layer in kraus:
+        generator = layer.inside[0][1]
+        box = channel_class(
+            generator.name,
+            generator,
+        )
+
+        arrows.append(
+            Ty.from_optyx(layer.inside[0][0]) @
+            box @
+            Ty.from_optyx(layer.inside[0][2])
+        )
+
+    if len(arrows) == 0:
+        return channel_class("Id", kraus)
+
+    return channel_class.then(*arrows)
 
 
 Diagram.spider_factory = Spider

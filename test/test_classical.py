@@ -1,5 +1,27 @@
-from optyx.classical import *
-from optyx.utils.misc import compare_arrays_of_different_sizes
+from optyx.classical import (
+    Add,
+    And,
+    Bit,
+    CopyBit,
+    CopyN,
+    Digit,
+    Divide,
+    H,
+    Mod2,
+    Multiply,
+    Not,
+    Or,
+    PostselectBit,
+    PostselectDigit,
+    Scalar,
+    Sub,
+    SwapBit,
+    SwapN,
+    X,
+    Xor,
+    Z
+)
+from optyx.core.diagram import compare_arrays_of_different_sizes
 
 def test_addn():
     d_1 = Digit(2, 3) >> Add(2)

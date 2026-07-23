@@ -250,8 +250,7 @@ from abc import abstractmethod, ABC
 from collections.abc import Iterable
 import numpy as np
 import sympy as sp
-from sympy import Expr, lambdify, Symbol, Mul
-from discopy.cat import rsubs
+from sympy import Expr, lambdify
 
 from optyx.core import (
     channel,
@@ -261,7 +260,7 @@ from optyx.core import (
 )
 
 from optyx.classical import ClassicalFunction, DiscardMode
-from optyx.utils.misc import matrix_to_zw
+from optyx.core.zw import matrix_to_zw
 
 from optyx.core.channel import (
     bit,
@@ -271,7 +270,8 @@ from optyx.core.channel import (
     Discard as DiscardChannel,
     Encode as EncodeChannel,
     Channel,
-    Diagram
+    Diagram,
+    Scalar
 )
 
 
@@ -290,38 +290,6 @@ class Select(Channel):
         array = np.eye(len(self.photons))
         return path.Matrix[dtype](
             array, len(self.photons), 0, selections=self.photons
-        )
-
-
-class Scalar(Channel):
-    """
-    Scalar with a complex value.
-    """
-    def __init__(self, value):
-        if not isinstance(value, (Symbol, Mul)):
-            self.scalar = complex(value)
-        else:
-            self.scalar = value
-        super().__init__(
-            f"{value}",
-            diagram.Scalar(value)
-        )
-        self.data = value
-
-    def subs(self, *args):
-        data = rsubs(self.scalar, *args)
-        return Scalar(data)
-
-    # pylint: disable=unused-argument
-    def grad(self, var, **params):
-        """Gradient with respect to :code:`var`."""
-        if var not in self.free_symbols:
-            return self.sum_factory((), self.dom, self.cod)
-        return Scalar(self.scalar.diff(var))
-
-    def lambdify(self, *symbols, **kwargs):
-        return lambda *xs: type(self)(
-            lambdify(symbols, self.scalar, **kwargs)(*xs)
         )
 
 
@@ -506,7 +474,7 @@ class Phase(AbstractGate):
     def grad(self, var):
         """Gradient with respect to :code:`var`."""
         if var not in self.free_symbols:
-            return self.sum_factory((), self.dom, self.cod)
+            return self.zero_grad()
         s = 2j * np.pi * self.angle.diff(var)
         d = Scalar(s) @ (self >> NumOp())
         return d
@@ -708,7 +676,7 @@ class TBS(AbstractGate):
     def grad(self, var):
         """Gradient with respect to :code:`var`."""
         if var not in self.free_symbols:
-            return self.sum_factory((), self.dom, self.cod)
+            return self.zero_grad()
         return self._decomp().grad(var)
 
     def conjugate(self):
@@ -815,7 +783,7 @@ class MZI(AbstractGate):
     def grad(self, var):
         """Gradient with respect to :code:`var`."""
         if var not in self.free_symbols:
-            return self.sum_factory((), self.dom, self.cod)
+            return self.zero_grad()
         return self._decomp().grad(var)
 
     def dagger(self):
@@ -1159,6 +1127,4 @@ class FusionTypeII(Diagram):
 BS = BBS(0)
 
 
-def Id(n):
-    return Diagram.id(n) if \
-          isinstance(n, channel.Ty) else Diagram.id(qmode**n)
+Id = diagram.id_factory(Diagram, qmode)

@@ -1,6 +1,7 @@
+from optyx.core.channel import CQMap, Channel, Diagram, Ty, qubit
 import pytest
 
-from optyx.core.channel import *
+
 from optyx.core import diagram, zx
 import numpy as np
 

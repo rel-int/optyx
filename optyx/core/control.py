@@ -40,7 +40,7 @@ from typing import Callable, List, Tuple, Iterable
 from discopy import tensor
 from discopy.frobenius import Dim
 import numpy as np
-from optyx.utils.misc import BasisTransition, is_diagram_LO
+from optyx.core.diagram import BasisTransition, is_diagram_LO
 
 from optyx.core import diagram, zw
 
@@ -58,8 +58,7 @@ class ClassicalDiagram(diagram.Diagram):
 
 
 class ClassicalBox(diagram.Box, ClassicalDiagram):
-    def conjugate(self):
-        return self
+    """Box acting on classical types."""
 
 
 class BitControlledBox(ControlBox):
@@ -308,11 +307,6 @@ class ControlledPhaseShift(ControlBox):
             self.n_control_modes, not self.is_dagger
         )
 
-    def conjugate(self):
-        return ControlledPhaseShift(
-            self.function, self.n_modes, self.n_control_modes, self.is_dagger
-        )
-
 
 class ClassicalFunctionBox(ClassicalBox):
 
@@ -437,6 +431,3 @@ class BinaryMatrixBox(ClassicalBox):
 
     def dagger(self):
         return BinaryMatrixBox(self.matrix, not self.is_dagger)
-
-    def conjugate(self):
-        return self

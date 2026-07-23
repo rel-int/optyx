@@ -5,14 +5,14 @@ Overview
 
 The category :class:`Matrix` and the syntax :class:`Diagram`
 of matrices with creations and post-selections. The module
-supports representing the :class:`lo` fragment
+supports representing the linear-optical fragment
 of Optyx diagrams as matrices. It enables the
 computation of the amplitudes and probabilities
 of the diagrams by evaluting
 permanents of underlying matrices (either directly
 or via Perceval [FGL+23]_). The :code:`to_path` method
 of Optyx diagrams which belong to the W fragment of the
-:class:`zw` calculus (including :class:`lo` circuits,
+:class:`zw` calculus (including linear-optical circuits,
 n-photon states and effects)
 returns a :class:`Matrix` object.
 
@@ -135,7 +135,149 @@ from discopy.cat import assert_iscomposable
 from discopy.utils import unbiased
 import discopy.matrix as underlying
 from discopy.tensor import Tensor
-from optyx.utils.misc import occupation_numbers, amplitudes_2_tensor
+
+
+def occupation_numbers(n_photons, m_modes):
+    """
+    Returns vectors of occupation numbers for n_photons in m_modes.
+
+    Example
+    -------
+    >>> occupation_numbers(3, 2)
+    [(3, 0), (2, 1), (1, 2), (0, 3)]
+    >>> occupation_numbers(2, 3)
+    [(2, 0, 0), (1, 1, 0), (1, 0, 1), (0, 2, 0), (0, 1, 1), (0, 0, 2)]
+    """
+    if not n_photons:
+        return [m_modes * (0,)]
+    if not m_modes:
+        raise ValueError(f"Can't put {n_photons} photons in zero modes!")
+    if m_modes == 1:
+        return [(n_photons,)]
+    return [
+        (head,) + tail
+        for head in range(n_photons, -1, -1)
+        for tail in occupation_numbers(n_photons - head, m_modes - 1)
+    ]
+
+
+def multinomial(lst: list) -> int:
+    """Returns the multinomial coefficient for a given list of numbers"""
+    res, i = 1, sum(lst)
+    i0 = lst.index(max(lst))
+    for a in lst[:i0] + lst[i0 + 1:]:
+        for j in range(1, a + 1):
+            res *= i
+            res //= j
+            i -= 1
+    return res
+
+
+def basis_vector_from_kets(
+    indices: list | np.ndarray, max_index_sizes: list | np.ndarray
+):
+    """Each index from indices specifies the index
+    of a "1" in a state basis vector (the occupation number)
+    - max_index_sizes specifies the maximum index size (not the maximum index)
+    """
+
+    if any(i >= j for i, j in zip(indices, max_index_sizes)):
+        raise ValueError(
+            "Each index must be smaller than "
+            "the corresponding max index size"
+        )
+
+    j = 0
+    for k, i_k in enumerate(indices):
+        j += i_k * (np.prod(np.array(max_index_sizes[k + 1:]), dtype=int))
+    return j
+
+
+def amplitudes_2_tensor(perceval_result, input_occ, output_occ):
+    """Convert a perceval amplitude table to a :class:`discopy.Tensor`."""
+    # pylint: disable=import-outside-toplevel
+    from discopy.frobenius import Dim
+
+    dom_dims = [
+        int(max(np.array(input_occ)[:, i]) + 1)
+        for i in range(len(input_occ[0]))
+    ]
+    cod_dims = [
+        int(max(np.array(output_occ)[:, i]) + 1)
+        for i in range(len(output_occ[0]))
+    ]
+
+    tensor_result_array = np.zeros(
+        (int(np.prod(dom_dims)), int(np.prod(cod_dims))), dtype=complex
+    )
+
+    for i, o in enumerate(input_occ):
+        for j, o_out in enumerate(output_occ):
+            i_basis = basis_vector_from_kets(o, dom_dims)
+            j_basis = basis_vector_from_kets(o_out, cod_dims)
+            tensor_result_array[i_basis, j_basis] = perceval_result[i, j]
+    return Tensor(tensor_result_array, Dim(*dom_dims), Dim(*cod_dims))
+
+
+def tensor_2_amplitudes(
+    tn_diagram,
+    n_photons_out,
+) -> np.ndarray:
+    """Convert the prob output of the tensor
+    network to the perceval prob output"""
+    # pylint: disable=import-outside-toplevel
+    import warnings
+
+    output = tn_diagram.eval().array.flatten()
+    idxs = list(occupation_numbers(n_photons_out, len(tn_diagram.cod)))
+    cod = list(tn_diagram.cod.inside)
+
+    if sum(cod) < n_photons_out:
+        warnings.warn(
+            "It is likely that the Tensor diagram has been "
+            "truncated with dimensions which are "
+            "too low for the n_photons_out. "
+            "The results might be incorrect."
+        )
+
+    res = []
+    for i in idxs:
+        try:
+            basis = basis_vector_from_kets(i, cod)
+            res.append(output[basis])
+        except ValueError:
+            res.append(0.0)
+            warnings.warn(
+                f"The basis vector {i} is out of bounds of "
+                f"the codomain {cod}. Setting to 0."
+            )
+
+    return np.array(res)
+
+
+def calculate_num_creations_selections(dgrm) -> tuple:
+    """Calculate the number of creations and selections in the diagram"""
+    # pylint: disable=import-outside-toplevel
+    from optyx.core import diagram, zw
+
+    n_selections = 0
+    n_creations = 0
+
+    if not isinstance(dgrm, diagram.Sum):
+        for box, _ in zip(dgrm.boxes, dgrm.offsets):
+            if isinstance(box, zw.Create):
+                n_creations += sum(box.photons)
+            elif isinstance(box, zw.Select):
+                n_selections += sum(box.photons)
+    else:
+        arr_selections_creations = []
+        for term in dgrm:
+            arr_selections_creations.append(
+                calculate_num_creations_selections(term)
+            )
+        n_selections = max(i[0] for i in arr_selections_creations)
+        n_creations = max(i[1] for i in arr_selections_creations)
+    return n_selections, n_creations
 
 
 def npperm(matrix):

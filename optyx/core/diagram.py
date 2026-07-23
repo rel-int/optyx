@@ -7,15 +7,15 @@ Optyx diagrams combine three diagrammatic calculi:
 
 - :class:`zw` calculus: for infinite-dimensional systems (Mode type), \
 with generators :class:`zw.Z`, :class:`zw.W`, creations and selections.
-- :class:`lo` calculus: for linear optics (Mode type), with generators \
-:class:`lo.BS` and :class:`lo.Phase`, or other .
+- linear optics (Mode type), with generators such as \
+:class:`optyx.photonic.BS` and :class:`optyx.photonic.Phase`.
 - :class:`zx` calculus: for qubit systems (Bit type), with generators \
 :class:`zx.Z` and :class:`zx.X`.
 
 Mode and Bit types can moreover be combined using :class:`DualRail`
 or other instances of :class:`diagram.core.Box`.
 Note that the permanent method is only defined for a subclass
-of :class:`zw` diagrams, including :class:`lo` circuits.
+of :class:`zw` diagrams, including linear-optical circuits.
 These are also known as QPath diagrams [FC23]_,
 or matrices with creations and annihilation.
 They are implemented in the :class:`path.Matrix` class,
@@ -26,8 +26,8 @@ implementation of tensor networks,
 with dimensions as types and tensors as boxes,
 with an interface :class:`to_quimb`
 or the internal evaluation method :class:`eval`.
-Linear optical circuits, built from the generators of :class:`lo`,
-can be evaluated as tensor networks
+Linear optical circuits, built from the generators of
+:mod:`optyx.photonic`, can be evaluated as tensor networks
 by first applying the method :class:`to_zw`.
 
 
@@ -121,7 +121,6 @@ We can check their equivalence as tensors.
 Let's check the branching law from [FC23]_.
 
 >>> from optyx.core.zw import Create, W
->>> from optyx.utils.misc import compare_arrays_of_different_sizes
 >>> branching_l = Create(1) >> W(2)
 >>> branching_r = Create(1) @ Create(0) + Create(0) @ Create(1)
 
@@ -207,14 +206,225 @@ from discopy.cat import factory, rsubs
 from discopy.frobenius import Dim
 from discopy.quantum.gates import format_number
 from enum import Enum
-from optyx.utils.misc import (
-    BasisTransition,
-    calculate_right_offset,
-    get_max_dim_for_box
-)
-from typing import List, Tuple, Iterable
+from numbers import Number
+from typing import List, NamedTuple, Tuple, Iterable
 
 MAX_DIM = 10
+
+
+class BasisTransition(NamedTuple):
+    """
+    A single non-zero transition emitted by `truncation_specification`.
+
+    For a fixed input basis index `input_index`, a box yields zero or more
+    `Transition` objects, each describing one reachable output index and its
+    amplitude. The caller (`Box.truncation`) writes `amp` into the result
+    tensor at index `out + input_index` (output indices first, then input).
+
+    Attributes
+    ----------
+    out : Tuple[int, ...]
+        Output multi-index in the box's codomain for this transition.
+        Must satisfy: len(out) == len(self.cod) and
+        0 <= out[i] < output_dims[i] for all i.
+    amp : Union[complex, float, int, sympy.Expr]
+        The complex (or symbolic) amplitude associated with this output.
+    """
+    out: Tuple[int, ...]
+    amp: Number
+
+
+def is_identity(box):
+    """Whether a diagram has no boxes."""
+    return len(box.boxes) == 0 and len(box.offsets) == 0
+
+
+def is_diagram_LO(dgrm):
+    """Whether every box of a diagram is a linear-optical generator."""
+    # pylint: disable=import-outside-toplevel
+    from optyx.core.zw import LO_ELEMENTS
+    if is_identity(dgrm):
+        return True
+
+    for box in dgrm.boxes:
+        if is_identity(box):
+            continue
+        if not isinstance(box, LO_ELEMENTS):
+            return False
+
+    return True
+
+
+def compare_arrays_of_different_sizes(
+    array_1: list | np.ndarray, array_2: list | np.ndarray, tol: float = 1e-08
+) -> bool:
+    """ZW diagrams which are equal in infinite dimensions
+    might be intrepreted as arrays of different dimensions
+    if we truncate them to a finite number of dimensions"""
+    a, b = np.array(array_1).flatten(), np.array(array_2).flatten()
+    n = min(len(a), len(b))
+    return np.flatnonzero(np.abs(a[:n] - b[:n]) > tol).size == 0
+
+
+def calculate_right_offset(
+        total_wires: int,
+        left_offset: int,
+        span_len: int
+) -> int:
+    """Right offset = number of wires to the right of a span."""
+    return total_wires - span_len - left_offset
+
+
+def is_previous_box_connected_to_current_box(
+    wires_in_light_cone: List[bool],
+    previous_left_offset: int,
+    previous_box_cod_len: int,
+    previous_right_offset: int,
+) -> bool:
+    """
+    Do the current light-cone wires intersect the COD of the previous box?
+    """
+    mask = (
+        [False] * previous_left_offset
+        + [True] * previous_box_cod_len
+        + [False] * previous_right_offset
+    )
+    assert len(mask) == len(wires_in_light_cone), (
+        (f"Mask/wires length mismatch: {len(mask)}"
+         + f" != {len(wires_in_light_cone)}")
+    )
+
+    return any(w and m for w, m in zip(wires_in_light_cone, mask))
+
+
+def get_previous_box_cod_index_in_light_cone(
+    wires_in_light_cone: List[bool],
+    previous_left_offset: int,
+    previous_box_cod_len: int,
+    previous_right_offset: int,
+) -> List[int]:
+    """
+    Get the indices of the cod of the previous box
+    that are in the current light-cone.
+    """
+    mask = (
+        [False] * previous_left_offset
+        + [True] * previous_box_cod_len
+        + [False] * previous_right_offset
+    )
+    assert len(mask) == len(wires_in_light_cone), (
+        (f"Mask/wires length mismatch: {len(mask)}"
+         + f" != {len(wires_in_light_cone)}")
+    )
+
+    return [
+        i - previous_left_offset for i, (w, m) in
+        enumerate(zip(wires_in_light_cone, mask))
+        if w and m
+    ]
+
+
+def update_connections(
+    wires_in_light_cone: List[bool],
+    previous_left_offset: int,
+    previous_box,
+    previous_right_offset: int,
+) -> List[bool]:
+    """
+    Replace the previous box's cod segment in the light-cone by a dom-length
+    segment that is either all True (if connected) or all False.
+    This pulls the cone one layer backward.
+    """
+    connected = is_previous_box_connected_to_current_box(
+        wires_in_light_cone,
+        previous_left_offset,
+        len(previous_box.cod),
+        previous_right_offset,
+    )
+
+    start = previous_left_offset
+    end = len(wires_in_light_cone) - previous_right_offset
+
+    return (
+        wires_in_light_cone[:start]
+        + [connected if t == mode else False for t in previous_box.dom]
+        + wires_in_light_cone[end:]
+    )
+
+
+def get_max_dim_for_box(
+    left_offset: int,
+    box,
+    right_offset: int,
+    input_dims: List[int],
+    prev_layers,
+):
+    """Bound the truncation dimension of a box by the number of photons
+    in its past light-cone."""
+    # pylint: disable=import-outside-toplevel
+    from optyx.core.zw import Create, Endo, Divide, Multiply
+
+    if (
+        len(box.dom) == 0 or
+        isinstance(box, (Swap, Endo, Divide, Multiply))
+    ):
+        return 1e20
+
+    dim_for_box = 0
+
+    wires_in_light_cone: List[bool] = (
+        [False] * left_offset
+        + [True if t == mode else False for t in box.dom]
+        + [False] * right_offset
+    )
+
+    for previous_left_offset, previous_box in prev_layers[::-1]:
+        total = len(wires_in_light_cone)
+        cod_len = len(previous_box.cod)
+
+        max_left = max(0, total - cod_len)
+        adj_left = previous_left_offset
+        if adj_left < 0:
+            adj_left = 0
+        elif adj_left > max_left:
+            adj_left = max_left
+
+        previous_right_offset = \
+            calculate_right_offset(total, adj_left, cod_len)
+
+        if is_previous_box_connected_to_current_box(
+            wires_in_light_cone,
+            adj_left,
+            cod_len,
+            previous_right_offset,
+        ):
+            if isinstance(previous_box, Create):
+                idxs = get_previous_box_cod_index_in_light_cone(
+                    wires_in_light_cone,
+                    adj_left,
+                    cod_len,
+                    previous_right_offset,
+                )
+                if idxs:
+                    dim_for_box += sum(previous_box.photons[i] for i in idxs)
+
+        if isinstance(previous_box, Swap):
+            wires_in_light_cone = (
+                wires_in_light_cone[:adj_left]
+                + [wires_in_light_cone[adj_left + 1]]
+                + [wires_in_light_cone[adj_left]]
+                + wires_in_light_cone[adj_left + 2:]
+            )
+        else:
+            wires_in_light_cone = update_connections(
+                wires_in_light_cone,
+                adj_left,
+                previous_box,
+                previous_right_offset,
+            )
+    dim_for_box += sum(2 * dim for wire, dim in
+                       zip(wires_in_light_cone, input_dims) if wire) + 1
+    return max(dim_for_box, 2)
 
 
 class PhotonNumberPreservation(Enum):
@@ -280,11 +490,14 @@ class Bit(Ty):
 
 @factory
 class Diagram(frobenius.Diagram):
-    """Optyx diagram combining :class:`zw`,
-    :class:`zx` and
-    :class:`lo` calculi."""
+    """Optyx diagram combining the :class:`zw` and :class:`zx`
+    calculi with linear optics."""
 
     grad = tensor.Diagram.grad
+
+    def zero_grad(self) -> Diagram:
+        """The empty sum of diagrams, the gradient of a constant."""
+        return self.sum_factory((), self.dom, self.cod)
 
     def conjugate(self) -> Diagram:
         """Conjugates every box in the diagram"""
@@ -299,7 +512,7 @@ class Diagram(frobenius.Diagram):
         """Returns the :class:`Matrix` normal form
         of a :class:`Diagram`.
         In other words, it is the underlying matrix
-        representation of a :class:`path` and :class:`lo` diagrams."""
+        representation of a :class:`path` or linear-optical diagram."""
         # pylint: disable=import-outside-toplevel
         from optyx.core import path
 
@@ -315,7 +528,6 @@ class Diagram(frobenius.Diagram):
     ) -> tensor.Diagram:
         """Returns a :class:`tensor.Diagram` for evaluation"""
         from optyx.core import zw
-        from optyx.utils.misc import is_identity
 
         if input_dims is None:
             input_dims = [2 for _ in range(len(self.dom))]
@@ -392,23 +604,16 @@ class Diagram(frobenius.Diagram):
         n_modes,
         operators,
         scalar=1
-    ):  # pragma: no cover
+    ):
         """Create a :class:`zw` diagram from a bosonic operator."""
         # pylint: disable=import-outside-toplevel
         from optyx.core import zw
 
-        # pylint: disable=invalid-name
-        d = cls.id(Mode(n_modes))
         annil = zw.Split(2) >> zw.Select(1) @ zw.Id(1)
-        create = annil.dagger()
-        for idx, dagger in operators:
-            if not 0 <= idx < n_modes:
-                raise ValueError(f"Index {idx} out of bounds.")
-            box = create if dagger else annil
-            d = d >> zw.Id(idx) @ box @ zw.Id(n_modes - idx - 1)
-
+        # pylint: disable=invalid-name
+        d = bosonic_operators(
+            mode, annil, annil.dagger(), n_modes, operators)
         if scalar != 1:
-            # pylint: disable=invalid-name
             d = Scalar(scalar) @ d
         return d
 
@@ -456,6 +661,7 @@ class Box(frobenius.Box, Diagram):
     """A box in an optyx diagram"""
 
     __ambiguous_inheritance__ = (frobenius.Box,)
+    _array = None
 
     def __init__(self, name, dom, cod, array=None, **params):
         self._array = array
@@ -516,9 +722,9 @@ class Box(frobenius.Box, Diagram):
         )
 
     def conjugate(self) -> Box:
-        """Conjugate the box.
-        Inheriting boxes should implement this method.
-        Otherwise it is defined by the array."""
+        """Conjugate the box: defined by the array when there is one,
+        the box itself otherwise. Boxes with complex parameters
+        override this method."""
         if self._array is not None:
             return type(self)(
                 self.name + ".dagger()",
@@ -526,9 +732,7 @@ class Box(frobenius.Box, Diagram):
                 cod=self.dom,
                 array=self._array.conjugate(),
             )
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not support conjugation"
-        )
+        return self
 
     def dagger(self) -> Box:
         """Return the dagger of the box.
@@ -675,9 +879,6 @@ class Spider(frobenius.Spider, Box):
     color = "green"
     photon_preservation_behaviour = PhotonNumberPreservation.NON_LO
 
-    def conjugate(self):
-        return self
-
     def determine_output_dimensions(self, input_dims: list[int]) -> list[int]:
         if isinstance(self.cod, Bit):
             return [2] * len(self.cod)
@@ -779,7 +980,7 @@ class Sum(symmetric.Sum, Box):
     def grad(self, var, **params):
         """Gradient with respect to :code:`var`."""
         if var not in self.free_symbols:
-            return self.sum_factory((), self.dom, self.cod)
+            return self.zero_grad()
         return sum(term.grad(var, **params) for term in self.terms)
 
 
@@ -787,9 +988,6 @@ class Swap(frobenius.Swap, Box):
     """Swap in optyx diagram"""
 
     photon_preservation_behaviour = PhotonNumberPreservation.LO
-
-    def conjugate(self):
-        return self
 
     def to_path(self, dtype: type = complex):
         # pylint: disable=import-outside-toplevel
@@ -910,9 +1108,6 @@ class DualRail(Box):
         prev_layers.append(box)
         return prev_layers if not self.is_dagger else prev_layers[::-1]
 
-    def conjugate(self):
-        return self
-
     def truncation_specification(
         self,
         inp: Tuple[int, ...] = None,
@@ -999,9 +1194,6 @@ class PhotonThresholdDetector(Box):
             return [MAX_DIM] * len(input_dims)
         return [2] * len(input_dims)
 
-    def conjugate(self):
-        return self
-
     def dagger(self):
         return PhotonThresholdDetector(not self.is_dagger)
 
@@ -1034,9 +1226,6 @@ class EmbeddingTensor(tensor.Box):
             Dim(int(output_dim)),
             embedding_array.T,
         )
-
-    def conjugate(self):
-        return self
 
 
 def dual_rail(n, internal_states=None):
@@ -1100,6 +1289,31 @@ class Hypergraph(hypergraph.Hypergraph):  # pragma: no cover
 
 bit = Bit(1)
 mode = Mode(1)
+
+
+def id_factory(diagram_cls, ob=None):
+    """Identity helper for ``diagram_cls`` turning an integer ``n``
+    into the type ``ob ** n``."""
+    def identity(n):
+        if isinstance(n, diagram_cls.ob):
+            return diagram_cls.id(n)
+        if ob is None:
+            raise TypeError(f"Expected a {diagram_cls.ob}, got {type(n)}")
+        return diagram_cls.id(ob ** n)
+    return identity
+
+
+def bosonic_operators(ty, annil, create, n_modes, operators):
+    """Compose the creations and annihilations of a bosonic operator
+    acting on ``n_modes`` wires of type ``ty``."""
+    result = annil.id(ty ** n_modes)
+    for idx, dagger in operators:
+        if not 0 <= idx < n_modes:
+            raise ValueError(f"Index {idx} out of bounds.")
+        box = create if dagger else annil
+        result = result >> ty ** idx @ box @ ty ** (n_modes - idx - 1)
+    return result
+
 
 Diagram.hypergraph_factory = Hypergraph
 Diagram.braid_factory, Diagram.spider_factory = Swap, Spider

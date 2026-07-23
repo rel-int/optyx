@@ -1,6 +1,7 @@
+from optyx.core.channel import Channel, Discard, qmode, qubit
 import math
 
-from optyx.core.channel import *
+
 from optyx.core import zx
 from optyx import photonic
 import pytest

@@ -1,4 +1,6 @@
-from optyx.core.zw import *
+import numpy as np
+from optyx.core.zw import Create, Merge, SWAP, Select, Split
+from optyx.core.path import Matrix
 from optyx.core.diagram import Diagram, Mode, Id, Scalar
 
 

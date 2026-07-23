@@ -82,7 +82,30 @@ import perceval as pcvl
 from quimb.tensor import TensorNetwork
 from optyx.core.channel import Diagram, Ty, mode, bit
 from optyx.core.path import Matrix
-from optyx.utils.misc import preprocess_quimb_tensors_safe
+
+
+def preprocess_quimb_tensors_safe(tn, epsilon=1e-12, value_limit=1e10):
+    """Regularise quimb tensors: complex dtype, no exact zeros,
+    bounded values."""
+    for t in tn:
+        data = np.array(t.data, copy=True)
+
+        if data.dtype.kind in {'i', 'u'}:
+            t.modify(data=data.astype('complex128'))
+            continue
+
+        if data.ndim == 2 and np.linalg.matrix_rank(data) < min(data.shape):
+            data += np.random.normal(0, epsilon, size=data.shape)
+
+        if np.any(data == 0):
+            data[data == 0] = epsilon
+
+        if np.max(np.abs(data)) > value_limit:
+            data = np.clip(data, -value_limit, value_limit)
+
+        t.modify(data=data)
+
+    return tn
 
 
 @dataclass
