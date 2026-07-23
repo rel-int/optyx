@@ -243,9 +243,21 @@ class Ob(frobenius.Ob):
 
 @factory
 class Ty(frobenius.Ty):
-    """Optical and (qu)bit types."""
+    """Optical and (qu)bit types.
 
-    ob_factory = Ob
+    Equality is structural rather than nominal: a :class:`Mode` or
+    :class:`Bit` equals the plain :class:`Ty` with the same objects,
+    mirroring :class:`discopy.monoidal.PRO`.
+    """
+
+    generator_factory = Ob
+
+    def __eq__(self, other):
+        return isinstance(other, Ty) and self.inside == other.inside\
+            and (self.dom, self.cod) == (other.dom, other.cod)
+
+    def __hash__(self):
+        return hash((Ty, self.inside, self.dom, self.cod))
 
 
 class Mode(Ty):
@@ -277,10 +289,10 @@ class Diagram(frobenius.Diagram):
     def conjugate(self) -> Diagram:
         """Conjugates every box in the diagram"""
         return symmetric.Functor(
-            ob=lambda x: x,
-            ar=lambda f: f.conjugate(),
-            cod=symmetric.Category(Ty, Diagram),
-            dom=symmetric.Category(Ty, Diagram),
+            ob_map=lambda x: x,
+            ar_map=lambda f: f.conjugate(),
+            cod=Diagram,
+            dom=Diagram,
         )(self)
 
     def to_path(self, dtype: type = complex):
@@ -292,9 +304,9 @@ class Diagram(frobenius.Diagram):
         from optyx.core import path
 
         return symmetric.Functor(
-            ob=len,
-            ar=lambda f: f.to_path(dtype),
-            cod=symmetric.Category(int, path.Matrix[dtype]),
+            ob_map=len,
+            ar_map=lambda f: f.to_path(dtype),
+            cod=path.Matrix[dtype],
         )(self)
 
     # pylint: disable=too-many-locals
@@ -429,14 +441,14 @@ class Diagram(frobenius.Diagram):
         # pylint: disable=invalid-name
         def ob(x):
             return Ty.tensor(
-                *(o**d if o.name == "mode" else o for o in x)
+                *(o**d if o.inside[0].name == "mode" else o for o in x)
             )
 
         return symmetric.Functor(
-            ob=ob,
-            ar=lambda f: f.inflate(d),
-            cod=symmetric.Category(Ty, Diagram),
-            dom=symmetric.Category(Ty, Diagram),
+            ob_map=ob,
+            ar_map=lambda f: f.inflate(d),
+            cod=Diagram,
+            dom=Diagram,
         )(self)
 
 
@@ -1069,32 +1081,21 @@ def truncation_tensor(
     return tensor
 
 
-class Category(frobenius.Category):  # pragma: no cover
-    """
-    A hypergraph category is a compact category with a method :code:`spiders`.
-    Parameters:
-        ob : The objects of the category, default is :class:`Ty`.
-        ar : The arrows of the category, default is :class:`Diagram`.
-    """
-    ob, ar = Ty, Diagram
-
-
-class Functor(frobenius.Functor):  # pragma: no cover
+class Functor(frobenius.Functor):
     """
     A hypergraph functor is a compact functor that preserves spiders.
-    Parameters:
-        ob (Mapping[Ty, Ty]) : Map from atomic :class:`Ty` to :code:`cod.ob`.
-        ar (Mapping[Box, Diagram]) : Map from :class:`Box` to :code:`cod.ar`.
-        cod (Category) : The codomain of the functor.
-    """
-    dom = cod = Category()
 
-    def __call__(self, other):
-        return frobenius.Functor.__call__(self, other)
+    Parameters:
+        ob_map (Mapping[Ty, Ty]) :
+            Map from atomic :class:`Ty` to :code:`cod.ob`.
+        ar_map (Mapping[Box, Diagram]) : Map from :class:`Box` to :code:`cod`.
+        cod : The codomain of the functor, a :class:`Diagram` subclass.
+    """
+    dom = cod = Diagram
 
 
 class Hypergraph(hypergraph.Hypergraph):  # pragma: no cover
-    category, functor = Category, Functor
+    functor = Functor
 
 
 bit = Bit(1)
@@ -1102,6 +1103,6 @@ mode = Mode(1)
 
 Diagram.hypergraph_factory = Hypergraph
 Diagram.braid_factory, Diagram.spider_factory = Swap, Spider
-Diagram.ty_factory = Ty
+Diagram.ob = Ty
 Diagram.sum_factory = Sum
 Id = Diagram.id

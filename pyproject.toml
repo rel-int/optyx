@@ -27,9 +27,10 @@ classifiers = [
     "Topic :: Scientific/Engineering"
 ]
 dependencies = [
-  "discopy >= 1.2.0",
+  "discopy @ git+https://github.com/discopy/discopy@88895277",
+  "opt_einsum",
   "sympy",
-  "perceval-quandela >= 0.10.2",
+  "perceval-quandela >=0.12,<0.13",
   "networkx >= 3.2",
   "graphix == 0.2.16",
   "pytket >= 2.6.0",
