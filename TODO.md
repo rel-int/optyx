@@ -6,4 +6,4 @@
 - [x] Default `Box.conjugate` to the box itself and delete the identical per-box bodies (`determine_output_dimensions` overrides in zx/zw turned out non-redundant: the base raises without an array, and the dagger orientation differs — kept)
 - [x] Deduplicate `Scalar`, the `Id` helpers, the empty-sum grad fallbacks and the `from_bosonic_operator` operator loop
 - [x] Dissolve `utils/misc.py` into core modules and break the layering inversion in `utils/perceval_conversion.py`
-- [ ] Rename `test/qpath.py` and `test/grad.py` to the `test_` convention and replace star imports with explicit imports
+- [WIP] @34e6a827-2026-07-23 16:00 Rename `test/qpath.py` and `test/grad.py` to the `test_` convention and replace star imports with explicit imports
