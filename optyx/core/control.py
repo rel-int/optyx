@@ -58,8 +58,7 @@ class ClassicalDiagram(diagram.Diagram):
 
 
 class ClassicalBox(diagram.Box, ClassicalDiagram):
-    def conjugate(self):
-        return self
+    """Box acting on classical types."""
 
 
 class BitControlledBox(ControlBox):
@@ -308,11 +307,6 @@ class ControlledPhaseShift(ControlBox):
             self.n_control_modes, not self.is_dagger
         )
 
-    def conjugate(self):
-        return ControlledPhaseShift(
-            self.function, self.n_modes, self.n_control_modes, self.is_dagger
-        )
-
 
 class ClassicalFunctionBox(ClassicalBox):
 
@@ -437,6 +431,3 @@ class BinaryMatrixBox(ClassicalBox):
 
     def dagger(self):
         return BinaryMatrixBox(self.matrix, not self.is_dagger)
-
-    def conjugate(self):
-        return self

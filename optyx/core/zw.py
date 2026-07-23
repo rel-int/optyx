@@ -221,9 +221,6 @@ class W(ZWBox):
         self.is_dagger = is_dagger
         self.shape = "triangle_up" if not is_dagger else "triangle_down"
 
-    def conjugate(self):
-        return self
-
     def truncation_specification(
         self,
         inp: Tuple[int, ...] = None,
@@ -434,9 +431,6 @@ class Create(ZWBox):
     def photon_number_transform(self, dims_in, dims_out):
         return super().photon_number_transform(dims_in, dims_out)
 
-    def conjugate(self):
-        return self
-
     def to_path(self, dtype=complex):
         array = np.eye(len(self.photons))
         return Matrix[dtype](
@@ -550,9 +544,6 @@ class Select(ZWBox):
         ).inflate(d).dagger()
 
         return dgrm
-
-    def conjugate(self):
-        return self
 
     def to_path(self, dtype=complex) -> Matrix:
         array = np.eye(len(self.photons))
@@ -686,9 +677,6 @@ class Add(ZWBox):
     def dagger(self):
         return Add(self.n, not self.is_dagger)
 
-    def conjugate(self):
-        return self
-
 
 class Multiply(ZWBox):
     """
@@ -726,9 +714,6 @@ class Multiply(ZWBox):
         if self.is_dagger:
             return [int(input_dims[0]), int(input_dims[0])]
         return [int(np.prod(input_dims))]
-
-    def conjugate(self):
-        return self
 
     def dagger(self):
         return Multiply(not self.is_dagger)
@@ -771,9 +756,6 @@ class Divide(ZWBox):
         if self.is_dagger:
             return [diagram.MAX_DIM, diagram.MAX_DIM]
         return [int(input_dims[0])]
-
-    def conjugate(self):
-        return self
 
     def dagger(self):
         return Divide(not self.is_dagger)
@@ -824,9 +806,6 @@ class Mod2(ZWBox):
         if self.is_dagger:
             return [diagram.MAX_DIM]
         return [2]
-
-    def conjugate(self):
-        return self
 
     def dagger(self):
         return Mod2(not self.is_dagger)

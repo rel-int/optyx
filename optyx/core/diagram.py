@@ -455,6 +455,7 @@ class Box(frobenius.Box, Diagram):
     """A box in an optyx diagram"""
 
     __ambiguous_inheritance__ = (frobenius.Box,)
+    _array = None
 
     def __init__(self, name, dom, cod, array=None, **params):
         self._array = array
@@ -515,9 +516,9 @@ class Box(frobenius.Box, Diagram):
         )
 
     def conjugate(self) -> Box:
-        """Conjugate the box.
-        Inheriting boxes should implement this method.
-        Otherwise it is defined by the array."""
+        """Conjugate the box: defined by the array when there is one,
+        the box itself otherwise. Boxes with complex parameters
+        override this method."""
         if self._array is not None:
             return type(self)(
                 self.name + ".dagger()",
@@ -525,9 +526,7 @@ class Box(frobenius.Box, Diagram):
                 cod=self.dom,
                 array=self._array.conjugate(),
             )
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not support conjugation"
-        )
+        return self
 
     def dagger(self) -> Box:
         """Return the dagger of the box.
@@ -674,9 +673,6 @@ class Spider(frobenius.Spider, Box):
     color = "green"
     photon_preservation_behaviour = PhotonNumberPreservation.NON_LO
 
-    def conjugate(self):
-        return self
-
     def determine_output_dimensions(self, input_dims: list[int]) -> list[int]:
         if isinstance(self.cod, Bit):
             return [2] * len(self.cod)
@@ -786,9 +782,6 @@ class Swap(frobenius.Swap, Box):
     """Swap in optyx diagram"""
 
     photon_preservation_behaviour = PhotonNumberPreservation.LO
-
-    def conjugate(self):
-        return self
 
     def to_path(self, dtype: type = complex):
         # pylint: disable=import-outside-toplevel
@@ -909,9 +902,6 @@ class DualRail(Box):
         prev_layers.append(box)
         return prev_layers if not self.is_dagger else prev_layers[::-1]
 
-    def conjugate(self):
-        return self
-
     def truncation_specification(
         self,
         inp: Tuple[int, ...] = None,
@@ -998,9 +988,6 @@ class PhotonThresholdDetector(Box):
             return [MAX_DIM] * len(input_dims)
         return [2] * len(input_dims)
 
-    def conjugate(self):
-        return self
-
     def dagger(self):
         return PhotonThresholdDetector(not self.is_dagger)
 
@@ -1033,9 +1020,6 @@ class EmbeddingTensor(tensor.Box):
             Dim(int(output_dim)),
             embedding_array.T,
         )
-
-    def conjugate(self):
-        return self
 
 
 def dual_rail(n, internal_states=None):
