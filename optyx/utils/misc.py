@@ -225,7 +225,7 @@ def explode_channel(
     circuit_class=None,
 ):
     # pylint: disable=import-outside-toplevel
-    from optyx.core.channel import Channel, Ty, Diagram
+    from optyx.channel import Channel, Ty, Diagram
 
     if channel_class is None:
         channel_class = Channel

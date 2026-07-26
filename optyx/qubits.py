@@ -312,12 +312,12 @@ from discopy import symmetric
 from sympy import lambdify
 # from pytket import circuit as tket_circuit
 from optyx.utils.misc import explode_channel
+from optyx import channel
 from optyx.core import (
-    channel,
     diagram,
     zx
 )
-from optyx.core.channel import (
+from optyx.channel import (
     bit,
     qubit,
     Measure as MeasureChannel,

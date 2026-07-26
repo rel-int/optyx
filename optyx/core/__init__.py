@@ -8,7 +8,6 @@ languages of ZX, ZW, and Path.
     :nosignatures:
     :toctree:
 
-    channel
     control
     diagram
     path

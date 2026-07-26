@@ -805,7 +805,7 @@ def fusion_teleportation_with_photon_loss(p):
 
 
 ```python
-from optyx.core.channel import Spider, Diagram
+from optyx.channel import Spider, Diagram
 
 def get_perm(n):
     return sorted(sorted(list(range(n))), key=lambda i: i % 2)

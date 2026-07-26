@@ -6,7 +6,7 @@ from typing import Dict, Tuple
 
 import numpy as np
 import pytest
-from optyx.core.channel import Channel, qmode, Measure
+from optyx.channel import Channel, qmode, Measure
 from optyx.photonic import BS
 from optyx.core.zw import Create
 from optyx.core.diagram import DualRail, Scalar
@@ -115,7 +115,7 @@ def test_encode_n_qubits() -> None:
     Test for Encode: three logical qubits in two photonic modes.
     Ensures the overall probability mass remains 1.
     """
-    from optyx.core.channel import CQMap, mode, Encode
+    from optyx.channel import CQMap, mode, Encode
 
     create = CQMap(
         "create",

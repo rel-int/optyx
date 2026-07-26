@@ -6,7 +6,7 @@ Overview
 Back-end abstraction layer for **Optyx** diagram evaluation.
 
 This module gathers several numerical engines under a single
-interface so that any :class:`optyx.core.channel.Diagram` can be reduced
+interface so that any :class:`optyx.channel.Diagram` can be reduced
 to concrete data - amplitudes, density matrices or classical probability
 distributions.
 
@@ -80,7 +80,7 @@ from discopy import tensor as discopy_tensor
 import numpy as np
 import perceval as pcvl
 from quimb.tensor import TensorNetwork
-from optyx.core.channel import Diagram, Ty, mode, bit
+from optyx.channel import Diagram, Ty, mode, bit
 from optyx.core.path import Matrix
 from optyx.utils.misc import preprocess_quimb_tensors_safe
 

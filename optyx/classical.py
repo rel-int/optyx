@@ -133,14 +133,14 @@ and feed the result into a controlled quantum gate.
 
 from typing import Callable, List
 import numpy as np
+from optyx import channel
 from optyx.core import (
-    channel,
     control,
     zw,
     zx,
     diagram
 )
-from optyx.core.channel import (
+from optyx.channel import (
     bit,
     mode,
     qmode,
