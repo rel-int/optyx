@@ -53,6 +53,7 @@ docs = [
     "nbsphinx",
     "ipykernel",
     "IPython",
+    "marimo",
     "sphinx-rtd-theme",
 ]
 
