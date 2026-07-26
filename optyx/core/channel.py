@@ -149,7 +149,7 @@ dual-rail encoding. For example, we can create a GHZ state:
 from __future__ import annotations
 
 from discopy import tensor
-from discopy import symmetric, frobenius, hypergraph, stream
+from discopy import symmetric, frobenius, hypergraph
 from discopy.cat import factory
 from pytket.extensions.pyzx import pyzx_to_tk
 from pyzx import extract_circuit
@@ -197,7 +197,7 @@ class Ob(frobenius.Ob):
 class Ty(frobenius.Ty):
     """Classical and quantum types."""
 
-    ob_factory = Ob
+    generator_factory = Ob
 
     def single(self):
         """Returns the diagram.Ty obtained by mapping
@@ -224,7 +224,7 @@ class Ty(frobenius.Ty):
         """
         Diagrams with at least one :code:`qmode` need inflation.
         """
-        return "qmode" in self.name
+        return any(ob.name == "qmode" for ob in self.inside)
 
     # pylint: disable=invalid-name
     def inflate(self, d) -> Ty:
@@ -246,10 +246,8 @@ qmode = Ty("qmode")
 class Diagram(frobenius.Diagram):
     """Classical-quantum circuits over qubits and optical modes"""
 
-    ty_factory = Ty
-    grad = tensor.Diagram.grad
     ob = Ty
-    _stream_diagram = None
+    grad = tensor.Diagram.grad
 
     def needs_inflation(self) -> bool:
         """
@@ -266,24 +264,20 @@ class Diagram(frobenius.Diagram):
         assert isinstance(d, int), "Dimension must be an integer"
         assert d > 0, "Dimension must be positive"
 
-        dom = frobenius.Category(Ty, Diagram)
-        cod = frobenius.Category(Ty, Diagram)
-
         return frobenius.Functor(
             lambda x: x.inflate(d),
             lambda f: f.inflate(d),
-            dom,
-            cod
+            dom=Diagram,
+            cod=Diagram,
         )(self)
 
     def double(self):
         """Returns the diagram.Diagram obtained by
         doubling every quantum dimension
         and building the completely positive map."""
-        dom = frobenius.Category(Ty, Diagram)
-        cod = frobenius.Category(diagram.Ty, diagram.Diagram)
         return frobenius.Functor(
-            lambda x: x.double(), lambda f: f.double(), dom, cod
+            lambda x: x.double(), lambda f: f.double(),
+            dom=Diagram, cod=diagram.Diagram
         )(self)
 
     @property
@@ -370,151 +364,18 @@ class Diagram(frobenius.Diagram):
         assert self.is_pure, "Diagram must be pure to convert to path."
 
         return frobenius.Functor(
-            ob=len,
-            ar=lambda f: f.get_kraus().to_path(dtype),
-            cod=frobenius.Category(int, path.Matrix[dtype]),
+            ob_map=len,
+            ar_map=lambda f: f.get_kraus().to_path(dtype),
+            cod=path.Matrix[dtype],
         )(self)
 
     def decomp(self):
         # pylint: disable=protected-access
         return frobenius.Functor(
-            ob=lambda x: qubit**len(x),
-            ar=lambda arr: arr._decomp(),
-            cod=frobenius.Category(Ty, Diagram),
+            ob_map=lambda x: qubit**len(x),
+            ar_map=lambda arr: arr._decomp(),
+            cod=Diagram,
         )(self)
-
-    def feedback(self,
-                 dom: Ty,
-                 cod: Ty,
-                 mem: Ty,
-                 initial_state: Diagram = None) -> Diagram:
-        # check if mem, cod and dom are compatible
-        assert self.dom[-len(mem):] == cod[-len(mem):], (
-            "The feedback types do not match. " +
-            f"Expected {self.dom[-len(mem):]}, got {cod[-len(mem):]}"
-        )
-
-        dom_stream = stream.Ty[Ty](
-            now=dom,
-        )
-        cod_stream = stream.Ty[Ty](self.cod)
-        mem_stream = stream.Ty[Ty](mem)
-
-        if initial_state is None:
-            f0 = self
-        else:
-            f0 = self << dom @ initial_state
-        stream_diagram = stream.Stream[Diagram](
-            now=f0,
-            dom=dom_stream,
-            cod=cod_stream,
-            mem=stream.Ty[Ty](),
-            _later=lambda: stream.Stream[Diagram](self)
-        )
-
-        diagram = self._get_trace(n=len(mem))
-
-        diagram.stream_diagram = stream_diagram.feedback(
-            dom=stream.Ty[Ty](dom),
-            cod=stream.Ty[Ty](cod),
-            mem=mem_stream
-        )
-
-        return diagram
-
-    @property
-    def stream_diagram(self):
-        return self._stream_diagram
-
-    @stream_diagram.setter
-    def stream_diagram(self, value):
-        self._stream_diagram = value
-
-    def unroll(self, n: int) -> Diagram:
-        """
-        Unroll a feedback diagram for n steps.
-
-        Parameters:
-            n : Number of unrolling steps.
-        """
-        if self._stream_diagram is None:
-            self.stream_diagram = self.feedback(
-                dom=self.dom,
-                cod=self.cod,
-                mem=Ty()
-            ).stream_diagram
-        return self.stream_diagram.unroll(n).now
-
-    def then(self, other, *others):
-        result = super().then(other, *others)
-        if (
-            self._stream_diagram is not None or
-            other._stream_diagram is not None
-        ):
-            self_stream_diagram = self.stream_diagram
-            other_stream_diagram = other.stream_diagram
-
-            if self_stream_diagram is None:
-                self_stream_diagram = self.feedback(
-                    dom=self.dom, cod=self.cod, mem=Ty()
-                )
-
-            if other_stream_diagram is None:
-                other_stream_diagram = other.feedback(
-                    dom=other.dom, cod=other.cod, mem=Ty()
-                ).stream_diagram
-            result.stream_diagram = (
-                self_stream_diagram >>
-                other_stream_diagram
-            )
-        return result
-
-    def _get_trace(self, n=1):
-        # check if cod[-n] matches dom[-n]
-        if n == 0:
-            return self
-        traced_dom = self.dom[-n:]
-        cup = Id(traced_dom @ traced_dom)
-        for i in range(1, n+1):
-            cup = (
-                cup >>
-                (
-                    Id(self.dom[-n:-i]) @
-                    Cup(self.dom[-i], self.dom[-i]) @
-                    Id(self.dom[-n:-i][::-1])
-                )
-            )
-        traced_cod = self.cod[-n:]
-        cap = Cap(traced_cod[-n], traced_cod[-n])
-        for i in range(1, n):
-            cap = (
-                cap >>
-                (
-                    Id(self.dom[-n:-n+i]) @
-                    Cap(self.cod[-n+i], self.cod[-n+i]) @
-                    Id(self.dom[-n:-n+i][::-1])
-                )
-            )
-
-        return (
-            self.dom[:-n] @ cap >>
-            self @ self.dom[-n:][::-1] >>
-            self.cod[:-n] @ cup
-        )
-
-    @staticmethod
-    def delay(ty, initial_state: Diagram) -> Diagram:
-        """
-        Create a delay diagram with initial state.
-
-        Parameters:
-            initial_state : State to initialise the delay.
-        """
-        from discopy.utils import assert_isatomic
-
-        assert_isatomic(ty), "Delay type must be atomic."
-        return Swap(ty, ty).feedback(
-            dom=ty, cod=ty, mem=ty, initial_state=initial_state)
 
     def to_dual_rail(self):
         """Convert to dual-rail encoding."""
@@ -522,9 +383,9 @@ class Diagram(frobenius.Diagram):
         assert self.is_pure, "Diagram must be pure to convert to dual rail."
 
         return frobenius.Functor(
-            ob=lambda x: qmode**(2*len(x)),
-            ar=lambda arr: arr._to_dual_rail(),
-            cod=frobenius.Category(Ty, Diagram),
+            ob_map=lambda x: qmode**(2*len(x)),
+            ar_map=lambda arr: arr._to_dual_rail(),
+            cod=Diagram,
         )(self.decomp())
 
     def to_tket(self):  # pragma: no cover
@@ -706,11 +567,6 @@ class Diagram(frobenius.Diagram):
         if backend is None:
             backend = QuimbBackend()
 
-        if self._stream_diagram is not None:
-            raise ValueError(
-                "The diagram needs to be unrolled before evaluation."
-            )
-
         return backend.eval(self, **kwargs)
 
 
@@ -834,18 +690,6 @@ class Spider(frobenius.Spider, Channel):  # pragma: no cover
             n_legs_in, n_legs_out, typ.single()
         )
         self.env = diagram.Ty()
-
-
-class Cup(frobenius.Cup, Channel):  # pragma: no cover
-
-    ty_factory = Ty
-    __ambiguous_inheritance__ = (frobenius.Cup, Channel)
-
-
-class Cap(frobenius.Cap, Channel):  # pragma: no cover
-
-    ty_factory = Ty
-    __ambiguous_inheritance__ = (frobenius.Cap, Channel)
 
 
 class Sum(symmetric.Sum, Diagram):
@@ -1055,32 +899,21 @@ class Discard(Channel):
         return Discard(self.dom.inflate(d))
 
 
-class Category(frobenius.Category):  # pragma: no cover
-    """
-    A hypergraph category is a compact category with a method :code:`spiders`.
-    Parameters:
-        ob : The objects of the category, default is :class:`Ty`.
-        ar : The arrows of the category, default is :class:`Diagram`.
-    """
-    ob, ar = Ty, Diagram
-
-
-class Functor(frobenius.Functor):  # pragma: no cover
+class Functor(frobenius.Functor):
     """
     A hypergraph functor is a compact functor that preserves spiders.
-    Parameters:
-        ob (Mapping[Ty, Ty]) : Map from atomic :class:`Ty` to :code:`cod.ob`.
-        ar (Mapping[Box, Diagram]) : Map from :class:`Box` to :code:`cod.ar`.
-        cod (Category) : The codomain of the functor.
-    """
-    dom = cod = Category()
 
-    def __call__(self, other):
-        return frobenius.Functor.__call__(self, other)
+    Parameters:
+        ob_map (Mapping[Ty, Ty]) :
+            Map from atomic :class:`Ty` to :code:`cod.ob`.
+        ar_map (Mapping[Box, Diagram]) : Map from :class:`Box` to :code:`cod`.
+        cod : The codomain of the functor, a :class:`Diagram` subclass.
+    """
+    dom = cod = Diagram
 
 
 class Hypergraph(hypergraph.Hypergraph):  # pragma: no cover
-    category, functor = Category, Functor
+    functor = Functor
 
 
 Id = Diagram.id
@@ -1092,9 +925,7 @@ Scalar = lambda s: Channel(  # noqa: E731
 )
 
 
-Hypergraph.ty_factory = Ty
 Diagram.spider_factory = Spider
 Diagram.hypergraph_factory = Hypergraph
 Diagram.braid_factory = Swap
 Diagram.sum_factory = Sum
-Diagram.ar = Diagram

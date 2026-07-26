@@ -53,11 +53,14 @@ from math import pi
 from typing import List
 
 import numpy as np
+import pyzx
 from discopy import cat
 from discopy.utils import factory_name
 from discopy.frobenius import Dim
 from discopy import tensor
 from optyx.core import diagram, zw
+
+pyzx.settings.strict_phase_types = False
 
 
 class ZXDiagram(diagram.Diagram):

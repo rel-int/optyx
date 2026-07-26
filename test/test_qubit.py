@@ -7,16 +7,22 @@ from optyx.core import channel
 from optyx.core import zx
 import numpy as np
 
+def _extract(graph):
+    graph = graph.copy()
+    pyzx.simplify.full_reduce(graph)
+    return pyzx.extract_circuit(graph)
+
+
 def test_pyzx():
     c = pyzx.Circuit(3)
     c.add_gate("TOF", 0, 1, 2)
     g = c.to_basic_gates().to_graph()
-    c1 = pyzx.extract_circuit(g.copy())
-    c2 = pyzx.extract_circuit(qubits.Circuit(g).to_pyzx().copy())
+    c1 = _extract(g)
+    c2 = _extract(qubits.Circuit(g).to_pyzx())
     assert c1.verify_equality(c2)
 
-    c1 = pyzx.extract_circuit(g.copy())
-    c2 = pyzx.extract_circuit(channel.Diagram.from_pyzx(g).to_pyzx().copy())
+    c1 = _extract(g)
+    c2 = _extract(channel.Diagram.from_pyzx(g).to_pyzx())
     assert c1.verify_equality(c2)
 
 def test_graphix():
