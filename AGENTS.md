@@ -20,7 +20,7 @@ Read the following documents before any work on the package:
 ## Where
 
 - [optyx/core](optyx/core/) is the back-end: the pure Kraus layer ([diagram](optyx/core/diagram.py)), the zw/zx/path calculi, and the evaluation [backends](optyx/core/backends.py)
-- [optyx/channel.py](optyx/channel.py) is the doubled channel layer, on which [optyx/photonic.py](optyx/photonic.py), [optyx/qubits.py](optyx/qubits.py) and [optyx/classical.py](optyx/classical.py), the user-facing modules, are built
+- [optyx/channel.py](optyx/channel.py) is an implementation of quantum channels over qubits and optical modes, on which [optyx/photonic.py](optyx/photonic.py), [optyx/qubits.py](optyx/qubits.py) and [optyx/classical.py](optyx/classical.py), the user-facing modules, are built
 - [optyx/compiler](optyx/compiler/) compiles MBQC patterns to hardware instructions
 - [test](test/) contains the test suite; doctests in the source are also collected (`--doctest-modules`)
 - [docs](docs/) contains the sphinx documentation and example notebooks
