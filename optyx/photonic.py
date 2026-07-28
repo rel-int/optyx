@@ -253,8 +253,8 @@ import sympy as sp
 from sympy import Expr, lambdify, Symbol, Mul
 from discopy.cat import rsubs
 
+from optyx import channel
 from optyx.core import (
-    channel,
     diagram,
     zw,
     path
@@ -263,7 +263,7 @@ from optyx.core import (
 from optyx.classical import ClassicalFunction, DiscardMode
 from optyx.utils.misc import matrix_to_zw
 
-from optyx.core.channel import (
+from optyx.channel import (
     bit,
     mode,
     qmode,

@@ -1,6 +1,6 @@
 import pytest
 
-from optyx.core.channel import *
+from optyx.channel import *
 from optyx.core import diagram, zx
 import numpy as np
 
@@ -35,7 +35,7 @@ def test_CQMap():
 
 
 def test_from_bosonic_op():
-    from optyx.core.channel import Diagram
+    from optyx.channel import Diagram
 
     matrix = [
         [0, 1],

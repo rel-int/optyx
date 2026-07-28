@@ -1,6 +1,6 @@
 import math
 
-from optyx.core.channel import *
+from optyx.channel import *
 from optyx.core import zx
 from optyx import photonic
 import pytest

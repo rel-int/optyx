@@ -5,6 +5,7 @@ API
     :template: module.rst
     :toctree: _api
 
+    optyx.channel
     optyx.core
     optyx.classical
     optyx.photonic
