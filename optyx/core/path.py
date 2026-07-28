@@ -467,23 +467,10 @@ class Matrix(underlying.Matrix):
             cod=len(permutation),
         )
 
-    def _umatrix_to_perceval_circuit(self) -> pcvl.Circuit:
-        _mzi_triangle = (
-            pcvl.Circuit(2)
-            // pcvl.BS()
-            // (0, pcvl.PS(phi=pcvl.Parameter("phi_1")))
-            // pcvl.BS()
-            // (0, pcvl.PS(phi=pcvl.Parameter("phi_2")))
-        )
-
-        m = pcvl.MatrixN(self.array.T.conj())
-        return pcvl.Circuit.decomposition(
-            m,
-            _mzi_triangle,
-            phase_shifter_fn=pcvl.PS,
-            shape="triangle",
-            max_try=1,
-        )
+    def _umatrix_to_perceval_circuit(self) -> pcvl.components.Unitary:
+        """The unitary as a single perceval component, simulated as it is
+        rather than synthesised into beam splitters and phase shifters."""
+        return pcvl.components.Unitary(pcvl.Matrix(self.array.T.conj()))
 
     def _to_perceval_post_select(self) -> pcvl.PostSelect:
         post_str = [
