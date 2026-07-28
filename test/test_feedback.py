@@ -1,0 +1,200 @@
+import numpy as np
+import pytest
+
+from discopy.utils import AxiomError
+
+from optyx import photonic
+from optyx.channel import Diagram, Discard, Functor, qmode
+from optyx.core import diagram as core, path, zw
+
+
+def delay(initial_state=None, final_effect=None):
+    return Diagram.swap(qmode, qmode).feedback(
+        initial_state=initial_state, final_effect=final_effect)
+
+
+def test_feedback_types():
+    wait = delay()
+    assert wait.dom == wait.cod == qmode and wait.mem == qmode
+    assert wait.feedback_loops() == [wait]
+    fb = (photonic.BS @ photonic.BS).feedback(mem=qmode ** 2)
+    assert fb.dom == fb.cod == qmode ** 2 and fb.mem == qmode ** 2
+
+
+def test_feedback_axioms():
+    with pytest.raises(AxiomError):
+        photonic.BS.feedback(dom=qmode ** 2, cod=qmode, mem=qmode)
+    with pytest.raises(AxiomError):
+        photonic.BS.feedback(dom=qmode, cod=qmode ** 2, mem=qmode)
+    with pytest.raises(AxiomError):
+        photonic.BS.feedback(initial_state=photonic.Create(0, 0))
+    with pytest.raises(AxiomError):
+        photonic.BS.feedback(final_effect=Discard(qmode ** 2))
+
+
+def test_stream_is_cached_and_constant():
+    wait, box = delay(), photonic.BS
+    assert wait.stream is wait.stream
+    assert box.stream.now == box and box.stream.is_constant
+    assert wait.stream.now == Diagram.swap(qmode, qmode)
+    assert wait.stream.mem.now == qmode
+
+
+def test_unroll_is_a_delay_line():
+    wait = delay(
+        initial_state=photonic.Create(1), final_effect=Discard(qmode))
+    unrolled = wait.unroll(2)
+    assert unrolled.dom == unrolled.cod == qmode ** 2
+    probability = (
+        photonic.Create(0, 0) >> unrolled >> photonic.Select(1, 0)
+    ).double().to_tensor().eval().array
+    assert np.isclose(probability, 1)
+
+
+def test_unroll_open_wires():
+    unrolled = delay().unroll(2)
+    assert unrolled.dom == unrolled.cod == qmode ** 3
+    with pytest.raises(ValueError):
+        delay().unroll(0)
+
+
+def test_evaluation_raises_on_feedback():
+    with pytest.raises(ValueError):
+        delay().eval()
+    with pytest.raises(ValueError):
+        delay().double().to_tensor()
+    with pytest.raises(ValueError):
+        core.Diagram.swap(core.mode, core.mode).feedback().to_tensor()
+
+
+def test_double_unroll_commute():
+    wait = delay(
+        initial_state=photonic.Create(0), final_effect=Discard(qmode))
+    assert wait.unroll(2).double() == wait.double().unroll(2)
+    lhs = wait.unroll(2).double().to_tensor().eval().array
+    rhs = wait.double().unroll(2).to_tensor().eval().array
+    assert np.allclose(lhs, rhs)
+
+
+def composite_loops():
+    fb = photonic.BS.feedback()
+    inner = photonic.BS.feedback()
+    return {
+        "single": fb,
+        "composite": photonic.Phase(0.3) >> fb >> photonic.Phase(0.2),
+        "sequence": fb >> photonic.BS.feedback(),
+        "tensor": fb @ photonic.Phase(0.1),
+        "nested": (
+            inner @ qmode >> Diagram.swap(qmode, qmode)).feedback(),
+    }
+
+
+@pytest.mark.parametrize("name", composite_loops().keys())
+def test_to_path_unroll_commute(name):
+    d = composite_loops()[name]
+    lhs = d.unroll(3).to_path()
+    rhs = d.to_path().unroll(2).now
+    assert (lhs.dom, lhs.cod) == (rhs.dom, rhs.cod)
+    assert np.allclose(lhs.array, rhs.array)
+
+
+def test_core_to_path_unroll_commute():
+    wait = core.Diagram.swap(core.mode, core.mode).feedback()
+    lhs = wait.unroll(3).to_path()
+    rhs = wait.to_path().unroll(2).now
+    assert (lhs.dom, lhs.cod) == (rhs.dom, rhs.cod)
+    assert np.allclose(lhs.array, rhs.array)
+
+
+def test_core_feedback_axioms():
+    swap = core.Diagram.swap(core.mode, core.mode)
+    with pytest.raises(AxiomError):
+        swap.feedback(dom=core.mode ** 2, cod=core.mode, mem=core.mode)
+    with pytest.raises(AxiomError):
+        swap.feedback(dom=core.mode, cod=core.mode ** 2, mem=core.mode)
+    with pytest.raises(AxiomError):
+        swap.feedback(initial_state=zw.Create(0, 0))
+    with pytest.raises(AxiomError):
+        swap.feedback(final_effect=zw.Select(0, 0))
+
+
+def test_memory_order():
+    loops = composite_loops()
+    sequence, nested = loops["sequence"], loops["nested"]
+    assert len(sequence.feedback_loops()) == 2
+    assert sequence.stream.mem.now == qmode ** 2
+    assert nested.feedback_loops()[0] is nested
+    assert nested.stream.mem.now == qmode ** 2
+
+
+def test_matrix_feedback():
+    matrix = path.Matrix(np.array([[0, 1], [1, 0]]), 2, 2)
+    stream = matrix.feedback()
+    assert (stream.dom.now, stream.cod.now, stream.mem.now) == (1, 1, 1)
+    assert stream.unroll().now == path.Matrix(
+        np.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]]), 3, 3)
+    with pytest.raises(AxiomError):
+        matrix.feedback(mem=3)
+
+
+def test_functor_maps_feedback():
+    functor = Functor(ob_map=lambda x: x, ar_map=lambda f: f, cod=Diagram)
+    wait = delay(initial_state=photonic.Create(0))
+    image = functor(photonic.Phase(0.3) >> wait)
+    assert image.feedback_loops()[0].initial_state == photonic.Create(0)
+    core_functor = core.Functor(
+        ob_map=lambda x: x, ar_map=lambda f: f, cod=core.Diagram)
+    core_wait = core.Diagram.swap(core.mode, core.mode).feedback(
+        initial_state=zw.Create(1), final_effect=zw.Select(0))
+    core_image = core_functor(core_wait)
+    assert core_image.initial_state == zw.Create(1)
+    assert core_image.final_effect == zw.Select(0)
+
+
+def test_get_kraus_and_purity():
+    fb = photonic.BS.feedback()
+    kraus = fb.get_kraus()
+    assert isinstance(kraus, core.Feedback)
+    assert kraus.mem == core.mode
+    composite = photonic.Phase(0.3) >> fb
+    assert isinstance(
+        composite.get_kraus().feedback_loops()[0], core.Feedback)
+    assert fb.is_pure
+    assert not photonic.BS.feedback(final_effect=Discard(qmode)).is_pure
+
+
+def test_conjugate_and_inflate():
+    core_wait = core.Diagram.swap(core.mode, core.mode).feedback(
+        initial_state=zw.Create(1), final_effect=zw.Select(0))
+    conjugated = core_wait.conjugate()
+    assert conjugated.initial_state == zw.Create(1).conjugate()
+    assert conjugated.final_effect == zw.Select(0).conjugate()
+    inflated = core.Diagram.swap(core.mode, core.mode).feedback(
+        initial_state=zw.Create(0)).inflate(2)
+    assert inflated.mem == core.mode ** 2
+    wait = delay(initial_state=photonic.Create(0))
+    assert wait.inflate(2).mem == qmode ** 2
+
+
+def test_str_repr_equality():
+    fb = photonic.BS.feedback()
+    assert str(fb) == "(BBS(0)).feedback()"
+    assert "Feedback" in repr(fb)
+    assert fb == photonic.BS.feedback()
+    assert fb != photonic.BS.feedback(final_effect=Discard(qmode))
+    with_state = delay(initial_state=photonic.Create(0))
+    assert "initial_state" in str(with_state)
+    assert "initial_state" in repr(with_state)
+
+
+def test_dagger_raises():
+    with pytest.raises(NotImplementedError):
+        delay().dagger()
+    with pytest.raises(NotImplementedError):
+        core.Diagram.swap(core.mode, core.mode).feedback().dagger()
+
+
+def test_to_drawing():
+    assert delay().to_drawing() is not None
+    core_wait = core.Diagram.swap(core.mode, core.mode).feedback()
+    assert core_wait.to_drawing() is not None

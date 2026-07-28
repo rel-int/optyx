@@ -56,6 +56,7 @@ Generators and diagrams
     Swap
     Scalar
     DualRail
+    Feedback
 
 Other classes
 -------------
@@ -198,13 +199,16 @@ preprint arXiv:2409.13541.
 
 from __future__ import annotations
 
+from functools import cached_property
+
 import numpy as np
 from sympy.core import Symbol, Mul
 from discopy import (
-    symmetric, frobenius, tensor, hypergraph
+    monoidal, symmetric, frobenius, tensor, hypergraph
 )
 from discopy.cat import factory, rsubs
 from discopy.frobenius import Dim
+from discopy.utils import AxiomError
 from discopy.quantum.gates import format_number
 from enum import Enum
 from optyx.utils.misc import (
@@ -299,15 +303,132 @@ class Diagram(frobenius.Diagram):
         """Returns the :class:`Matrix` normal form
         of a :class:`Diagram`.
         In other words, it is the underlying matrix
-        representation of a :class:`path` and :class:`lo` diagrams."""
+        representation of a :class:`path` and :class:`lo` diagrams.
+
+        A diagram with feedback loops maps to the :meth:`path.Matrix.feedback`
+        of the matrix of its stream, so that `to_path` and `unroll` commute.
+        """
         # pylint: disable=import-outside-toplevel
         from optyx.core import path
+
+        if self.feedback_loops():
+            return self.stream.now.to_path(dtype).feedback(
+                dom=len(self.dom), cod=len(self.cod),
+                mem=len(self.stream.mem.now))
 
         return symmetric.Functor(
             ob_map=len,
             ar_map=lambda f: f.to_path(dtype),
             cod=path.Matrix[dtype],
         )(self)
+
+    def feedback(self, dom=None, cod=None, mem=None,
+                 initial_state=None, final_effect=None) -> Diagram:
+        """
+        Feed the last `mem` outputs of a diagram from `dom @ mem`
+        to `cod @ mem` back into its last `mem` inputs,
+        one time step later.
+
+        Parameters:
+            dom : The domain of the result, `arg.dom[:-len(mem)]` by default.
+            cod : The codomain of the result, `arg.cod[:-len(mem)]`
+                by default.
+            mem : The memory type fed back, `arg.cod[-1:]` by default.
+            initial_state : Optional state of type `mem` plugged in the input
+                memory by :meth:`unroll`, default `None` for an open wire.
+            final_effect : Optional effect on `mem` plugged in the output
+                memory at the last time step of :meth:`unroll`,
+                default `None` for an open wire.
+
+        >>> wait = Diagram.swap(mode, mode).feedback()
+        >>> assert wait.dom == wait.cod == mode
+        >>> assert wait.mem == mode
+        """
+        return self.feedback_factory(
+            self, dom=dom, cod=cod, mem=mem,
+            initial_state=initial_state, final_effect=final_effect)
+
+    def feedback_loops(self) -> list:
+        """
+        The :class:`Feedback` boxes of a diagram, listed in the order
+        in which their memories appear in :meth:`stream`.
+
+        >>> wait = Diagram.swap(mode, mode).feedback()
+        >>> assert wait.feedback_loops() == [wait]
+        >>> assert (wait >> wait).feedback_loops() == [wait, wait]
+        """
+        return [loop for box in self.boxes
+                if isinstance(box, self.feedback_factory)
+                for loop in box.feedback_loops()]
+
+    @cached_property
+    def stream(self):
+        """
+        The monoidal stream of a diagram, with one memory wire for each
+        feedback loop and no choice of initial state or final effect.
+
+        A diagram with no feedback loops is the constant stream:
+
+        >>> from optyx.core import zw
+        >>> assert zw.W(2).stream.now == zw.W(2)
+        >>> assert zw.W(2).stream.is_constant
+
+        Feeding back a memory moves it from the wires of `now`
+        to the memory of the stream:
+
+        >>> wait = Diagram.swap(mode, mode).feedback()
+        >>> assert wait.stream.now == Diagram.swap(mode, mode)
+        >>> assert wait.stream.mem.now == mode
+        """
+        # pylint: disable=import-outside-toplevel
+        from discopy import stream as monoidal_stream
+
+        stream_factory = monoidal_stream.Stream[self.factory]
+        ty_factory = stream_factory.ob
+        if isinstance(self, monoidal.Box):
+            return stream_factory(self)
+        result = stream_factory.id(ty_factory(self.dom))
+        for layer in self:
+            left, box, right = layer.inside[0]
+            result >>= stream_factory.id(ty_factory(left)) \
+                @ box.stream @ stream_factory.id(ty_factory(right))
+        return result
+
+    def unroll(self, n_steps: int = 1) -> Diagram:
+        """
+        Unroll the feedback loops of a diagram over `n_steps` time steps.
+
+        The `initial_state` of each loop is plugged in its input memory at
+        the first time step and its `final_effect` in its output memory at
+        the last one; memories with `None` are left as open wires at the end
+        of the domain and codomain of the result.
+
+        A feedback loop over a swap acts as a delay line: it outputs its
+        `initial_state` at the first time step, then its previous input.
+
+        >>> import numpy as np
+        >>> from optyx.core.zw import Create, Select
+        >>> wait = Diagram.swap(mode, mode).feedback(
+        ...     initial_state=Create(1), final_effect=Select(0))
+        >>> assert wait.unroll(2).dom == wait.unroll(2).cod == mode ** 2
+        >>> amplitude = (Create(0, 0) >> wait.unroll(2) >> Select(1, 0)\\
+        ...     ).to_tensor().eval().array
+        >>> assert np.isclose(amplitude, 1)
+        """
+        if n_steps < 1:
+            raise ValueError("n_steps must be at least 1.")
+        unrolled = self.stream.unroll(n_steps - 1).now
+        loops, mem = self.feedback_loops(), self.stream.mem.now
+        assert type(mem)().tensor(*[loop.mem for loop in loops]) == mem
+        dom = unrolled.dom[:len(unrolled.dom) - len(mem)]
+        cod = unrolled.cod[:len(unrolled.cod) - len(mem)]
+        initial = self.id(type(mem)()).tensor(*(
+            self.id(loop.mem) if loop.initial_state is None
+            else loop.initial_state for loop in loops))
+        final = self.id(type(mem)()).tensor(*(
+            self.id(loop.mem) if loop.final_effect is None
+            else loop.final_effect for loop in loops))
+        return self.id(dom) @ initial >> unrolled >> self.id(cod) @ final
 
     # pylint: disable=too-many-locals
     def to_tensor(
@@ -316,6 +437,11 @@ class Diagram(frobenius.Diagram):
         """Returns a :class:`tensor.Diagram` for evaluation"""
         from optyx.core import zw
         from optyx.utils.misc import is_identity
+
+        if self.feedback_loops():
+            raise ValueError(
+                "The diagram contains a feedback loop "
+                "which must be unrolled before evaluation.")
 
         if input_dims is None:
             input_dims = [2 for _ in range(len(self.dom))]
@@ -1081,6 +1207,110 @@ def truncation_tensor(
     return tensor
 
 
+class Feedback(monoidal.Bubble, Box):
+    """
+    A feedback loop connecting the last `mem` outputs of `arg`
+    back to its last `mem` inputs, one time step later.
+
+    The delay endofunctor is the identity, so `arg` goes from `dom @ mem`
+    to `cod @ mem` and the result from `dom` to `cod`. It is drawn as `arg`
+    with a feedback loop and composes with any other diagram; its stream
+    semantics is given by :meth:`Diagram.stream` and :meth:`Diagram.unroll`.
+
+    Parameters:
+        arg : The diagram from `dom @ mem` to `cod @ mem` to feed back.
+        dom : The domain of the result, `arg.dom[:-len(mem)]` by default.
+        cod : The codomain of the result, `arg.cod[:-len(mem)]` by default.
+        mem : The memory type fed back, `arg.cod[-1:]` by default.
+        initial_state : Optional state of type `mem`, see :meth:`unroll`.
+        final_effect : Optional effect on `mem`, see :meth:`unroll`.
+    """
+    __ambiguous_inheritance__ = (monoidal.Bubble,)
+
+    def __init__(self, arg, dom=None, cod=None, mem=None,
+                 initial_state=None, final_effect=None):
+        if mem is None:
+            mem = arg.cod[-1:] if cod is None else arg.cod[len(cod):]
+        dom = arg.dom[:len(arg.dom) - len(mem)] if dom is None else dom
+        cod = arg.cod[:len(arg.cod) - len(mem)] if cod is None else cod
+        if arg.dom != dom @ mem:
+            raise AxiomError(f"{arg.dom} != {dom @ mem}")
+        if arg.cod != cod @ mem:
+            raise AxiomError(f"{arg.cod} != {cod @ mem}")
+        if initial_state is not None and (
+                initial_state.dom, initial_state.cod) != (type(mem)(), mem):
+            raise AxiomError(f"{initial_state} is not a state of {mem}")
+        if final_effect is not None and (
+                final_effect.dom, final_effect.cod) != (mem, type(mem)()):
+            raise AxiomError(f"{final_effect} is not an effect on {mem}")
+        self.mem = mem
+        self.initial_state, self.final_effect = initial_state, final_effect
+        monoidal.Bubble.__init__(
+            self, arg, dom=dom, cod=cod, method="feedback_operator")
+        Box.__init__(self, str(self), dom, cod)
+
+    def __str__(self):
+        args = "" if self.mem == self.arg.cod[-1:] else f"mem={self.mem}"
+        for attr in ("initial_state", "final_effect"):
+            if getattr(self, attr) is not None:
+                prefix = ", " if args else ""
+                args += f"{prefix}{attr}={getattr(self, attr)}"
+        return f"({self.arg}).feedback({args})"
+
+    def __repr__(self):
+        args = f"{repr(self.arg)}, mem={repr(self.mem)}"
+        for attr in ("initial_state", "final_effect"):
+            if getattr(self, attr) is not None:
+                args += f", {attr}={repr(getattr(self, attr))}"
+        return f"{type(self).__name__}({args})"
+
+    to_path = Diagram.to_path
+
+    def feedback_loops(self):
+        """A feedback loop lists itself before the loops inside it."""
+        return [self] + self.arg.feedback_loops()
+
+    @cached_property
+    def stream(self):
+        """The stream of `arg` with `mem` moved to the memory."""
+        # pylint: disable=import-outside-toplevel
+        from discopy import stream as monoidal_stream
+
+        stream_factory = monoidal_stream.Stream[self.factory]
+        ty_factory = stream_factory.ob
+        inner = self.arg.stream
+        return stream_factory(
+            inner.now, dom=ty_factory(self.dom), cod=ty_factory(self.cod),
+            mem=ty_factory(self.mem) @ inner.mem)
+
+    def conjugate(self):
+        initial_state = None if self.initial_state is None \
+            else self.initial_state.conjugate()
+        final_effect = None if self.final_effect is None \
+            else self.final_effect.conjugate()
+        return self.arg.conjugate().feedback(
+            dom=self.dom, cod=self.cod, mem=self.mem,
+            initial_state=initial_state, final_effect=final_effect)
+
+    def inflate(self, d):
+        # pylint: disable=invalid-name
+        mem = Ty.tensor(
+            *(o ** d if o.inside[0].name == "mode" else o for o in self.mem))
+        initial_state = None if self.initial_state is None \
+            else self.initial_state.inflate(d)
+        final_effect = None if self.final_effect is None \
+            else self.final_effect.inflate(d)
+        return self.arg.inflate(d).feedback(
+            mem=mem, initial_state=initial_state, final_effect=final_effect)
+
+    def dagger(self):
+        raise NotImplementedError(
+            "The dagger of a feedback loop is not defined.")
+
+    def to_drawing(self):
+        return self.arg.to_drawing().trace(len(self.mem))
+
+
 class Functor(frobenius.Functor):
     """
     A hypergraph functor is a compact functor that preserves spiders.
@@ -1092,6 +1322,18 @@ class Functor(frobenius.Functor):
         cod : The codomain of the functor, a :class:`Diagram` subclass.
     """
     dom = cod = Diagram
+
+    def __call__(self, other):
+        if isinstance(other, Feedback):
+            initial_state = None if other.initial_state is None \
+                else self(other.initial_state)
+            final_effect = None if other.final_effect is None \
+                else self(other.final_effect)
+            return self(other.arg).feedback(
+                dom=self(other.dom), cod=self(other.cod),
+                mem=self(other.mem),
+                initial_state=initial_state, final_effect=final_effect)
+        return super().__call__(other)
 
 
 class Hypergraph(hypergraph.Hypergraph):  # pragma: no cover
@@ -1105,4 +1347,5 @@ Diagram.hypergraph_factory = Hypergraph
 Diagram.braid_factory, Diagram.spider_factory = Swap, Spider
 Diagram.ob = Ty
 Diagram.sum_factory = Sum
+Diagram.feedback_factory = Feedback
 Id = Diagram.id

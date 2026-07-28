@@ -50,6 +50,7 @@ Generators and diagrams
     Measure
     Encode
     Discard
+    Feedback
 
 
 Examples
@@ -149,8 +150,9 @@ dual-rail encoding. For example, we can create a GHZ state:
 from __future__ import annotations
 
 from discopy import tensor
-from discopy import symmetric, frobenius, hypergraph
+from discopy import monoidal, symmetric, frobenius, hypergraph
 from discopy.cat import factory
+from discopy.utils import AxiomError
 from pytket.extensions.pyzx import pyzx_to_tk
 from pyzx import extract_circuit
 from optyx.core import diagram
@@ -248,6 +250,43 @@ class Diagram(frobenius.Diagram):
 
     ob = Ty
     grad = tensor.Diagram.grad
+    feedback_loops = diagram.Diagram.feedback_loops
+    stream = diagram.Diagram.stream
+    unroll = diagram.Diagram.unroll
+
+    def feedback(self, dom=None, cod=None, mem=None,
+                 initial_state=None, final_effect=None) -> Diagram:
+        """
+        Feed the last `mem` outputs of a channel diagram from `dom @ mem`
+        to `cod @ mem` back into its last `mem` inputs,
+        one time step later.
+
+        Parameters:
+            dom : The domain of the result, `arg.dom[:-len(mem)]` by default.
+            cod : The codomain of the result, `arg.cod[:-len(mem)]`
+                by default.
+            mem : The memory type fed back, `arg.cod[-1:]` by default.
+            initial_state : Optional state of type `mem` plugged in the input
+                memory by :meth:`unroll`, default `None` for an open wire;
+                a natural choice on `qmode` is the zero-photon state
+                `photonic.Create(0)`.
+            final_effect : Optional effect on `mem` plugged in the output
+                memory at the last time step of :meth:`unroll`, default
+                `None` for an open wire; a natural choice is `Discard(mem)`.
+
+        >>> from optyx.photonic import Create
+        >>> wait = Diagram.swap(qmode, qmode).feedback(
+        ...     initial_state=Create(0), final_effect=Discard(qmode))
+        >>> assert wait.dom == wait.cod == qmode
+        >>> assert wait.mem == qmode
+
+        The result composes with any other channel diagram and is
+        interpreted as a monoidal stream by :meth:`stream`, unrolled over
+        `n_steps` by :meth:`unroll`.
+        """
+        return self.feedback_factory(
+            self, dom=dom, cod=cod, mem=mem,
+            initial_state=initial_state, final_effect=final_effect)
 
     def needs_inflation(self) -> bool:
         """
@@ -291,6 +330,14 @@ class Diagram(frobenius.Diagram):
         are_layers_classical = []
         for layer in self:
             generator = layer.inside[0][1]
+
+            if isinstance(generator, Feedback) and not all(
+                part.is_pure for part in (
+                    generator.arg,
+                    generator.initial_state, generator.final_effect)
+                if part is not None
+            ):
+                return False
 
             # if we have a discard/measure
             # acting on quantum types, it's not pure
@@ -342,6 +389,10 @@ class Diagram(frobenius.Diagram):
                     left @ diagram.Swap(generator.dom.single()[0],
                                         generator.cod.single()[1]) @ right
                 )
+            elif isinstance(generator, Feedback):
+                kraus_maps.append(
+                    left @ generator.get_kraus() @ right
+                )
             else:
                 kraus_maps.append(
                     left @ generator.kraus @ right
@@ -362,6 +413,11 @@ class Diagram(frobenius.Diagram):
         from optyx.core import path
 
         assert self.is_pure, "Diagram must be pure to convert to path."
+
+        if self.feedback_loops():
+            return self.stream.now.to_path(dtype).feedback(
+                dom=len(self.dom), cod=len(self.cod),
+                mem=len(self.stream.mem.now))
 
         return frobenius.Functor(
             ob_map=len,
@@ -564,6 +620,10 @@ class Diagram(frobenius.Diagram):
         """
         # pylint: disable=import-outside-toplevel
         from optyx.core.backends import QuimbBackend
+        if self.feedback_loops():
+            raise ValueError(
+                "The diagram contains a feedback loop "
+                "which must be unrolled before evaluation.")
         if backend is None:
             backend = QuimbBackend()
 
@@ -769,6 +829,76 @@ class Swap(frobenius.Swap, Channel):
         return self
 
 
+class Feedback(monoidal.Bubble, Diagram, frobenius.Box):
+    """
+    A feedback loop connecting the last `mem` outputs of a channel diagram
+    back to its last `mem` inputs, one time step later.
+
+    See :class:`optyx.core.diagram.Feedback`; doubling the loop gives the
+    loop of the doubled diagram, so `double` and `unroll` commute.
+    """
+    __ambiguous_inheritance__ = (monoidal.Bubble, frobenius.Box)
+
+    def __init__(self, arg, dom=None, cod=None, mem=None,
+                 initial_state=None, final_effect=None):
+        if mem is None:
+            mem = arg.cod[-1:] if cod is None else arg.cod[len(cod):]
+        dom = arg.dom[:len(arg.dom) - len(mem)] if dom is None else dom
+        cod = arg.cod[:len(arg.cod) - len(mem)] if cod is None else cod
+        if arg.dom != dom @ mem:
+            raise AxiomError(f"{arg.dom} != {dom @ mem}")
+        if arg.cod != cod @ mem:
+            raise AxiomError(f"{arg.cod} != {cod @ mem}")
+        if initial_state is not None and (
+                initial_state.dom, initial_state.cod) != (type(mem)(), mem):
+            raise AxiomError(f"{initial_state} is not a state of {mem}")
+        if final_effect is not None and (
+                final_effect.dom, final_effect.cod) != (mem, type(mem)()):
+            raise AxiomError(f"{final_effect} is not an effect on {mem}")
+        self.mem = mem
+        self.initial_state, self.final_effect = initial_state, final_effect
+        monoidal.Bubble.__init__(
+            self, arg, dom=dom, cod=cod, method="feedback_operator")
+        frobenius.Box.__init__(self, str(self), dom, cod)
+
+    __str__ = diagram.Feedback.__str__
+    __repr__ = diagram.Feedback.__repr__
+    feedback_loops = diagram.Feedback.feedback_loops
+    stream = diagram.Feedback.stream
+    dagger = diagram.Feedback.dagger
+    to_drawing = diagram.Feedback.to_drawing
+
+    def double(self):
+        """The feedback loop of the doubled diagram."""
+        initial_state = None if self.initial_state is None \
+            else Diagram.double(self.initial_state)
+        final_effect = None if self.final_effect is None \
+            else Diagram.double(self.final_effect)
+        return Diagram.double(self.arg).feedback(
+            mem=self.mem.double(),
+            initial_state=initial_state, final_effect=final_effect)
+
+    def get_kraus(self):
+        """The feedback loop of the Kraus map."""
+        initial_state = None if self.initial_state is None \
+            else Diagram.get_kraus(self.initial_state)
+        final_effect = None if self.final_effect is None \
+            else Diagram.get_kraus(self.final_effect)
+        return Diagram.get_kraus(self.arg).feedback(
+            mem=self.mem.single(),
+            initial_state=initial_state, final_effect=final_effect)
+
+    def inflate(self, d):
+        # pylint: disable=invalid-name
+        initial_state = None if self.initial_state is None \
+            else Diagram.inflate(self.initial_state, d)
+        final_effect = None if self.final_effect is None \
+            else Diagram.inflate(self.final_effect, d)
+        return Diagram.inflate(self.arg, d).feedback(
+            mem=self.mem.inflate(d),
+            initial_state=initial_state, final_effect=final_effect)
+
+
 class Measure(Channel):
     """Measuring a qubit or qmode corresponds to
     applying a 2 -> 1 spider in the doubled picture.
@@ -911,6 +1041,18 @@ class Functor(frobenius.Functor):
     """
     dom = cod = Diagram
 
+    def __call__(self, other):
+        if isinstance(other, Feedback):
+            initial_state = None if other.initial_state is None \
+                else self(other.initial_state)
+            final_effect = None if other.final_effect is None \
+                else self(other.final_effect)
+            return self(other.arg).feedback(
+                dom=self(other.dom), cod=self(other.cod),
+                mem=self(other.mem),
+                initial_state=initial_state, final_effect=final_effect)
+        return super().__call__(other)
+
 
 class Hypergraph(hypergraph.Hypergraph):  # pragma: no cover
     functor = Functor
@@ -929,3 +1071,4 @@ Diagram.spider_factory = Spider
 Diagram.hypergraph_factory = Hypergraph
 Diagram.braid_factory = Swap
 Diagram.sum_factory = Sum
+Diagram.feedback_factory = Feedback

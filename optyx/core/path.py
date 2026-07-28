@@ -132,7 +132,7 @@ import numpy as np
 import perceval as pcvl
 
 from discopy.cat import assert_iscomposable
-from discopy.utils import unbiased
+from discopy.utils import AxiomError, unbiased
 import discopy.matrix as underlying
 from discopy.tensor import Tensor
 from optyx.utils.misc import occupation_numbers, amplitudes_2_tensor
@@ -291,6 +291,36 @@ class Matrix(underlying.Matrix):
             self.normalisation.conjugate(),
             self.scalar,
         )
+
+    def feedback(self, dom=None, cod=None, mem=None):
+        """
+        The constant monoidal stream of a matrix from `dom + mem` to
+        `cod + mem` with its last `mem` outputs fed back into its last
+        `mem` inputs one time step later, such that `to_path` and `unroll`
+        commute.
+
+        Like :meth:`optyx.core.diagram.Diagram.stream`, the stream makes
+        no choice of initial state or final effect: the memory wires of
+        its unrolling are left open.
+
+        >>> matrix = Matrix(np.array([[0, 1], [1, 0]]), 2, 2)
+        >>> assert matrix.feedback().unroll().now == Matrix(
+        ...     np.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]]), 3, 3)
+        """
+        # pylint: disable=import-outside-toplevel
+        from discopy import stream as monoidal_stream
+
+        mem = 1 if mem is None else mem
+        dom = self.dom - mem if dom is None else dom
+        cod = self.cod - mem if cod is None else cod
+        if min(dom, cod) < 0 or (self.dom, self.cod) != (
+                dom + mem, cod + mem):
+            raise AxiomError(
+                f"{self} is not a matrix from "
+                f"{dom} + {mem} to {cod} + {mem}")
+        ty_factory = monoidal_stream.Ty[int]
+        return monoidal_stream.Stream[type(self)](
+            self, ty_factory(dom), ty_factory(cod), ty_factory(mem))
 
     def __repr__(self):
         return (
