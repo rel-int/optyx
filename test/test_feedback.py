@@ -4,7 +4,10 @@ import pytest
 from discopy.utils import AxiomError
 
 from optyx import photonic
-from optyx.channel import Diagram, Discard, Functor, qmode
+from optyx import classical, qubits
+from optyx.channel import (
+    Diagram, Discard, Feedback, Functor, bit, qmode, qubit
+)
 from optyx.core import diagram as core, path, zw
 
 
@@ -16,7 +19,7 @@ def delay(initial_state=None, final_effect=None):
 def test_feedback_types():
     wait = delay()
     assert wait.dom == wait.cod == qmode and wait.mem == qmode
-    assert wait.feedback_loops() == [wait]
+    assert wait.stream.mem.now == qmode
     fb = (photonic.BS @ photonic.BS).feedback(mem=qmode ** 2)
     assert fb.dom == fb.cod == qmode ** 2 and fb.mem == qmode ** 2
 
@@ -121,10 +124,10 @@ def test_core_feedback_axioms():
 def test_memory_order():
     loops = composite_loops()
     sequence, nested = loops["sequence"], loops["nested"]
-    assert len(sequence.feedback_loops()) == 2
+    assert len(sequence.stream.plugs) == 2
     assert sequence.stream.mem.now == qmode ** 2
-    assert nested.feedback_loops()[0] is nested
     assert nested.stream.mem.now == qmode ** 2
+    assert all(mem == qmode for *_, mem in nested.stream.plugs)
 
 
 def test_matrix_feedback():
@@ -141,7 +144,8 @@ def test_functor_maps_feedback():
     functor = Functor(ob_map=lambda x: x, ar_map=lambda f: f, cod=Diagram)
     wait = delay(initial_state=photonic.Create(0))
     image = functor(photonic.Phase(0.3) >> wait)
-    assert image.feedback_loops()[0].initial_state == photonic.Create(0)
+    image_loops = [b for b in image.boxes if isinstance(b, Feedback)]
+    assert image_loops[0].initial_state == photonic.Create(0)
     core_functor = core.Functor(
         ob_map=lambda x: x, ar_map=lambda f: f, cod=core.Diagram)
     core_wait = core.Diagram.swap(core.mode, core.mode).feedback(
@@ -157,8 +161,8 @@ def test_get_kraus_and_purity():
     assert isinstance(kraus, core.Feedback)
     assert kraus.mem == core.mode
     composite = photonic.Phase(0.3) >> fb
-    assert isinstance(
-        composite.get_kraus().feedback_loops()[0], core.Feedback)
+    assert any(isinstance(box, core.Feedback)
+               for box in composite.get_kraus().boxes)
     assert fb.is_pure
     assert not photonic.BS.feedback(final_effect=Discard(qmode)).is_pure
 
@@ -198,3 +202,27 @@ def test_to_drawing():
     assert delay().to_drawing() is not None
     core_wait = core.Diagram.swap(core.mode, core.mode).feedback()
     assert core_wait.to_drawing() is not None
+
+
+def test_qubit_delay_line():
+    wait = Diagram.swap(qubit, qubit).feedback(
+        initial_state=qubits.Ket(0), final_effect=Discard(qubit))
+    unrolled = wait.unroll(2)
+    assert unrolled.dom == unrolled.cod == qubit ** 2
+    probability = (
+        qubits.Ket(1) @ qubits.Ket(1) >> unrolled
+        >> qubits.Bra(0) @ qubits.Bra(1)
+    ).double().to_tensor().eval().array
+    assert np.isclose(probability, 1)
+    assert wait.unroll(2).double() == wait.double().unroll(2)
+
+
+def test_bit_delay_line():
+    wait = Diagram.swap(bit, bit).feedback(
+        initial_state=classical.Bit(1), final_effect=Discard(bit))
+    unrolled = wait.unroll(2)
+    assert unrolled.dom == unrolled.cod == bit ** 2
+    probability = (
+        classical.Bit(0, 0) >> unrolled >> classical.PostselectBit(1, 0)
+    ).double().to_tensor().eval().array
+    assert np.isclose(probability, 1)

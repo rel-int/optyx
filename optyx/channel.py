@@ -250,7 +250,6 @@ class Diagram(frobenius.Diagram):
 
     ob = Ty
     grad = tensor.Diagram.grad
-    feedback_loops = diagram.Diagram.feedback_loops
     stream = diagram.Diagram.stream
     unroll = diagram.Diagram.unroll
 
@@ -414,10 +413,11 @@ class Diagram(frobenius.Diagram):
 
         assert self.is_pure, "Diagram must be pure to convert to path."
 
-        if self.feedback_loops():
-            return self.stream.now.to_path(dtype).feedback(
+        if any(isinstance(box, Feedback) for box in self.boxes):
+            stream = self.stream
+            return stream.now.to_path(dtype).feedback(
                 dom=len(self.dom), cod=len(self.cod),
-                mem=len(self.stream.mem.now))
+                mem=len(stream.mem.now))
 
         return frobenius.Functor(
             ob_map=len,
@@ -620,10 +620,6 @@ class Diagram(frobenius.Diagram):
         """
         # pylint: disable=import-outside-toplevel
         from optyx.core.backends import QuimbBackend
-        if self.feedback_loops():
-            raise ValueError(
-                "The diagram contains a feedback loop "
-                "which must be unrolled before evaluation.")
         if backend is None:
             backend = QuimbBackend()
 
@@ -863,8 +859,6 @@ class Feedback(monoidal.Bubble, Diagram, frobenius.Box):
 
     __str__ = diagram.Feedback.__str__
     __repr__ = diagram.Feedback.__repr__
-    feedback_loops = diagram.Feedback.feedback_loops
-    stream = diagram.Feedback.stream
     dagger = diagram.Feedback.dagger
     to_drawing = diagram.Feedback.to_drawing
 
@@ -1043,14 +1037,21 @@ class Functor(frobenius.Functor):
 
     def __call__(self, other):
         if isinstance(other, Feedback):
-            initial_state = None if other.initial_state is None \
-                else self(other.initial_state)
-            final_effect = None if other.final_effect is None \
-                else self(other.final_effect)
-            return self(other.arg).feedback(
-                dom=self(other.dom), cod=self(other.cod),
-                mem=self(other.mem),
-                initial_state=initial_state, final_effect=final_effect)
+            return diagram.map_feedback(self, other)
+        return super().__call__(other)
+
+
+class StreamFunctor(symmetric.Functor):
+    """
+    The symmetric functor computing the monoidal :class:`diagram.Stream`
+    of a channel diagram: every box maps to the constant stream and every
+    :class:`Feedback` loop to the feedback of its memory.
+    """
+    dom, cod = Diagram, diagram.Stream[Diagram]
+
+    def __call__(self, other):
+        if isinstance(other, Feedback):
+            return diagram.map_feedback(self, other)
         return super().__call__(other)
 
 
@@ -1072,3 +1073,5 @@ Diagram.hypergraph_factory = Hypergraph
 Diagram.braid_factory = Swap
 Diagram.sum_factory = Sum
 Diagram.feedback_factory = Feedback
+Diagram.functor_factory = Functor
+Diagram.stream_functor = StreamFunctor
