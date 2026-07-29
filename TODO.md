@@ -12,3 +12,11 @@
 - [x] feedback on `core.path.Matrix` such that `to_path` and `unroll` commute
 - [x] tensor evaluation raises on diagrams with feedback loops, asking to unroll first
 - [x] tests and doctests, including zero-photon `initial_state` and `Discard(mem)` `final_effect`
+
+## Review round 1
+
+- [WIP] @claude-g9z1pv-2026-07-28 22:30 — remove `feedback_loops`: carry the loops' states on the stream instead
+- [WIP] @claude-g9z1pv-2026-07-28 22:30 — obtain `stream` by applying a Functor, not a handwritten fold
+- [WIP] @claude-g9z1pv-2026-07-28 22:30 — no pre-scan in `to_tensor`/`eval`: the feedback box raises when hit
+- [WIP] @claude-g9z1pv-2026-07-28 22:30 — drop the assert in `unroll` and the inline pylint comment in `stream`
+- [WIP] @claude-g9z1pv-2026-07-28 22:30 — tests with qubits and bits
