@@ -6,7 +6,7 @@ from discopy.utils import AxiomError
 from optyx import photonic
 from optyx import classical, qubits
 from optyx.channel import (
-    Diagram, Discard, Feedback, Functor, bit, qmode, qubit
+    Diagram, Discard, Feedback, Functor, StreamFunctor, bit, qmode, qubit
 )
 from optyx.core import diagram as core, path, zw
 
@@ -19,7 +19,7 @@ def delay(initial_state=None, final_effect=None):
 def test_feedback_types():
     wait = delay()
     assert wait.dom == wait.cod == qmode and wait.mem == qmode
-    assert wait.stream.mem.now == qmode
+    assert StreamFunctor()(wait).mem.now == qmode
     fb = (photonic.BS @ photonic.BS).feedback(mem=qmode ** 2)
     assert fb.dom == fb.cod == qmode ** 2 and fb.mem == qmode ** 2
 
@@ -35,12 +35,12 @@ def test_feedback_axioms():
         photonic.BS.feedback(final_effect=Discard(qmode ** 2))
 
 
-def test_stream_is_cached_and_constant():
+def test_stream_functor_is_constant():
     wait, box = delay(), photonic.BS
-    assert wait.stream is wait.stream
-    assert box.stream.now == box and box.stream.is_constant
-    assert wait.stream.now == Diagram.swap(qmode, qmode)
-    assert wait.stream.mem.now == qmode
+    assert StreamFunctor()(box).now == box
+    assert StreamFunctor()(box).is_constant
+    assert StreamFunctor()(wait).now == Diagram.swap(qmode, qmode)
+    assert StreamFunctor()(wait).mem.now == qmode
 
 
 def test_unroll_is_a_delay_line():
@@ -59,6 +59,11 @@ def test_unroll_open_wires():
     assert unrolled.dom == unrolled.cod == qmode ** 3
     with pytest.raises(ValueError):
         delay().unroll(0)
+
+
+def test_diagram_has_no_stream_method():
+    assert not hasattr(delay(), "stream")
+    assert not hasattr(core.Diagram.swap(core.mode, core.mode), "stream")
 
 
 def test_evaluation_raises_on_feedback():
@@ -124,10 +129,10 @@ def test_core_feedback_axioms():
 def test_memory_order():
     loops = composite_loops()
     sequence, nested = loops["sequence"], loops["nested"]
-    assert len(sequence.stream.plugs) == 2
-    assert sequence.stream.mem.now == qmode ** 2
-    assert nested.stream.mem.now == qmode ** 2
-    assert all(mem == qmode for *_, mem in nested.stream.plugs)
+    assert len(StreamFunctor()(sequence).plugs) == 2
+    assert StreamFunctor()(sequence).mem.now == qmode ** 2
+    assert StreamFunctor()(nested).mem.now == qmode ** 2
+    assert all(mem == qmode for *_, mem in StreamFunctor()(nested).plugs)
 
 
 def test_matrix_feedback():

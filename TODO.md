@@ -23,5 +23,5 @@
 
 ## Review round 2
 
-- [WIP] @claude-g9z1pv-2026-07-29 17:40 — drop the `stream` method: `feedback` and `unroll` are the whole interface
-- [WIP] @claude-g9z1pv-2026-07-29 17:40 — build the stream inside `unroll` through `StreamFunctor`, uncached
+- [x] drop the `stream` method: `feedback` and `unroll` are the whole interface
+- [x] build the stream inside `unroll` through `StreamFunctor`, uncached

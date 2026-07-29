@@ -250,7 +250,6 @@ class Diagram(frobenius.Diagram):
 
     ob = Ty
     grad = tensor.Diagram.grad
-    stream = diagram.Diagram.stream
     unroll = diagram.Diagram.unroll
 
     def feedback(self, dom=None, cod=None, mem=None,
@@ -280,8 +279,7 @@ class Diagram(frobenius.Diagram):
         >>> assert wait.mem == qmode
 
         The result composes with any other channel diagram and is
-        interpreted as a monoidal stream by :meth:`stream`, unrolled over
-        `n_steps` by :meth:`unroll`.
+        unrolled over `n_steps` time steps by :meth:`unroll`.
         """
         return self.feedback_factory(
             self, dom=dom, cod=cod, mem=mem,
@@ -414,7 +412,7 @@ class Diagram(frobenius.Diagram):
         assert self.is_pure, "Diagram must be pure to convert to path."
 
         if any(isinstance(box, Feedback) for box in self.boxes):
-            stream = self.stream
+            stream = self.stream_functor()(self)
             return stream.now.to_path(dtype).feedback(
                 dom=len(self.dom), cod=len(self.cod),
                 mem=len(stream.mem.now))
@@ -1045,9 +1043,19 @@ class StreamFunctor(symmetric.Functor):
     """
     The symmetric functor computing the monoidal :class:`diagram.Stream`
     of a channel diagram: every box maps to the constant stream and every
-    :class:`Feedback` loop to the feedback of its memory.
+    :class:`Feedback` loop to the feedback of its memory, with no choice
+    of initial state or final effect.
+
+    It is applied by :meth:`Diagram.unroll`, the only place a stream is
+    needed.
+
+    >>> from optyx import photonic
+    >>> wait = StreamFunctor()(photonic.BS.feedback())
+    >>> assert wait.now == photonic.BS and wait.mem.now == qmode
     """
     dom, cod = Diagram, diagram.Stream[Diagram]
+
+    __init__ = diagram.StreamFunctor.__init__
 
     def __call__(self, other):
         if isinstance(other, Feedback):
