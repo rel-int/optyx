@@ -20,3 +20,8 @@
 - [x] no pre-scan in `to_tensor`/`eval`: the feedback box raises when hit
 - [x] drop the assert in `unroll` and the inline pylint comment in `stream`
 - [x] tests with qubits and bits
+
+## Review round 2
+
+- [WIP] @claude-g9z1pv-2026-07-29 17:40 — drop the `stream` method: `feedback` and `unroll` are the whole interface
+- [WIP] @claude-g9z1pv-2026-07-29 17:40 — build the stream inside `unroll` through `StreamFunctor`, uncached
