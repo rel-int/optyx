@@ -304,30 +304,11 @@ class Diagram(frobenius.Diagram):
         In other words, it is the underlying matrix
         representation of a :class:`path` and :class:`lo` diagrams.
 
-        A diagram with open feedback loops maps to the
-        :meth:`path.Matrix.feedback` of the matrix of its single-step
-        unrolling, so that `to_path` and `unroll` commute; initial states
-        and final effects must be plugged with :meth:`unroll` first.
+        Feedback loops have no path semantics: they raise, asking for the
+        diagram to be unrolled first.
         """
         # pylint: disable=import-outside-toplevel
         from optyx.core import path
-
-        def is_open(box):
-            return box.initial_state is None and box.final_effect is None \
-                and all(is_open(inner) for inner in box.arg.boxes
-                        if isinstance(inner, self.feedback_factory))
-
-        loops = [box for box in self.boxes
-                 if isinstance(box, self.feedback_factory)]
-        if loops:
-            if not all(map(is_open, loops)):
-                raise ValueError(
-                    "to_path requires open feedback memories: plug initial "
-                    "states and final effects with unroll first.")
-            unrolled = self.unroll(1)
-            return unrolled.to_path(dtype).feedback(
-                dom=len(self.dom), cod=len(self.cod),
-                mem=len(unrolled.dom) - len(self.dom))
 
         return symmetric.Functor(
             ob_map=len,
@@ -1204,25 +1185,34 @@ class Feedback(monoidal.Bubble, Box):
         mem : The memory type fed back, `arg.cod[-1:]` by default.
         initial_state : Optional state of type `mem`, see :meth:`unroll`.
         final_effect : Optional effect on `mem`, see :meth:`unroll`.
+
+    Example
+    -------
+    The feedback of `CNOT >> SWAP` unrolls to a ladder of CNOT gates,
+    here with the plus state as initial state and an open output memory:
+
+    >>> from discopy.drawing import Equation
+    >>> from optyx.core.zx import Z, X
+    >>> cnot = Z(1, 2) @ bit >> bit @ X(2, 1) @ Scalar(2 ** 0.5)
+    >>> plus = Scalar(0.5 ** 0.5) @ Z(0, 1)
+    >>> ladder = (cnot >> Diagram.swap(bit, bit)).feedback(
+    ...     initial_state=plus)
+    >>> Equation(ladder, ladder.unroll(3), symbol="$\\mapsto$").draw(
+    ...     path="docs/_static/cnot_ladder.svg")
+
+    .. image:: /_static/cnot_ladder.svg
+        :align: center
     """
     __ambiguous_inheritance__ = (monoidal.Bubble,)
 
     def __init__(self, arg, dom=None, cod=None, mem=None,
                  initial_state=None, final_effect=None):
-        if mem is None:
-            mem = arg.cod[-1:] if cod is None else arg.cod[len(cod):]
+        mem = arg.cod[-1:] if mem is None else mem
         dom = arg.dom[:len(arg.dom) - len(mem)] if dom is None else dom
         cod = arg.cod[:len(arg.cod) - len(mem)] if cod is None else cod
-        if arg.dom != dom @ mem:
-            raise AxiomError(f"{arg.dom} != {dom @ mem}")
-        if arg.cod != cod @ mem:
-            raise AxiomError(f"{arg.cod} != {cod @ mem}")
-        if initial_state is not None and (
-                initial_state.dom, initial_state.cod) != (type(mem)(), mem):
-            raise AxiomError(f"{initial_state} is not a state of {mem}")
-        if final_effect is not None and (
-                final_effect.dom, final_effect.cod) != (mem, type(mem)()):
-            raise AxiomError(f"{final_effect} is not an effect on {mem}")
+        if (arg.dom, arg.cod) != (dom @ mem, cod @ mem):
+            raise AxiomError(
+                f"{arg} is not a diagram from {dom @ mem} to {cod @ mem}")
         self.mem = mem
         self.initial_state, self.final_effect = initial_state, final_effect
         monoidal.Bubble.__init__(
@@ -1244,16 +1234,15 @@ class Feedback(monoidal.Bubble, Box):
                 args += f", {attr}={repr(getattr(self, attr))}"
         return f"{type(self).__name__}({args})"
 
-    to_path = Diagram.to_path
-
     def truncation(self, input_dims=None, output_dims=None):
-        """A feedback loop has no tensor semantics until it is unrolled."""
+        """A feedback loop has no tensor or path semantics until unrolled."""
         raise ValueError(
             "The diagram contains a feedback loop "
             "which must be unrolled before evaluation.")
 
     determine_output_dimensions = truncation
     photon_number_transform = truncation
+    to_path = truncation
 
     def conjugate(self):
         initial_state = None if self.initial_state is None \

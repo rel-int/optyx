@@ -131,9 +131,8 @@ from math import factorial
 import numpy as np
 import perceval as pcvl
 
-from discopy import stream as monoidal_stream
 from discopy.cat import assert_iscomposable
-from discopy.utils import AxiomError, unbiased
+from discopy.utils import unbiased
 import discopy.matrix as underlying
 from discopy.tensor import Tensor
 from optyx.utils.misc import occupation_numbers, amplitudes_2_tensor
@@ -292,18 +291,6 @@ class Matrix(underlying.Matrix):
             self.normalisation.conjugate(),
             self.scalar,
         )
-
-    def feedback(self, dom=None, cod=None, mem=None):
-        """
-        Feed the last `mem` outputs of a matrix from `dom + mem` to
-        `cod + mem` back into its last `mem` inputs one time step later,
-        as a :class:`Feedback`, such that `to_path` and `unroll` commute.
-
-        >>> matrix = Matrix(np.array([[0, 1], [1, 0]]), 2, 2)
-        >>> assert matrix.feedback().unroll(2) == Matrix(
-        ...     np.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]]), 3, 3)
-        """
-        return Feedback(self, dom=dom, cod=cod, mem=mem)
 
     def __repr__(self):
         return (
@@ -494,56 +481,6 @@ class Matrix(underlying.Matrix):
     def _umatrix_is_unitary(self) -> bool:
         m = self.umatrix.array
         return np.allclose(np.eye(m.shape[0]), m.dot(m.conj().T))
-
-
-class Feedback:
-    """
-    A matrix from `dom + mem` to `cod + mem` with its last `mem` outputs
-    fed back into its last `mem` inputs one time step later, mirroring
-    :class:`optyx.core.diagram.Feedback` in the matrix setting.
-
-    The memory wires of the unrolling are left open, at the end of the
-    domain and codomain of the result.
-
-    Parameters:
-        arg : The matrix from `dom + mem` to `cod + mem` to feed back.
-        dom : The domain of the result, `arg.dom - mem` by default.
-        cod : The codomain of the result, `arg.cod - mem` by default.
-        mem : The number of memory wires fed back, `1` by default.
-    """
-    def __init__(self, arg: Matrix, dom=None, cod=None, mem=None):
-        mem = 1 if mem is None else mem
-        dom = arg.dom - mem if dom is None else dom
-        cod = arg.cod - mem if cod is None else cod
-        if min(dom, cod) < 0 or (arg.dom, arg.cod) != (
-                dom + mem, cod + mem):
-            raise AxiomError(
-                f"{arg} is not a matrix from "
-                f"{dom} + {mem} to {cod} + {mem}")
-        self.arg, self.dom, self.cod, self.mem = arg, dom, cod, mem
-
-    def __repr__(self):
-        return f"Feedback({repr(self.arg)}, dom={self.dom}, " \
-               f"cod={self.cod}, mem={self.mem})"
-
-    def __eq__(self, other):
-        return isinstance(other, Feedback) and (
-            self.arg, self.dom, self.cod, self.mem
-        ) == (other.arg, other.dom, other.cod, other.mem)
-
-    def unroll(self, n_steps: int = 1) -> Matrix:
-        """
-        Unroll the feedback loop over `n_steps` time steps using
-        :class:`discopy.stream.Stream`, leaving the memory wires open at
-        the end of the domain and codomain of the result.
-        """
-        if n_steps < 1:
-            raise ValueError("n_steps must be at least 1.")
-        ty_factory = monoidal_stream.Ty[int]
-        stream = monoidal_stream.Stream[type(self.arg)](
-            self.arg, ty_factory(self.dom), ty_factory(self.cod),
-            ty_factory(self.mem))
-        return stream.unroll(n_steps - 1).now
 
 
 class Amplitudes(underlying.Matrix):

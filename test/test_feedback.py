@@ -29,9 +29,9 @@ def test_feedback_axioms():
     with pytest.raises(AxiomError):
         photonic.BS.feedback(dom=qmode, cod=qmode ** 2, mem=qmode)
     with pytest.raises(AxiomError):
-        photonic.BS.feedback(initial_state=photonic.Create(0, 0))
+        delay(initial_state=photonic.Create(0, 0)).unroll(1)
     with pytest.raises(AxiomError):
-        photonic.BS.feedback(final_effect=Discard(qmode ** 2))
+        delay(final_effect=Discard(qmode ** 2)).unroll(1)
 
 
 def test_single_step_unrolling():
@@ -95,25 +95,19 @@ def composite_loops():
 
 
 @pytest.mark.parametrize("name", composite_loops().keys())
-def test_to_path_unroll_commute(name):
-    d = composite_loops()[name]
-    lhs = d.unroll(3).to_path()
-    rhs = d.to_path().unroll(3)
-    assert (lhs.dom, lhs.cod) == (rhs.dom, rhs.cod)
-    assert np.allclose(lhs.array, rhs.array)
-
-
-def test_to_path_requires_open_memories():
+def test_to_path_raises_on_feedback(name):
     with pytest.raises(ValueError):
-        delay(initial_state=photonic.Create(0)).to_path()
+        composite_loops()[name].to_path()
 
 
-def test_core_to_path_unroll_commute():
-    wait = core.Diagram.swap(core.mode, core.mode).feedback()
-    lhs = wait.unroll(3).to_path()
-    rhs = wait.to_path().unroll(3)
-    assert (lhs.dom, lhs.cod) == (rhs.dom, rhs.cod)
-    assert np.allclose(lhs.array, rhs.array)
+def test_unrolled_to_path():
+    unrolled = delay().unroll(2)
+    amplitude = (
+        photonic.Create(1, 0, 0) >> unrolled >> photonic.Select(0, 1, 0)
+    ).to_path().eval().array
+    assert np.isclose(amplitude, 1)
+    with pytest.raises(ValueError):
+        core.Diagram.swap(core.mode, core.mode).feedback().to_path()
 
 
 def test_core_feedback_axioms():
@@ -123,9 +117,9 @@ def test_core_feedback_axioms():
     with pytest.raises(AxiomError):
         swap.feedback(dom=core.mode, cod=core.mode ** 2, mem=core.mode)
     with pytest.raises(AxiomError):
-        swap.feedback(initial_state=zw.Create(0, 0))
+        swap.feedback(initial_state=zw.Create(0, 0)).unroll(1)
     with pytest.raises(AxiomError):
-        swap.feedback(final_effect=zw.Select(0, 0))
+        swap.feedback(final_effect=zw.Select(0, 0)).unroll(1)
 
 
 def test_memory_order():
@@ -135,19 +129,9 @@ def test_memory_order():
     assert nested.unroll(1).dom == nested.dom @ qmode ** 2
 
 
-def test_matrix_feedback():
-    matrix = path.Matrix(np.array([[0, 1], [1, 0]]), 2, 2)
-    loop = matrix.feedback()
-    assert (loop.dom, loop.cod, loop.mem) == (1, 1, 1)
-    assert loop == path.Feedback(matrix)
-    assert loop.unroll(1) == matrix
-    assert loop.unroll(2) == path.Matrix(
-        np.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]]), 3, 3)
-    assert "Feedback" in repr(loop)
-    with pytest.raises(AxiomError):
-        matrix.feedback(mem=3)
-    with pytest.raises(ValueError):
-        loop.unroll(0)
+def test_matrix_has_no_feedback():
+    assert not hasattr(path.Matrix, "feedback")
+    assert not hasattr(path, "Feedback")
 
 
 def test_functor_maps_feedback():

@@ -34,6 +34,6 @@
 
 ## Review round 4
 
-- [WIP] @claude-g9z1pv-2026-07-30 12:30 — simplify the Feedback init
-- [WIP] @claude-g9z1pv-2026-07-30 12:30 — CNOT-ladder doctests: core unrolling with |+>, channel double/unroll Equation
-- [WIP] @claude-g9z1pv-2026-07-30 12:30 — remove feedback from path, and the unused to_path branch
+- [x] simplify the Feedback init
+- [x] CNOT-ladder doctests: core unrolling with |+>, channel double/unroll Equation
+- [x] remove feedback from path, and the unused to_path branch

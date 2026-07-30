@@ -411,23 +411,6 @@ class Diagram(frobenius.Diagram):
 
         assert self.is_pure, "Diagram must be pure to convert to path."
 
-        def is_open(box):
-            return box.initial_state is None and box.final_effect is None \
-                and all(is_open(inner) for inner in box.arg.boxes
-                        if isinstance(inner, self.feedback_factory))
-
-        loops = [box for box in self.boxes
-                 if isinstance(box, self.feedback_factory)]
-        if loops:
-            if not all(map(is_open, loops)):
-                raise ValueError(
-                    "to_path requires open feedback memories: plug initial "
-                    "states and final effects with unroll first.")
-            unrolled = self.unroll(1)
-            return unrolled.to_path(dtype).feedback(
-                dom=len(self.dom), cod=len(self.cod),
-                mem=len(unrolled.dom) - len(self.dom))
-
         return frobenius.Functor(
             ob_map=len,
             ar_map=lambda f: f.get_kraus().to_path(dtype),
@@ -841,25 +824,36 @@ class Feedback(monoidal.Bubble, Diagram, frobenius.Box):
 
     See :class:`optyx.core.diagram.Feedback`; doubling the loop gives the
     loop of the doubled diagram, so `double` and `unroll` commute.
+
+    Example
+    -------
+    The feedback of `CNOT >> SWAP` unrolls to a ladder of CNOT gates,
+    here with the plus state as initial state and the output memory
+    discarded; doubling commutes with unrolling on the nose:
+
+    >>> from discopy.drawing import Equation
+    >>> from optyx.qubits import Z, X, Scalar, Ket
+    >>> cnot = Z(1, 2) @ qubit >> qubit @ X(2, 1) @ Scalar(2 ** 0.5)
+    >>> ladder = (cnot >> Diagram.swap(qubit, qubit)).feedback(
+    ...     initial_state=Ket("+"), final_effect=Discard(qubit))
+    >>> lhs, rhs = ladder.unroll(2).double(), ladder.double().unroll(2)
+    >>> assert lhs == rhs
+    >>> Equation(lhs, rhs, symbol="$=$").draw(
+    ...     path="docs/_static/cnot_ladder_double.svg")
+
+    .. image:: /_static/cnot_ladder_double.svg
+        :align: center
     """
     __ambiguous_inheritance__ = (monoidal.Bubble, frobenius.Box)
 
     def __init__(self, arg, dom=None, cod=None, mem=None,
                  initial_state=None, final_effect=None):
-        if mem is None:
-            mem = arg.cod[-1:] if cod is None else arg.cod[len(cod):]
+        mem = arg.cod[-1:] if mem is None else mem
         dom = arg.dom[:len(arg.dom) - len(mem)] if dom is None else dom
         cod = arg.cod[:len(arg.cod) - len(mem)] if cod is None else cod
-        if arg.dom != dom @ mem:
-            raise AxiomError(f"{arg.dom} != {dom @ mem}")
-        if arg.cod != cod @ mem:
-            raise AxiomError(f"{arg.cod} != {cod @ mem}")
-        if initial_state is not None and (
-                initial_state.dom, initial_state.cod) != (type(mem)(), mem):
-            raise AxiomError(f"{initial_state} is not a state of {mem}")
-        if final_effect is not None and (
-                final_effect.dom, final_effect.cod) != (mem, type(mem)()):
-            raise AxiomError(f"{final_effect} is not an effect on {mem}")
+        if (arg.dom, arg.cod) != (dom @ mem, cod @ mem):
+            raise AxiomError(
+                f"{arg} is not a diagram from {dom @ mem} to {cod @ mem}")
         self.mem = mem
         self.initial_state, self.final_effect = initial_state, final_effect
         monoidal.Bubble.__init__(
