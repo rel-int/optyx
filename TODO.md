@@ -25,3 +25,9 @@
 
 - [x] drop the `stream` method: `feedback` and `unroll` are the whole interface
 - [x] build the stream inside `unroll` through `StreamFunctor`, uncached
+
+## Review round 3
+
+- [WIP] @claude-g9z1pv-2026-07-30 09:00 — drop the Stream and StreamFunctor classes: call discopy.stream inline in `unroll`
+- [WIP] @claude-g9z1pv-2026-07-30 09:00 — `path.Matrix.feedback` returns a `path.Feedback` class, not a Stream
+- [WIP] @claude-g9z1pv-2026-07-30 09:00 — remove the pylint comments and the separate `map_feedback`
