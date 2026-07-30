@@ -368,6 +368,35 @@ class Diagram(frobenius.Diagram):
         """
         if n_steps < 1:
             raise ValueError("n_steps must be at least 1.")
+        stream, plugs = self.to_stream()
+        unrolled = stream.unroll(n_steps - 1).now
+        mem = stream.mem.now
+        dom = unrolled.dom[:len(unrolled.dom) - len(mem)]
+        cod = unrolled.cod[:len(unrolled.cod) - len(mem)]
+        initial = self.id(type(mem)()).tensor(*(
+            self.id(loop_mem) if state is None else state
+            for state, _, loop_mem in plugs))
+        final = self.id(type(mem)()).tensor(*(
+            self.id(loop_mem) if effect is None else effect
+            for _, effect, loop_mem in plugs))
+        return self.id(dom) @ initial >> unrolled >> self.id(cod) @ final
+
+    def to_stream(self) -> tuple:
+        """
+        The :class:`discopy.stream.Stream` semantics of a diagram, together
+        with the list of its loops' `(initial_state, final_effect, mem)`.
+
+        Every box maps to the constant stream and every :class:`Feedback`
+        loop moves its memory from the wires to the memory of the stream,
+        so that `stream.now` is the one time step diagram from `dom @ mem`
+        to `cod @ mem`. :meth:`unroll` plugs the states and effects in.
+
+        >>> from optyx.core.zw import Create
+        >>> wait = Diagram.swap(mode, mode).feedback(initial_state=Create(1))
+        >>> stream, plugs = wait.to_stream()
+        >>> assert stream.now == Diagram.swap(mode, mode)
+        >>> assert plugs == [(Create(1), None, mode)]
+        """
         stream_factory = monoidal_stream.Stream[self.factory]
         ty_factory, plugs = stream_factory.ob, []
 
@@ -383,18 +412,7 @@ class Diagram(frobenius.Diagram):
         functor = monoidal.Functor(
             ob_map=lambda x: x, ar_map=ar_map,
             dom=self.factory, cod=stream_factory)
-        stream = functor(self)
-        unrolled = stream.unroll(n_steps - 1).now
-        mem = stream.mem.now
-        dom = unrolled.dom[:len(unrolled.dom) - len(mem)]
-        cod = unrolled.cod[:len(unrolled.cod) - len(mem)]
-        initial = self.id(type(mem)()).tensor(*(
-            self.id(loop_mem) if state is None else state
-            for state, _, loop_mem in plugs))
-        final = self.id(type(mem)()).tensor(*(
-            self.id(loop_mem) if effect is None else effect
-            for _, effect, loop_mem in plugs))
-        return self.id(dom) @ initial >> unrolled >> self.id(cod) @ final
+        return functor(self), plugs
 
     # pylint: disable=too-many-locals
     def to_tensor(

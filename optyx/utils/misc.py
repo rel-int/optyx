@@ -298,6 +298,42 @@ def invert_perm(p):
     return q
 
 
+def fixed_point(matrix):
+    """
+    The fixed point of the linear map given by `matrix` acting on the
+    right, i.e. the eigenvector of `matrix.T` for the eigenvalue closest
+    to one, up to a scalar.
+
+    The transfer matrix of a trace preserving channel has one such
+    eigenvalue at one and its eigenvector is the stationary state, given
+    here as a vector of the doubled space: the caller knows how to read
+    it back as a density matrix and normalise it.
+
+    >>> depolarising = np.array(
+    ...     [[.5, 0, 0, .5], [0, 0, 0, 0], [0, 0, 0, 0], [.5, 0, 0, .5]])
+    >>> state = fixed_point(depolarising)
+    >>> assert np.allclose(state / (state[0] + state[3]), [.5, 0, 0, .5])
+    """
+    values, vectors = np.linalg.eig(matrix.T)
+    return vectors[:, np.argmin(np.abs(values - 1))]
+
+
+def distance(state, other):
+    """
+    The Frobenius distance between two density matrices given as arrays
+    over the doubled type, used as a convergence criterion.
+
+    Unlike the trace distance, it does not depend on the pairing of the
+    doubled wires into rows and columns, which classical wires and their
+    single wire doubling would make ambiguous.
+
+    >>> assert np.isclose(distance(np.eye(2) / 2, np.eye(2) / 2), 0)
+    >>> zero = np.array([[1, 0], [0, 0]])
+    >>> assert np.isclose(distance(zero, np.eye(2) - zero), np.sqrt(2))
+    """
+    return np.linalg.norm(np.asarray(state) - np.asarray(other))
+
+
 class BasisTransition(NamedTuple):
     """
     A single non-zero transition emitted by `truncation_specification`.

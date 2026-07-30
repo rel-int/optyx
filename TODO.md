@@ -19,14 +19,14 @@ bond dimension `chi` — an MPO power method — approximates the fixed point.
 
 ## Unroll and contract
 
-- [ ] helper building the time-`n` state diagram: `unroll(n_steps)` with
+- [x] helper building the time-`n` state diagram: `unroll(n_steps)` with
       intermediate outputs and final memory discarded, from `Ty()` to `cod`
-- [ ] `channel.Diagram.fix(n_steps, chi, backend=None)` contracting the doubled
+- [x] `channel.Diagram.fix(n_steps, chi, backend=None)` contracting the doubled
       network through `QuimbBackend` with a compressed hyperoptimiser
       (`max_bond=chi`), returning the density matrix over `cod` as an `EvalResult`
-- [ ] `ValueError` on `dom != Ty()` and on diagrams without feedback loops
-- [ ] tests against exact power iteration on small instances: the delay line and
-      the CNOT ladder of #12; a doctest with a known fixed point
+- [x] `ValueError` on `dom != Ty()` and on diagrams without feedback loops
+- [x] tests against exact power iteration on small instances: the delay line and
+      a dephasing rotation loop; a doctest with a known fixed point
 
 ## Methods of the ref, as tensor contractions
 
@@ -57,16 +57,19 @@ that; (1) is the exact baseline for tests; (3) is the cheapest check on marginal
 
 - [ ] exact baseline: unrolled evaluation through permanents, reusing
       `PermanentBackend` (tests + notebook, little new code)
-- [ ] `method="eigen"`: build the doubled one-step transfer tensor, eigensolve
+- [x] `method="eigen"`: build the doubled one-step transfer tensor, eigensolve
       for the fixed point when the memory dimension is tractable
-- [ ] `method="power"` (default): the `chi`-compressed contraction above
+- [x] `method="power"` (default): the `chi`-compressed contraction above
 - [ ] correlation-tensor marginals in the notebook to cross-check both
 
 ## Heuristics for the defaults
 
-- [ ] `n_steps=None`: double the depth until the trace distance between successive
-      states drops below a new `tol` keyword
-- [ ] `chi=None`: double the bond dimension until the result is stable within `tol`
+- [x] `n_steps=None`: double the depth until the distance between successive
+      states drops below a new `tol` keyword — Frobenius, not trace distance:
+      the trace distance needs a row/column pairing of the doubled wires which
+      the single wire doubling of classical types makes ambiguous
+- [x] `chi=None`: double the bond dimension until the result is stable within
+      `tol`, capped by `max_chi`; both double together in one loop
 - [ ] leave a hook for formal bounds (photonic bounds in progress by @armandld,
       heuristics from https://arxiv.org/abs/2602.05566)
 
@@ -75,6 +78,15 @@ that; (1) is the exact baseline for tests; (3) is the cheapest check on marginal
 - [ ] `examples/` notebook benchmarking quimb compressed contraction (CPU and
       PyTorch backend) against the methods of https://arxiv.org/abs/2602.05566
       on boson sampling with feedback; convergence plots in `n_steps` and `chi`
+
+## Still open after the first implementation round
+
+- the reading of the ref is still unverified: arxiv.org is blocked by the network
+  policy of the agent environment, so the three methods above were reconstructed
+  from the abstract. The mapping onto `method="eigen"` and `method="power"` needs
+  checking against the paper, and `n_steps` / `chi` heuristics taken from it
+- `fix` doubles `n_steps` and `chi` together rather than converging them
+  separately, which is cheaper to implement but conflates two questions
 
 ## Blocked on design
 

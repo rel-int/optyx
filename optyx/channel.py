@@ -149,6 +149,10 @@ dual-rail encoding. For example, we can create a GHZ state:
 
 from __future__ import annotations
 
+import warnings
+
+import numpy as np
+from cotengra import HyperCompressedOptimizer
 from discopy import tensor
 from discopy import monoidal, symmetric, frobenius, hypergraph
 from discopy.cat import factory
@@ -156,6 +160,7 @@ from discopy.utils import AxiomError
 from pytket.extensions.pyzx import pyzx_to_tk
 from pyzx import extract_circuit
 from optyx.core import diagram
+from optyx.utils.misc import distance, fixed_point
 
 
 class Ob(frobenius.Ob):
@@ -251,6 +256,7 @@ class Diagram(frobenius.Diagram):
     ob = Ty
     grad = tensor.Diagram.grad
     unroll = diagram.Diagram.unroll
+    to_stream = diagram.Diagram.to_stream
 
     def feedback(self, dom=None, cod=None, mem=None,
                  initial_state=None, final_effect=None) -> Diagram:
@@ -284,6 +290,162 @@ class Diagram(frobenius.Diagram):
         return self.feedback_factory(
             self, dom=dom, cod=cod, mem=mem,
             initial_state=initial_state, final_effect=final_effect)
+
+    def one_step(self) -> Diagram:
+        """
+        The channel from the memory to the output and the memory, obtained
+        by opening every feedback loop: one time step of a stateful
+        diagram, with its `initial_state` and `final_effect` left out.
+
+        >>> from optyx.photonic import Create
+        >>> wait = Diagram.swap(qmode, qmode).feedback(
+        ...     initial_state=Create(0))
+        >>> assert wait.one_step() == Diagram.swap(qmode, qmode)
+        """
+        return self.to_stream()[0].now
+
+    def at_time(self, n_steps: int) -> Diagram:
+        """
+        The state of a stateful diagram after `n_steps` time steps: the
+        unrolling with every output before the last one and the memory
+        left at the end discarded.
+
+        The diagram must be a state and every feedback loop needs an
+        `initial_state`, otherwise the unrolling has an open input and
+        denotes no state.
+
+        >>> from optyx.qubits import Ket
+        >>> source = (Discard(qubit) @ Ket(0) @ Ket(0)).feedback(
+        ...     mem=qubit, initial_state=Ket(1))
+        >>> assert source.at_time(3).dom == Ty()
+        >>> assert source.at_time(3).cod == qubit
+        """
+        if self.dom:
+            raise ValueError(
+                "at_time builds a state, so the diagram must have an empty "
+                f"domain, got dom={self.dom}.")
+        unrolled = self.unroll(n_steps)
+        if unrolled.dom:
+            raise ValueError(
+                "Every feedback loop needs an initial_state, "
+                f"got an open input memory {unrolled.dom}.")
+        past = self.id(Ty()).tensor(*(n_steps - 1) * [Discard(self.cod)])
+        memory = unrolled.cod[n_steps * len(self.cod):]
+        rest = Discard(memory) if memory else self.id(Ty())
+        return unrolled >> past @ self.id(self.cod) @ rest
+
+    def fix(self, n_steps: int = None, chi: int = None,
+            method: str = "power", tol: float = 1e-6,
+            cutoff: int = 2, backend=None,
+            max_steps: int = 64, max_chi: int = 64):
+        """
+        Approximate the stationary state of a stateful diagram, i.e. the
+        limit of :meth:`at_time` when the number of time steps goes to
+        infinity, as a density matrix over its codomain.
+
+        The stationary state is the fixed point of the transfer channel
+        which one time step induces on the memory of the feedback loops.
+
+        Parameters:
+            n_steps : The number of time steps unrolled by the `"power"`
+                method, doubled until convergence when `None`.
+            chi : The bound on the bond dimensions of the tensor network,
+                doubled until convergence when `None`.
+            method : Either `"power"`, contracting the unrolling with
+                bounded bond dimensions, or `"eigen"`, diagonalising the
+                transfer matrix, see below.
+            tol : The distance below which two successive
+                approximations are deemed converged.
+            cutoff : The dimension of each memory wire, `"eigen"` only.
+            max_steps : The number of time steps at which the doubling
+                gives up and warns, `"power"` only.
+            max_chi : The bond dimension at which the doubling gives up
+                and warns, `"power"` only.
+            backend : The backend used by the `"power"` method, a
+                :class:`optyx.core.backends.QuimbBackend` compressing to
+                `chi` by default.
+
+        The `"power"` method unrolls the diagram and contracts the doubled
+        tensor network, compressing the bonds to `chi`: this is a power
+        iteration on the transfer channel, the only method which scales
+        past a memory that fits in memory. The `"eigen"` method builds the
+        transfer matrix of one time step and diagonalises it, exact and
+        cheaper whenever `cutoff ** len(memory)` is small, with no
+        `n_steps` at all.
+
+        A loop which reprepares its memory at every time step forgets its
+        initial state, so it is its own stationary state:
+
+        >>> from optyx.qubits import Ket
+        >>> source = (Discard(qubit) @ Ket(0) @ Ket(0)).feedback(
+        ...     mem=qubit, initial_state=Ket(1))
+        >>> assert np.allclose(
+        ...     source.fix(method="eigen").density_matrix,
+        ...     [[1, 0], [0, 0]])
+        """
+        # pylint: disable=import-outside-toplevel
+        from optyx.core.backends import QuimbBackend
+        if self.dom:
+            raise ValueError(
+                "The stationary state of a diagram with a domain is not "
+                f"defined, got dom={self.dom}.")
+        if not any(isinstance(box, Feedback) for box in self.boxes):
+            raise ValueError(
+                "The diagram has no feedback loop, so it is already its "
+                "own stationary state.")
+        if method == "eigen":
+            return self.eigen_fix(cutoff)
+        if method != "power":
+            raise ValueError(
+                f"Unknown method {method}, use 'power' or 'eigen'.")
+        contract = lambda steps, bond: self.at_time(steps).eval(
+            backend or QuimbBackend(
+                hyperoptimiser=HyperCompressedOptimizer(),
+                contraction_params={"max_bond": bond}))
+        steps, bond = n_steps or 2, chi or 4
+        result = contract(steps, bond)
+        while n_steps is None or chi is None:
+            if steps >= max_steps or bond >= max_chi:
+                warnings.warn(
+                    f"fix did not converge to {tol} within "
+                    f"n_steps={steps} and chi={bond}.")
+                break
+            previous = result.density_matrix
+            steps, bond = (steps if n_steps else 2 * steps,
+                           bond if chi else 2 * bond)
+            result = contract(steps, bond)
+            if distance(result.density_matrix, previous) < tol:
+                break
+        return result
+
+    def eigen_fix(self, cutoff: int = 2):
+        """
+        The stationary state obtained by diagonalising the transfer matrix
+        which one time step induces on the memory, with `cutoff` as the
+        dimension of each of its doubled wires, see :meth:`fix`.
+        """
+        # pylint: disable=import-outside-toplevel
+        from optyx.core.backends import EvalResult, StateType
+        step = self.one_step()
+        memory = step.cod[len(self.cod):]
+        dims = len(memory.double()) * [cutoff]
+        transfer = (step >> Discard(self.cod) @ self.id(memory)).double()
+        readout = (step >> self.id(self.cod) @ Discard(memory)).double()
+        matrix = transfer.to_tensor(dims).eval().array
+        state = fixed_point(matrix.reshape(2 * (int(np.prod(dims)),)))
+        tensor_diagram = readout.to_tensor(dims)
+        density_matrix = np.tensordot(
+            state.reshape(dims), tensor_diagram.eval().array, axes=len(dims))
+        cod_dims = [int(dim) for dim in tensor_diagram.cod.inside]
+        trace = np.tensordot(
+            density_matrix,
+            Discard(self.cod).double().to_tensor(cod_dims).eval().array,
+            axes=len(cod_dims))
+        return EvalResult(
+            tensor.Box(
+                "Result", tensor.Dim(1), tensor_diagram.cod,
+                density_matrix / trace),
+            output_types=self.cod, state_type=StateType.DM)
 
     def needs_inflation(self) -> bool:
         """
