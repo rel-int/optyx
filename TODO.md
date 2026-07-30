@@ -31,3 +31,9 @@
 - [x] drop the Stream and StreamFunctor classes: call discopy.stream inline in `unroll`
 - [x] `path.Matrix.feedback` returns a `path.Feedback` class, not a Stream
 - [x] remove the pylint comments and the separate `map_feedback`
+
+## Review round 4
+
+- [WIP] @claude-g9z1pv-2026-07-30 12:30 — simplify the Feedback init
+- [WIP] @claude-g9z1pv-2026-07-30 12:30 — CNOT-ladder doctests: core unrolling with |+>, channel double/unroll Equation
+- [WIP] @claude-g9z1pv-2026-07-30 12:30 — remove feedback from path, and the unused to_path branch
