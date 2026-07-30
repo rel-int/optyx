@@ -59,7 +59,7 @@ unrolling to a tensor network.
 
 ## Notebook
 
-- [ ] `docs/notebooks/sudoku.ipynb`: 4x4 sudoku as a `CMap` with 16 cell
+- [ ] `examples/sudoku.ipynb`: 4x4 sudoku as a `CMap` with 16 cell
       boxes and 12 block boxes (4 rows, 4 columns, 4 squares); each cell has
       3 block neighbours plus 2 prediction qubits (3 ports in, 5 out), each
       block has its 4 cells as neighbours (4 in, 4 out)
