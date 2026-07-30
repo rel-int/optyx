@@ -411,11 +411,22 @@ class Diagram(frobenius.Diagram):
 
         assert self.is_pure, "Diagram must be pure to convert to path."
 
-        if any(isinstance(box, Feedback) for box in self.boxes):
-            stream = self.stream_functor()(self)
-            return stream.now.to_path(dtype).feedback(
+        def is_open(box):
+            return box.initial_state is None and box.final_effect is None \
+                and all(is_open(inner) for inner in box.arg.boxes
+                        if isinstance(inner, self.feedback_factory))
+
+        loops = [box for box in self.boxes
+                 if isinstance(box, self.feedback_factory)]
+        if loops:
+            if not all(map(is_open, loops)):
+                raise ValueError(
+                    "to_path requires open feedback memories: plug initial "
+                    "states and final effects with unroll first.")
+            unrolled = self.unroll(1)
+            return unrolled.to_path(dtype).feedback(
                 dom=len(self.dom), cod=len(self.cod),
-                mem=len(stream.mem.now))
+                mem=len(unrolled.dom) - len(self.dom))
 
         return frobenius.Functor(
             ob_map=len,
@@ -881,7 +892,6 @@ class Feedback(monoidal.Bubble, Diagram, frobenius.Box):
             initial_state=initial_state, final_effect=final_effect)
 
     def inflate(self, d):
-        # pylint: disable=invalid-name
         initial_state = None if self.initial_state is None \
             else Diagram.inflate(self.initial_state, d)
         final_effect = None if self.final_effect is None \
@@ -1035,31 +1045,13 @@ class Functor(frobenius.Functor):
 
     def __call__(self, other):
         if isinstance(other, Feedback):
-            return diagram.map_feedback(self, other)
-        return super().__call__(other)
-
-
-class StreamFunctor(symmetric.Functor):
-    """
-    The symmetric functor computing the monoidal :class:`diagram.Stream`
-    of a channel diagram: every box maps to the constant stream and every
-    :class:`Feedback` loop to the feedback of its memory, with no choice
-    of initial state or final effect.
-
-    It is applied by :meth:`Diagram.unroll`, the only place a stream is
-    needed.
-
-    >>> from optyx import photonic
-    >>> wait = StreamFunctor()(photonic.BS.feedback())
-    >>> assert wait.now == photonic.BS and wait.mem.now == qmode
-    """
-    dom, cod = Diagram, diagram.Stream[Diagram]
-
-    __init__ = diagram.StreamFunctor.__init__
-
-    def __call__(self, other):
-        if isinstance(other, Feedback):
-            return diagram.map_feedback(self, other)
+            plugs = {
+                attr: self(getattr(other, attr))
+                for attr in ("initial_state", "final_effect")
+                if getattr(other, attr) is not None}
+            return self(other.arg).feedback(
+                dom=self(other.dom), cod=self(other.cod),
+                mem=self(other.mem), **plugs)
         return super().__call__(other)
 
 
@@ -1082,4 +1074,3 @@ Diagram.braid_factory = Swap
 Diagram.sum_factory = Sum
 Diagram.feedback_factory = Feedback
 Diagram.functor_factory = Functor
-Diagram.stream_functor = StreamFunctor

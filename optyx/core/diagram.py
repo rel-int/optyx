@@ -207,7 +207,7 @@ from discopy import (
 from discopy import stream as monoidal_stream
 from discopy.cat import factory, rsubs
 from discopy.frobenius import Dim
-from discopy.utils import AxiomError, unbiased
+from discopy.utils import AxiomError
 from discopy.quantum.gates import format_number
 from enum import Enum
 from optyx.utils.misc import (
@@ -304,18 +304,30 @@ class Diagram(frobenius.Diagram):
         In other words, it is the underlying matrix
         representation of a :class:`path` and :class:`lo` diagrams.
 
-        A diagram with feedback loops maps to the :meth:`path.Matrix.feedback`
-        of the matrix of its :class:`StreamFunctor` image, so that `to_path`
-        and `unroll` commute.
+        A diagram with open feedback loops maps to the
+        :meth:`path.Matrix.feedback` of the matrix of its single-step
+        unrolling, so that `to_path` and `unroll` commute; initial states
+        and final effects must be plugged with :meth:`unroll` first.
         """
         # pylint: disable=import-outside-toplevel
         from optyx.core import path
 
-        if any(isinstance(box, Feedback) for box in self.boxes):
-            stream = self.stream_functor()(self)
-            return stream.now.to_path(dtype).feedback(
+        def is_open(box):
+            return box.initial_state is None and box.final_effect is None \
+                and all(is_open(inner) for inner in box.arg.boxes
+                        if isinstance(inner, self.feedback_factory))
+
+        loops = [box for box in self.boxes
+                 if isinstance(box, self.feedback_factory)]
+        if loops:
+            if not all(map(is_open, loops)):
+                raise ValueError(
+                    "to_path requires open feedback memories: plug initial "
+                    "states and final effects with unroll first.")
+            unrolled = self.unroll(1)
+            return unrolled.to_path(dtype).feedback(
                 dom=len(self.dom), cod=len(self.cod),
-                mem=len(stream.mem.now))
+                mem=len(unrolled.dom) - len(self.dom))
 
         return symmetric.Functor(
             ob_map=len,
@@ -352,8 +364,9 @@ class Diagram(frobenius.Diagram):
     def unroll(self, n_steps: int = 1) -> Diagram:
         """
         Unroll the feedback loops of a diagram over `n_steps` time steps,
-        by interpreting it as a monoidal :class:`Stream` with
-        :class:`StreamFunctor`.
+        by interpreting it as a :class:`discopy.stream.Stream`: every box
+        maps to the constant stream and every :class:`Feedback` loop moves
+        its memory from the wires to the memory of the stream.
 
         The `initial_state` of each loop is plugged in its input memory at
         the first time step and its `final_effect` in its output memory at
@@ -374,17 +387,32 @@ class Diagram(frobenius.Diagram):
         """
         if n_steps < 1:
             raise ValueError("n_steps must be at least 1.")
-        stream = self.stream_functor()(self)
+        stream_factory = monoidal_stream.Stream[self.factory]
+        ty_factory, plugs = stream_factory.ob, []
+
+        def ar_map(box):
+            if not isinstance(box, self.feedback_factory):
+                return box
+            plugs.append((box.initial_state, box.final_effect, box.mem))
+            inner = functor(box.arg)
+            return stream_factory(
+                inner.now, dom=ty_factory(box.dom), cod=ty_factory(box.cod),
+                mem=ty_factory(box.mem) @ inner.mem)
+
+        functor = monoidal.Functor(
+            ob_map=lambda x: x, ar_map=ar_map,
+            dom=self.factory, cod=stream_factory)
+        stream = functor(self)
         unrolled = stream.unroll(n_steps - 1).now
         mem = stream.mem.now
         dom = unrolled.dom[:len(unrolled.dom) - len(mem)]
         cod = unrolled.cod[:len(unrolled.cod) - len(mem)]
         initial = self.id(type(mem)()).tensor(*(
             self.id(loop_mem) if state is None else state
-            for state, _, loop_mem in stream.plugs))
+            for state, _, loop_mem in plugs))
         final = self.id(type(mem)()).tensor(*(
             self.id(loop_mem) if effect is None else effect
-            for _, effect, loop_mem in stream.plugs))
+            for _, effect, loop_mem in plugs))
         return self.id(dom) @ initial >> unrolled >> self.id(cod) @ final
 
     # pylint: disable=too-many-locals
@@ -1159,53 +1187,6 @@ def truncation_tensor(
     return tensor
 
 
-class Stream(monoidal_stream.Stream):
-    """
-    A constant monoidal stream of diagrams with the identity as delay
-    endofunctor: feeding back moves the memory from the wires of `now`
-    to the memory of the stream.
-
-    The `plugs` carry the `initial_state`, `final_effect` and memory type
-    of each feedback loop, in the order their memories appear in `mem`,
-    so that :meth:`Diagram.unroll` can plug them; the stream itself makes
-    no choice of initial state or final effect. It is built by
-    :class:`StreamFunctor` each time a diagram is unrolled, and not cached:
-    diagrams stay pure values and one functor application is cheap next to
-    the contraction that follows.
-    """
-
-    def __init__(self, now, dom=None, cod=None, mem=None, _later=None,
-                 plugs=()):
-        self.plugs = tuple(plugs)
-        super().__init__(now, dom, cod, mem, _later)
-
-    @unbiased
-    def then(self, other: Stream) -> Stream:
-        result = super().then(other)
-        result.plugs = self.plugs + other.plugs
-        return result
-
-    @unbiased
-    def tensor(self, other: Stream) -> Stream:
-        result = super().tensor(other)
-        result.plugs = self.plugs + other.plugs
-        return result
-
-    def feedback(self, dom=None, cod=None, mem=None,
-                 initial_state=None, final_effect=None) -> Stream:
-        """Feed the last `mem` wires of `now` back into the memory."""
-        plug = tuple(
-            x if x is None else x.now for x in (initial_state, final_effect)
-        ) + (mem.now, )
-        return type(self)(self.now, dom=dom, cod=cod, mem=mem @ self.mem,
-                          plugs=(plug, ) + self.plugs)
-
-    @classmethod
-    def braid(cls, left, right) -> Stream:
-        """The constant stream of braids."""
-        return cls.swap(left, right)
-
-
 class Feedback(monoidal.Bubble, Box):
     """
     A feedback loop connecting the last `mem` outputs of `arg`
@@ -1284,7 +1265,6 @@ class Feedback(monoidal.Bubble, Box):
             initial_state=initial_state, final_effect=final_effect)
 
     def inflate(self, d):
-        # pylint: disable=invalid-name
         mem = Ty.tensor(
             *(o ** d if o.inside[0].name == "mode" else o for o in self.mem))
         initial_state = None if self.initial_state is None \
@@ -1302,20 +1282,6 @@ class Feedback(monoidal.Bubble, Box):
         return self.arg.to_drawing().trace(len(self.mem))
 
 
-def map_feedback(functor, box: Feedback):
-    """
-    Map a feedback loop functorially: the feedback of the image of its
-    argument, over the images of its memory, initial state and final effect.
-    """
-    plugs = {
-        attr: functor(getattr(box, attr))
-        for attr in ("initial_state", "final_effect")
-        if getattr(box, attr) is not None}
-    return functor(box.arg).feedback(
-        dom=functor(box.dom), cod=functor(box.cod),
-        mem=functor(box.mem), **plugs)
-
-
 class Functor(frobenius.Functor):
     """
     A hypergraph functor is a compact functor that preserves spiders.
@@ -1330,43 +1296,13 @@ class Functor(frobenius.Functor):
 
     def __call__(self, other):
         if isinstance(other, Feedback):
-            return map_feedback(self, other)
-        return super().__call__(other)
-
-
-class StreamFunctor(symmetric.Functor):
-    """
-    The symmetric functor computing the monoidal :class:`Stream` of a
-    diagram: every box maps to the constant stream and every
-    :class:`Feedback` loop to the feedback of its memory, with no choice
-    of initial state or final effect.
-
-    It is applied by :meth:`Diagram.unroll`, which is the only place a
-    stream is needed; a diagram with no feedback loops is constant.
-
-    >>> from optyx.core import zw
-    >>> assert StreamFunctor()(zw.W(2)).now == zw.W(2)
-    >>> assert StreamFunctor()(zw.W(2)).is_constant
-
-    Feeding back a memory moves it from the wires of `now` to the memory
-    of the stream:
-
-    >>> wait = StreamFunctor()(Diagram.swap(mode, mode).feedback())
-    >>> assert wait.now == Diagram.swap(mode, mode)
-    >>> assert wait.mem.now == mode
-    """
-    dom, cod = Diagram, Stream[Diagram]
-
-    def __init__(self, ob_map=None, ar_map=None, cod=None):
-        symmetric.Functor.__init__(
-            self,
-            ob_map=(lambda x: x) if ob_map is None else ob_map,
-            ar_map=(lambda box: box) if ar_map is None else ar_map,
-            cod=type(self).cod if cod is None else cod)
-
-    def __call__(self, other):
-        if isinstance(other, Feedback):
-            return map_feedback(self, other)
+            plugs = {
+                attr: self(getattr(other, attr))
+                for attr in ("initial_state", "final_effect")
+                if getattr(other, attr) is not None}
+            return self(other.arg).feedback(
+                dom=self(other.dom), cod=self(other.cod),
+                mem=self(other.mem), **plugs)
         return super().__call__(other)
 
 
@@ -1383,5 +1319,4 @@ Diagram.ob = Ty
 Diagram.sum_factory = Sum
 Diagram.feedback_factory = Feedback
 Diagram.functor_factory = Functor
-Diagram.stream_functor = StreamFunctor
 Id = Diagram.id

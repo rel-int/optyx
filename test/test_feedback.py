@@ -6,7 +6,7 @@ from discopy.utils import AxiomError
 from optyx import photonic
 from optyx import classical, qubits
 from optyx.channel import (
-    Diagram, Discard, Feedback, Functor, StreamFunctor, bit, qmode, qubit
+    Diagram, Discard, Feedback, Functor, bit, qmode, qubit
 )
 from optyx.core import diagram as core, path, zw
 
@@ -19,7 +19,6 @@ def delay(initial_state=None, final_effect=None):
 def test_feedback_types():
     wait = delay()
     assert wait.dom == wait.cod == qmode and wait.mem == qmode
-    assert StreamFunctor()(wait).mem.now == qmode
     fb = (photonic.BS @ photonic.BS).feedback(mem=qmode ** 2)
     assert fb.dom == fb.cod == qmode ** 2 and fb.mem == qmode ** 2
 
@@ -35,12 +34,10 @@ def test_feedback_axioms():
         photonic.BS.feedback(final_effect=Discard(qmode ** 2))
 
 
-def test_stream_functor_is_constant():
+def test_single_step_unrolling():
     wait, box = delay(), photonic.BS
-    assert StreamFunctor()(box).now == box
-    assert StreamFunctor()(box).is_constant
-    assert StreamFunctor()(wait).now == Diagram.swap(qmode, qmode)
-    assert StreamFunctor()(wait).mem.now == qmode
+    assert box.unroll(1) == box
+    assert wait.unroll(1) == Diagram.swap(qmode, qmode)
 
 
 def test_unroll_is_a_delay_line():
@@ -101,15 +98,20 @@ def composite_loops():
 def test_to_path_unroll_commute(name):
     d = composite_loops()[name]
     lhs = d.unroll(3).to_path()
-    rhs = d.to_path().unroll(2).now
+    rhs = d.to_path().unroll(3)
     assert (lhs.dom, lhs.cod) == (rhs.dom, rhs.cod)
     assert np.allclose(lhs.array, rhs.array)
+
+
+def test_to_path_requires_open_memories():
+    with pytest.raises(ValueError):
+        delay(initial_state=photonic.Create(0)).to_path()
 
 
 def test_core_to_path_unroll_commute():
     wait = core.Diagram.swap(core.mode, core.mode).feedback()
     lhs = wait.unroll(3).to_path()
-    rhs = wait.to_path().unroll(2).now
+    rhs = wait.to_path().unroll(3)
     assert (lhs.dom, lhs.cod) == (rhs.dom, rhs.cod)
     assert np.allclose(lhs.array, rhs.array)
 
@@ -129,20 +131,23 @@ def test_core_feedback_axioms():
 def test_memory_order():
     loops = composite_loops()
     sequence, nested = loops["sequence"], loops["nested"]
-    assert len(StreamFunctor()(sequence).plugs) == 2
-    assert StreamFunctor()(sequence).mem.now == qmode ** 2
-    assert StreamFunctor()(nested).mem.now == qmode ** 2
-    assert all(mem == qmode for *_, mem in StreamFunctor()(nested).plugs)
+    assert sequence.unroll(1).dom == sequence.dom @ qmode ** 2
+    assert nested.unroll(1).dom == nested.dom @ qmode ** 2
 
 
 def test_matrix_feedback():
     matrix = path.Matrix(np.array([[0, 1], [1, 0]]), 2, 2)
-    stream = matrix.feedback()
-    assert (stream.dom.now, stream.cod.now, stream.mem.now) == (1, 1, 1)
-    assert stream.unroll().now == path.Matrix(
+    loop = matrix.feedback()
+    assert (loop.dom, loop.cod, loop.mem) == (1, 1, 1)
+    assert loop == path.Feedback(matrix)
+    assert loop.unroll(1) == matrix
+    assert loop.unroll(2) == path.Matrix(
         np.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]]), 3, 3)
+    assert "Feedback" in repr(loop)
     with pytest.raises(AxiomError):
         matrix.feedback(mem=3)
+    with pytest.raises(ValueError):
+        loop.unroll(0)
 
 
 def test_functor_maps_feedback():
