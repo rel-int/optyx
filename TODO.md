@@ -1,11 +1,15 @@
 # TODO
 
 > I've opened issue https://github.com/rel-int/optyx/issues/14, make a plan for implementation.
+> Implement the plan in the PR.
+> Rebase https://github.com/rel-int/optyx/pull/15/changes on the current version of the
+> feedback/unroll PR. Why is it showing diff in core.diagram.Feedback? The to_stream addition
+> should also be justified. Review the existing code and push a TODO.md for making the code
+> cleaner.
 
 Plan for `channel.Diagram.fix(n_steps, chi)`: approximate the stationary state of a
 stateful diagram by tensor network contraction with bounded bond dimension.
-Depends on #12 (`feedback` / `unroll`): implementation starts once #12 merges,
-or stacks on its branch if it is still open.
+Stacked on #12 (`feedback` / `unroll`), rebased on its head at every round.
 
 ## Mathematical description
 
@@ -87,6 +91,32 @@ that; (1) is the exact baseline for tests; (3) is the cheapest check on marginal
   checking against the paper, and `n_steps` / `chi` heuristics taken from it
 - `fix` doubles `n_steps` and `chi` together rather than converging them
   separately, which is cheaper to implement but conflates two questions
+
+## Cleanup round
+
+From a review of the first implementation, queued for the next coding session:
+
+- [ ] the convergence caps gate the wrong parameter: `fix(n_steps=100)` has
+      `steps >= max_steps` on entry, so it warns and never doubles `chi` —
+      each cap should only gate the parameter being doubled
+- [ ] a user-supplied `backend` ignores `chi`: the loop doubles `bond` but the
+      contraction never sees it — rebuild the backend per bond, or reject
+      `backend` together with `chi=None`
+- [ ] `fixed_point` picks the eigenvalue closest to one silently — warn when it
+      is not within `tol` of one (no stationary state) or degenerate (fixed
+      point not unique)
+- [ ] `contract = lambda ...` in `fix` — a named inner `def`
+- [ ] `at_time`: `Discard(self.cod ** (n_steps - 1))` instead of tensoring a
+      list of `Discard`s, and drop the `rest` conditional if `Discard(Ty())`
+      is the empty channel
+- [ ] one public entry point: fold `eigen_fix` into `fix` or rename it
+      `_eigen_fix`; factor the tensordot readout/normalisation block into a
+      helper next to the backends
+- [ ] move the `cotengra` import inside `fix` next to the `QuimbBackend` one,
+      so importing `optyx.channel` stays light
+- [ ] rename `utils.misc.distance` to `frobenius_distance`
+- [ ] `to_stream` returns a bare `(stream, plugs)` tuple — a `NamedTuple` with
+      `stream` and `plugs` fields reads better at the call sites
 
 ## Blocked on design
 
