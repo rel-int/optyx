@@ -1,5 +1,18 @@
 # TODO
 
+> Two problems: 1) I see you added a lot of pylint disables, inline comments are not allowed in optyx as in discopy! remove them and check the pylint, 2) The tensor backend is a large addition, write an issue and open a separate PR directly on main that proposes a new routine for evaluating optyx tensor contractions. The logic needs to be simple and flexible accross quimb, cotengra, jax and pytorch
+
+## Review cleanup and tensor-contraction split
+
+- [WIP] @codex-2026-07-31 Remove the local validation scratch file and every
+  suppression or inline comment introduced by this PR, then run pylint.
+- [ ] File a focused tensor-contraction issue, extract the backend-neutral
+  evaluation routine onto a branch based directly on ``main``, validate it,
+  and open a separate draft PR.
+- [ ] Remove the extracted tensor-backend implementation from this fixed-point
+  PR, update its tests and documentation to the smaller public interface, and
+  restore green checks.
+
 > The documentation notebook for fixpoint should construct the setup of boson sampling with feedback with state psi and unitatry U, construct it in optyx for some random unitary and different the bosonic product state, then call the different implementations of fixpoints and map when they agree
 
 ## Boson-sampling fixed-point example
