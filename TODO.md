@@ -4,7 +4,7 @@
 
 ## Boson-sampling fixed-point example
 
-- [WIP] @codex-2026-07-31 Replace the toy reset channel in
+- [x] Replace the toy reset channel in
   ``docs/examples/fixpoints.rst`` with the optical-feedback setup: inject a
   bosonic product state ``psi`` beside the loop memory, apply a seeded random
   unitary ``U``, feed the last modes back, and compare the fixed-point methods
