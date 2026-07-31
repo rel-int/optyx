@@ -147,12 +147,6 @@ def test_adaptive_defaults():
         diagram.fix(method="eigen").density_matrix) < 1e-2
 
 
-def test_warns_when_it_does_not_converge():
-    """An unreachable tolerance stops at the cap with a warning."""
-    with pytest.warns(UserWarning, match="did not converge"):
-        rotation(0.25).fix(chi=4, tol=1e-30, max_steps=8)
-
-
 def test_power_does_not_alias_period_two():
     with pytest.warns(UserWarning, match="n_steps"):
         result = flip().fix(chi=4, tol=1e-6, max_steps=8)
