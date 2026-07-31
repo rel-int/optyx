@@ -831,18 +831,11 @@ class Feedback(monoidal.Bubble, Diagram, frobenius.Box):
     here with the plus state as initial state and the output memory
     discarded; doubling commutes with unrolling on the nose:
 
-    >>> from discopy.drawing import Equation
     >>> from optyx.qubits import Z, X, Scalar, Ket
     >>> cnot = Z(1, 2) @ qubit >> qubit @ X(2, 1) @ Scalar(2 ** 0.5)
     >>> ladder = (cnot >> Diagram.swap(qubit, qubit)).feedback(
     ...     initial_state=Ket("+"), final_effect=Discard(qubit))
-    >>> lhs, rhs = ladder.unroll(2).double(), ladder.double().unroll(2)
-    >>> assert lhs == rhs
-    >>> Equation(lhs, rhs, symbol="$=$").draw(
-    ...     path="docs/_static/cnot_ladder_double.svg")
-
-    .. image:: /_static/cnot_ladder_double.svg
-        :align: center
+    >>> assert ladder.unroll(2).double() == ladder.double().unroll(2)
     """
     __ambiguous_inheritance__ = (monoidal.Bubble, frobenius.Box)
 
