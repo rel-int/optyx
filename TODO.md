@@ -1,5 +1,15 @@
 # TODO
 
+> the docs/fixpoints notebook should be merged with the fixpoint_benchmarks notebook and should be under examples as rst in the docs
+
+## Unified fixed-point example
+
+- [WIP] @codex-2026-07-31 18:44 Merge the fixed-point semantics and benchmark
+  material into ``docs/examples/fixpoints.rst``. Present a feedback diagram
+  both as a stream and as an approximate stationary readout, then compare
+  every backend through the common ``tensor.Diagram`` without restoring an
+  executable notebook.
+
 > Let's edit the PR description, listing every contribution of this PR, described briefly. Remember the discopy STYLE.md guidelines
 >
 > Currently the repo also seems to have too many additions, the notebook should be integrated as a small documentation snippet in fix
