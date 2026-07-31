@@ -502,6 +502,13 @@ class Diagram(frobenius.Diagram):
         Approximate a stationary state of a stateful diagram as a density
         matrix over its codomain.
 
+        A diagram with a feedback loop has stream semantics through
+        :meth:`to_stream` and :meth:`unroll`, and approximate fixed-point
+        semantics through :meth:`fix`. Both use the same open one-step
+        process; the fixed-point semantics evolves an approximate stationary
+        memory once, then discards the next memory and returns only the visible
+        output.
+
         The stationary state is the fixed point of the transfer channel
         which one time step induces on the memory of the feedback loops.
         It is the limit of :meth:`at_time` only when iteration converges;
@@ -543,9 +550,31 @@ class Diagram(frobenius.Diagram):
         >>> from optyx.qubits import Ket
         >>> source = (Discard(qubit) @ Ket(0) @ Ket(0)).feedback(
         ...     mem=qubit, initial_state=Ket(1))
+        >>> from discopy.symmetric import Equation
+        >>> readout = (Ket(0) >> source.one_step()
+        ...            >> Diagram.id(qubit) @ Discard(qubit))
+        >>> Equation(source, readout, symbol=r"$\\mapsto$").draw(
+        ...     path="docs/_static/fixpoint.png")
+
+        .. image:: /_static/fixpoint.png
+            :align: center
+
+        Here ``Ket(0)`` is the stationary memory. One step produces the
+        visible state and the next memory; discarding the latter leaves the
+        memory-free fixed output returned by :meth:`fix`.
+
+        >>> fixed = source.fix(method="eigen")
+        >>> network = source.at_time(2).double().to_tensor()
+        >>> assert isinstance(network, tensor.Diagram)
         >>> assert np.allclose(
-        ...     source.fix(method="eigen").density_matrix,
-        ...     [[1, 0], [0, 0]])
+        ...     fixed.density_matrix, [[1, 0], [0, 0]])
+
+        The `"power"` method sends this backend-agnostic
+        :class:`discopy.tensor.Diagram` to a
+        :class:`optyx.core.backends.TensorBackend`, which may use an exact
+        array backend or compressed Quimb contraction. The transfer/readout
+        construction follows `Biriukov and Dyakonov
+        <https://doi.org/10.48550/arXiv.2602.05566>`_.
         """
         if self.dom:
             raise ValueError(

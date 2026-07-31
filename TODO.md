@@ -70,14 +70,14 @@ the superoperator calculation when the truncated memory fits in memory; compress
 unrolling is the scalable approximation; exact unfolding is the test baseline.
 
 - [ ] exact baseline: unrolled evaluation through permanents, reusing
-      `PermanentBackend` (tests + notebook, little new code)
+      `PermanentBackend` (tests + a small API example, little new code)
 - [ ] compare one-step partial-density-matrix iteration with the Kraus/superoperator
       construction on a small photonic example
 - [x] `method="eigen"`: build the doubled one-step transfer tensor, eigensolve
       for the fixed point when the memory dimension is tractable
 - [x] `method="power"` (default): the `chi`-compressed contraction above
-- [ ] correlation-tensor reconstruction in the notebook to cross-check both the
-      stationary loop state and the returned output distribution
+- [ ] correlation-tensor reconstruction in a focused follow-up to cross-check
+      both the stationary loop state and the returned output distribution
 
 ## Heuristics for the defaults
 
@@ -90,11 +90,11 @@ unrolling is the scalable approximation; exact unfolding is the test baseline.
 - [ ] leave a hook for formal bounds (photonic bounds in progress by @armandld,
       heuristics from https://arxiv.org/abs/2602.05566)
 
-## Notebook
+## Example
 
-- [ ] `examples/` notebook benchmarking quimb compressed contraction (CPU and
-      PyTorch backend) against the methods of https://arxiv.org/abs/2602.05566
-      on boson sampling with feedback; convergence plots in `n_steps` and `chi`
+- [x] Keep the example in the `Diagram.fix` documentation: show the semantic
+      map from feedback to a memory-free stationary readout and the common
+      `tensor.Diagram` consumed by exact or compressed backends.
 
 ## Still open after the first implementation round
 
@@ -156,10 +156,9 @@ Completed implementation review:
 
 ## Documentation round
 
-- [x] add a short Sphinx guide linked from `docs/index.rst`: draw the one-step
-      memory channel and readout; define `feedback`, `unroll`, `to_stream`,
-      `one_step`, `at_time` and `fix`; distinguish the stationary loop state from
-      the density matrix returned over `cod`
+- [x] document the two semantics locally: `to_stream` / `unroll` for streams,
+      and `fix` for an approximate memory-free fixed point; draw the stationary
+      memory readout in `Diagram.fix` rather than adding a top-level guide
 - [x] document the power/eigen trade-off and every parameter, the Fock truncation
       convention, custom-backend behaviour, convergence and uniqueness assumptions,
       warnings and the `dom == Ty()` limit; cite arXiv:2602.05566 precisely
@@ -175,11 +174,11 @@ Completed implementation review:
       backend interface; keep Quimb/Cotengra, exact tensor, JAX and PyTorch
       execution choices out of the fixed-point algorithm
 - [x] simplify and expand the tensor-network
-      explanation in `power_fix` and the Sphinx guide, including where
+      explanation in `power_fix` and `Diagram.fix`, including where
       compression approximates the exact contraction
-- [x] add a notebook comparing the fixed-point
-      methods and backends, estimate contraction cost before execution, and
-      identify when bounded-bond approximation can help
+- [x] keep the backend comparison concise in `Diagram.fix`: compile through
+      `to_tensor` to a `tensor.Diagram`, then explain exact array execution and
+      bounded-bond Quimb contraction without a standalone notebook
 - [x] add compatibility tests for exact and
       compressed tensor backends, then rerun lint, coverage and documentation
 
