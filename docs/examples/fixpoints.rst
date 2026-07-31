@@ -7,33 +7,75 @@ A diagram with a feedback loop has stream semantics through
 semantics through :meth:`optyx.channel.Diagram.fix`. Both interpretations use
 the same open one-step channel from ``dom @ memory`` to ``cod @ memory``.
 
-Semantics
----------
+Boson sampling with optical feedback
+------------------------------------
 
-``to_stream`` returns that channel together with the ordered boundary data for
-each loop. ``unroll`` applies the initial states, repeats the channel and then
-applies the final effects. ``fix`` instead evolves an approximate stationary
-memory once and discards the next memory, leaving only the visible output.
-The boundary order is left to right, with an outer loop before any nested loop.
-``one_step`` applies no boundaries; ``at_time`` applies every initial state but
-ignores ``final_effect`` because stationary evaluation traces out memory rather
-than conditioning on it.
+The setup of Biriukov and Dyakonov injects a fixed bosonic product state
+:math:`\psi` into the external modes at every time step, applies an
+:math:`M`-mode unitary :math:`U`, exposes :math:`M-L` output modes and feeds
+the remaining :math:`L` modes back as memory. For one feedback mode, Optyx
+writes this directly as ``(psi @ qmode >> U).feedback(...)``.
 
-This example resets a qubit memory to zero at every step. On the left, the
-memory wire is fed back. On the right, the stationary memory enters one step
-and the next memory is discarded.
+The example uses a seeded Haar-random three-mode unitary and three product
+Fock states on the two fresh input modes.
 
 .. doctest::
 
     >>> import numpy as np
     >>> from discopy import tensor
     >>> from discopy.symmetric import Equation
-    >>> from optyx.channel import Diagram, Discard, qubit
-    >>> from optyx.qubits import Ket
-    >>> process = (Discard(qubit) @ Ket(0) @ Ket(0)).feedback(
-    ...     mem=qubit, initial_state=Ket(1))
-    >>> readout = (Ket(0) >> process.one_step()
-    ...            >> Diagram.id(qubit) @ Discard(qubit))
+    >>> from optyx import photonic
+    >>> from optyx.channel import (
+    ...     Channel, Diagram, Discard, density_trace,
+    ...     frobenius_distance, qmode)
+    >>> from optyx.core import diagram
+    >>> from optyx.core.backends import DiscopyBackend, QuimbBackend
+
+    >>> def random_unitary(size, seed=7):
+    ...     rng = np.random.default_rng(seed)
+    ...     matrix = rng.normal(size=(size, size)) + 1j * rng.normal(
+    ...         size=(size, size))
+    ...     unitary, upper = np.linalg.qr(matrix)
+    ...     diagonal = np.diag(upper)
+    ...     return unitary * (diagonal / np.abs(diagonal))
+
+    >>> U = photonic.Gate(random_unitary(3), 3, 3, "U")
+    >>> np.allclose(U.array.conjugate().T @ U.array, np.eye(3))
+    True
+    >>> occupations = ((1, 0), (0, 1), (1, 1))
+    >>> def feedback_sampler(occupation):
+    ...     psi = photonic.Create(*occupation)
+    ...     return (psi @ qmode >> U).feedback(
+    ...         mem=qmode, initial_state=photonic.Create(0))
+
+    >>> process = feedback_sampler((1, 0))
+    >>> str(process.dom), str(process.cod), str(process.mem)
+    ('Ty()', 'qmode @ qmode', 'qmode')
+    >>> isinstance(process.at_time(2).double().to_tensor(), tensor.Diagram)
+    True
+
+Its open step implements both maps in the paper. Tracing out the detected
+modes updates the loop state,
+:math:`\rho \mapsto \operatorname{Tr}_{\mathrm{det}}[
+U(|\psi\rangle\!\langle\psi|\otimes\rho)U^\dagger]`; tracing out the next
+memory instead gives the visible output. ``to_stream`` repeats the first map.
+``fix`` approximates its stationary state :math:`\rho_\star` and applies the
+second map once, so the result has no memory wire.
+
+The following one-step picture uses a single box as a drawing placeholder for
+the stationary mixed memory. It is not an extra numerical implementation.
+
+.. doctest::
+
+    >>> psi = photonic.Create(1, 0)
+    >>> stationary = Channel(
+    ...     r"$\rho_\star$",
+    ...     diagram.Box(
+    ...         r"$\rho_\star$", diagram.Ty(), diagram.Mode(2)),
+    ...     cod=qmode, env=diagram.Mode(1))
+    >>> readout = (
+    ...     psi @ stationary >> U
+    ...     >> Diagram.id(qmode ** 2) @ Discard(qmode))
     >>> Equation(process, readout, symbol=r"$\mapsto$").draw(
     ...     path="docs/_static/fixpoint.png")
 
@@ -41,42 +83,144 @@ and the next memory is discarded.
     :align: center
     :width: 480px
 
-The eigen method constructs the transfer and readout tensors directly. The
-power method compiles a finite approximation to the common tensor language.
+Where the methods agree
+-----------------------
+
+The eigen method truncates the loop occupation and diagonalises its one-step
+transfer matrix. The power method unrolls from vacuum and compiles
+``at_time(n_steps).double().to_tensor()``. Finite-depth and cutoff results can
+have different local shapes, so the comparison pads absent higher occupations
+with zeros before taking a Frobenius distance.
 
 .. doctest::
 
-    >>> fixed = process.fix(method="eigen")
-    >>> network = process.at_time(4).double().to_tensor()
-    >>> isinstance(network, tensor.Diagram)
-    True
-    >>> np.allclose(fixed.density_matrix, [[1, 0], [0, 0]])
-    True
+    >>> def normalised(result, cod):
+    ...     state = np.asarray(result.density_matrix)
+    ...     return state / density_trace(state, cod)
 
-Choosing a method
------------------
+    >>> def padded_distance(left, right):
+    ...     shape = tuple(max(a, b) for a, b in zip(
+    ...         left.shape, right.shape))
+    ...     def pad(array):
+    ...         result = np.zeros(shape, dtype=complex)
+    ...         result[tuple(slice(0, n) for n in array.shape)] = array
+    ...         return result
+    ...     return frobenius_distance(pad(left), pad(right))
 
-``method="power"`` is the default. It increases ``n_steps`` until consecutive
-normalised outputs are within the Frobenius tolerance. A compressed backend can
-also increase ``chi`` independently; ``max_steps`` and ``max_chi`` cap only
-their respective adaptive axes and a warning identifies an unconverged axis.
+    >>> depths = (2, 4, 6)
+    >>> distances = {}
+    >>> for occupation in occupations:
+    ...     sampler = feedback_sampler(occupation)
+    ...     reference = normalised(
+    ...         sampler.fix(method="eigen", cutoff=9), sampler.cod)
+    ...     distances[occupation] = tuple(
+    ...         padded_distance(normalised(sampler.fix(
+    ...             n_steps=steps, chi=16,
+    ...             backend=DiscopyBackend("numpy")), sampler.cod), reference)
+    ...         for steps in depths)
+    >>> for occupation, values in distances.items():
+    ...     print(occupation, *(f"{value:.2e}" for value in values))
+    (1, 0) 7.52e-02 2.75e-04 1.35e-06
+    (0, 1) 8.79e-03 4.23e-05 2.08e-07
+    (1, 1) 3.37e-02 1.07e-04 5.26e-07
 
-``method="eigen"`` constructs the doubled transfer matrix for one step, checks
-trace preservation after truncation and solves its stationary nullspace. It is
-exact when the truncated memory fits in RAM and can find a stationary mixture
-for a periodic process. It raises when the fixed space is not one-dimensional,
-or when the resulting state is not normalised, Hermitian and positive.
+At tolerance ``1e-5``, the agreement map is therefore:
 
-Both methods require ``dom == Ty()`` and at least one feedback loop. For the
-eigen method, ``cutoff`` is the local dimension of each optical memory mode;
-qubits remain two-dimensional. This rectangular per-mode cutoff is separate
-from the contraction bond dimension ``chi``.
+.. list-table:: Power agrees with the cutoff-nine eigen result
+    :header-rows: 1
+
+    * - :math:`\psi`
+      - 2 steps
+      - 4 steps
+      - 6 steps
+    * - :math:`|1,0\rangle`
+      - no
+      - no
+      - yes
+    * - :math:`|0,1\rangle`
+      - no
+      - no
+      - yes
+    * - :math:`|1,1\rangle`
+      - no
+      - no
+      - yes
+
+This is evidence for this seeded example, not a convergence bound. Repeat the
+map after increasing ``cutoff``; the eigen method raises when truncation loses
+more trace than ``tol``.
+
+Compare tensor backends
+-----------------------
+
+Every power executor receives the same backend-neutral
+:class:`discopy.tensor.Diagram`. Exact NumPy, JAX, PyTorch and Quimb differ
+only in contraction engine; compressed Quimb additionally truncates
+intermediate bonds to ``chi``. The following benchmark records both runtime
+and agreement with the eigen reference.
+
+.. code-block:: python
+
+    from importlib.util import find_spec
+    from time import perf_counter
+
+    backends = {
+        "power / NumPy": DiscopyBackend("numpy"),
+        "power / Quimb exact": QuimbBackend(),
+        "power / Quimb chi=16": QuimbBackend.compressed(),
+    }
+    if find_spec("jax"):
+        backends["power / JAX"] = DiscopyBackend("jax")
+    if find_spec("torch"):
+        backends["power / PyTorch"] = DiscopyBackend("pytorch")
+
+    def benchmark(occupation, atol=1e-5):
+        sampler = feedback_sampler(occupation)
+        started = perf_counter()
+        reference = normalised(
+            sampler.fix(method="eigen", cutoff=9), sampler.cod)
+        rows = {"eigen": {
+            "seconds": perf_counter() - started,
+            "distance": 0.0,
+            "agrees": True,
+        }}
+        for name, backend in backends.items():
+            started = perf_counter()
+            try:
+                result = normalised(sampler.fix(
+                    n_steps=6, chi=16, backend=backend), sampler.cod)
+                distance = padded_distance(result, reference)
+                rows[name] = {
+                    "seconds": perf_counter() - started,
+                    "distance": distance,
+                    "agrees": distance < atol,
+                }
+            except Exception as error:
+                rows[name] = {"error": repr(error), "agrees": False}
+        return rows
+
+    if __name__ == "__main__":
+        reports = {
+            occupation: benchmark(occupation)
+            for occupation in occupations
+        }
+        agreement_map = {
+            occupation: {
+                name: row["agrees"] for name, row in rows.items()
+            }
+            for occupation, rows in reports.items()
+        }
+
+For the seeded run above, NumPy and exact Quimb have the same distances shown
+at depth six. Compressed Quimb at ``chi=16`` also agrees for all three inputs;
+its largest observed distance is ``9.01e-6``. Optional accelerator results
+should be compared by value, not by cold-start timing.
 
 Plan before contracting
 -----------------------
 
-Every power backend consumes the same ``tensor.Diagram``. An exact Quimb path
-can estimate arithmetic and memory cost without executing the contraction:
+An exact Quimb path can estimate arithmetic and memory cost without executing
+the contraction:
 
 .. code-block:: python
 
@@ -94,84 +238,35 @@ can estimate arithmetic and memory cost without executing the contraction:
             "heuristic_seconds": flops / (assumed_gflops * 1e9),
         }
 
+    sampler = feedback_sampler((1, 0))
     plans = {
         steps: contraction_plan(
-            process.at_time(steps).double().to_tensor())
-        for steps in (2, 4, 8)
+            sampler.at_time(steps).double().to_tensor())
+        for steps in depths
     }
 
-The time estimate is only a scale: Python overhead, memory traffic, array
-compilation and device transfers are not included. Avoid an exact run when its
-largest intermediate does not fit in memory.
+The time estimate excludes Python overhead, memory traffic, array compilation
+and device transfers. Avoid an exact run when its largest intermediate does
+not fit in memory.
 
-Compare methods and backends
-----------------------------
+Choosing approximation controls
+--------------------------------
 
-The eigen method is the small-memory reference; every power case changes only
-the executor. JAX and PyTorch are optional DisCoPy array backends; exact
-backends ignore ``chi``.
-
-.. code-block:: python
-
-    from importlib.util import find_spec
-    from time import perf_counter
-
-    from optyx.channel import frobenius_distance
-    from optyx.core.backends import DiscopyBackend, QuimbBackend
-
-    def normalised(result):
-        state = np.asarray(result.density_matrix)
-        return state / np.trace(state)
-
-    reference = normalised(fixed)
-    cases = [
-        ("eigen", lambda: process.fix(method="eigen")),
-        ("power / NumPy", lambda: process.fix(
-            n_steps=4, chi=4, backend=DiscopyBackend("numpy"))),
-        ("power / Quimb exact", lambda: process.fix(
-            n_steps=4, chi=4, backend=QuimbBackend())),
-        ("power / Quimb compressed", lambda: process.fix(
-            n_steps=4, chi=4, backend=QuimbBackend.compressed())),
-    ]
-    if find_spec("jax"):
-        cases.append(("power / JAX", lambda: process.fix(
-            n_steps=4, chi=4, backend=DiscopyBackend("jax"))))
-    if find_spec("torch"):
-        cases.append(("power / PyTorch", lambda: process.fix(
-            n_steps=4, chi=4, backend=DiscopyBackend("pytorch"))))
-
-    def time_case(name, run):
-        started = perf_counter()
-        try:
-            result = run()
-        except Exception as error:
-            return {"backend": name, "error": repr(error)}
-        return {
-            "backend": name,
-            "seconds": perf_counter() - started,
-            "distance_to_eigen": frobenius_distance(
-                normalised(result), reference),
-        }
-
-    if __name__ == "__main__":
-        benchmark = [time_case(name, run) for name, run in cases]
-
-There are three independent accuracy controls:
+There are three independent accuracy axes:
 
 * Increase ``n_steps`` to test convergence from ``initial_state``.
 * Increase ``chi`` to test bond compression; only compressed Quimb uses it.
 * Increase ``cutoff`` to test optical truncation in the eigen method.
 
-Compression helps when exact intermediates approach available memory. On small
-networks, optimisation and device startup can cost more than contraction.
-Report both runtime and distance to an eigen or feasible exact reference.
+``method="power"`` can adapt ``n_steps`` and ``chi`` independently, subject to
+``max_steps`` and ``max_chi``. ``method="eigen"`` checks trace preservation,
+uniqueness, normalisation, Hermiticity and positivity in the truncated space.
+Both methods require ``dom == Ty()`` and at least one feedback loop.
 
 Further reading
 ---------------
 
-The transfer/readout split follows Yu. A. Biriukov and I. V. Dyakonov,
-`Simulation of boson sampling with optical feedback
+The transfer/readout construction follows Yu. A. Biriukov and
+I. V. Dyakonov, `Simulation of boson sampling with optical feedback
 <https://doi.org/10.48550/arXiv.2602.05566>`_, arXiv:2602.05566 [quant-ph]
-(2026). Their spatiotemporal unfolding, partial-density-matrix,
-Kraus-superoperator and correlation-tensor views describe the same feedback
-process; ``power`` and ``eigen`` name Optyx's contraction strategies.
+(2026).

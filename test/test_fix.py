@@ -222,6 +222,23 @@ def test_photonic_delay_line():
     assert np.allclose(density_matrix, [[0, 0], [0, 1]], atol=1e-6)
 
 
+def test_eigen_boson_sampler_truncates_memory_output():
+    """Fresh photons can increase the untruncated output dimension."""
+    reflectivity = .01
+    unitary = np.array([
+        [np.sqrt(reflectivity), np.sqrt(1 - reflectivity)],
+        [np.sqrt(1 - reflectivity), -np.sqrt(reflectivity)],
+    ])
+    sampler = (
+        photonic.Create(1) @ qmode
+        >> photonic.Gate(unitary, 2, 2, "U")
+    ).feedback(mem=qmode, initial_state=photonic.Create(0))
+    density_matrix = sampler.fix(
+        method="eigen", cutoff=5).density_matrix
+    assert density_matrix.shape == (6, 6)
+    assert np.isclose(np.trace(density_matrix), 1)
+
+
 def test_stationary_vector_convention_and_rank():
     transition = np.array([[.9, .1], [.4, .6]])
     state = stationary_vector(transition)

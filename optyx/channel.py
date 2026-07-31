@@ -690,8 +690,10 @@ class Diagram(frobenius.Diagram):
 
         ``cutoff`` is the local dimension of each optical mode, spanning
         occupations ``0`` through ``cutoff - 1``. Qubit dimensions remain
-        two. A non-unique stationary memory state raises rather than choosing
-        an arbitrary eigenvector.
+        two. Fresh photons may enlarge the output memory axes, which are
+        projected back to the same cutoff before diagonalisation; excessive
+        lost trace raises. A non-unique stationary memory state raises rather
+        than choosing an arbitrary eigenvector.
         """
         # pylint: disable=import-outside-toplevel
         from optyx.core.backends import EvalResult, StateType
@@ -701,7 +703,11 @@ class Diagram(frobenius.Diagram):
         memory_dimension = int(np.prod(dimensions, dtype=int))
         transfer = (step >> Discard(self.cod) @ self.id(memory)).double()
         readout = (step >> self.id(self.cod) @ Discard(memory)).double()
-        matrix = transfer.to_tensor(dimensions).eval().array.reshape(
+        tensor_transfer = transfer.to_tensor(dimensions)
+        projection = tensor.Diagram.tensor(*(
+            diagram.EmbeddingTensor(source.inside[0], target)
+            for source, target in zip(tensor_transfer.cod, dimensions)))
+        matrix = (tensor_transfer >> projection).eval().array.reshape(
             memory_dimension, memory_dimension)
         discard = Discard(memory).double().to_tensor(
             dimensions).eval().array.reshape(memory_dimension)
