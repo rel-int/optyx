@@ -1,5 +1,15 @@
 # TODO
 
+> The documentation notebook for fixpoint should construct the setup of boson sampling with feedback with state psi and unitatry U, construct it in optyx for some random unitary and different the bosonic product state, then call the different implementations of fixpoints and map when they agree
+
+## Boson-sampling fixed-point example
+
+- [WIP] @codex-2026-07-31 Replace the toy reset channel in
+  ``docs/examples/fixpoints.rst`` with the optical-feedback setup: inject a
+  bosonic product state ``psi`` beside the loop memory, apply a seeded random
+  unitary ``U``, feed the last modes back, and compare the fixed-point methods
+  over several occupations with an agreement map.
+
 > the docs/fixpoints notebook should be merged with the fixpoint_benchmarks notebook and should be under examples as rst in the docs
 
 ## Unified fixed-point example
