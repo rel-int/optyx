@@ -153,6 +153,23 @@ Completed implementation review:
 - [x] keep doctests minimal and runnable, then run `pflake8 optyx`, the full
       coverage suite and the Sphinx build before claiming the cleanup round
 
+## Review round: simple backend-agnostic contraction
+
+- [WIP] @Codex-2026-07-31 15:58 rename the named stream result from
+      `StreamSemantics` to `Stream` and update its public documentation
+- [WIP] @Codex-2026-07-31 15:58 make fixed-point iteration compile through
+      `to_tensor` to a `tensor.Diagram`, then execute it through a minimal
+      backend interface; keep Quimb/Cotengra, exact tensor, JAX and PyTorch
+      execution choices out of the fixed-point algorithm
+- [WIP] @Codex-2026-07-31 15:58 simplify and expand the tensor-network
+      explanation in `power_fix` and the Sphinx guide, including where
+      compression approximates the exact contraction
+- [WIP] @Codex-2026-07-31 15:58 add a notebook comparing the fixed-point
+      methods and backends, estimate contraction cost before execution, and
+      identify when bounded-bond approximation can help
+- [WIP] @Codex-2026-07-31 15:58 add compatibility tests for exact and
+      compressed tensor backends, then rerun lint, coverage and documentation
+
 ## Blocked on design
 
 - `dom != Ty()`: the process "prepare an input state at every time step, return the
