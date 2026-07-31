@@ -10,6 +10,6 @@
 - [x] Reuse the routine from the existing Quimb and
   DisCoPy evaluators, add
   concise documentation and tests, and run lint, pylint and coverage.
-- [WIP] @codex-2026-07-31 Open a draft pull request directly against ``main``
+- [x] Open a draft pull request directly against ``main``
   and leave every
   checklist item complete.
