@@ -8,7 +8,7 @@
 
 ## Concise documentation round
 
-- [WIP] @codex-2026-07-31 18:18 Remove the standalone fixpoint guide and
+- [x] Remove the standalone fixpoint guide and
   benchmark notebook, keep a small runnable example in ``Diagram.fix``, trim
   their navigation/configuration, and update the PR description with every
   contribution stated briefly.
