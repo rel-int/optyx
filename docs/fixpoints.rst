@@ -43,7 +43,7 @@ Stream semantics
 by :meth:`~optyx.core.diagram.Diagram.unroll` and
 :meth:`~optyx.channel.Diagram.one_step`.  It deliberately is a method, not a
 cached ``.stream`` property: conversion is cheap, and callers receive a new
-immutable :class:`optyx.core.diagram.StreamSemantics` value rather than
+immutable :class:`optyx.core.diagram.Stream` value rather than
 mutable shared state.  Its ``stream.now`` is the open one-step channel and
 never includes ``initial_state`` or ``final_effect``.  Its boundary records
 are ordered left to right, with an outer loop before loops nested inside it.
@@ -80,22 +80,48 @@ does not depend on the initial memory:
 Choosing a method
 -----------------
 
-``method="power"`` is the default.  It builds
-:meth:`~optyx.channel.Diagram.at_time` and contracts its doubled tensor
-network with compressed Quimb contraction.  ``n_steps`` is the unrolling
-depth and ``chi`` is the maximum bond dimension.  When either is ``None``,
-Optyx refines that axis independently until consecutive normalised density
-matrices are within the Frobenius tolerance ``tol``.  ``max_steps`` and
-``max_chi`` cap only their corresponding adaptive axes.  If a cap is reached,
-the last result is returned with a :class:`UserWarning` naming the axis which
-did not converge.  Explicit ``n_steps`` and ``chi`` are used as written and
-are not limited by the adaptive caps.
+``method="power"`` is the default.  The algorithm has one compilation path,
+independent of the numerical library::
 
-The optional ``backend`` must be an
-:class:`optyx.core.backends.QuimbBackend` configured with a compressed
-Cotengra optimiser.  Its static contraction options are preserved, while
-the bond currently being tested is passed as a per-call ``max_bond`` and
-therefore overrides a static value of the same name.
+    at_time(n_steps) -> double() -> to_tensor() -> tensor.Diagram
+                                                   |
+                                                   v
+                                      TensorBackend.contract()
+
+The first three operations construct the finite doubled network; they do not
+contract it.  The resulting :class:`discopy.tensor.Diagram` is the stable
+boundary between Optyx and execution.  A
+:class:`optyx.core.backends.TensorBackend` decides how that network is
+contracted:
+
+* :class:`~optyx.core.backends.DiscopyBackend` uses
+  :class:`discopy.tensor.Functor` exactly.  Its optional backend name selects
+  NumPy, JAX, PyTorch or another array implementation registered by DisCoPy.
+* :class:`~optyx.core.backends.QuimbBackend` with no optimiser contracts the
+  same diagram exactly with Quimb.
+* :meth:`~optyx.core.backends.QuimbBackend.compressed` uses Cotengra and
+  Quimb's compressed contraction.  This is the default because it can bound
+  intermediate tensor sizes.
+
+For example, the exact NumPy and Quimb choices are interchangeable at the
+fixed-point API::
+
+    from optyx.core.backends import DiscopyBackend, QuimbBackend
+
+    numpy_result = process.fix(
+        n_steps=8, backend=DiscopyBackend("numpy"))
+    quimb_result = process.fix(
+        n_steps=8, backend=QuimbBackend())
+
+``n_steps`` is the unrolling depth.  ``chi`` is the maximum bond dimension
+only for a backend which advertises compression support.  Exact backends
+accept and ignore it, so the fixed-point code does not need backend-specific
+branches.  When either adaptive axis is ``None``, Optyx refines the applicable
+axis until consecutive normalised density matrices are within the Frobenius
+tolerance ``tol``.  ``max_steps`` and ``max_chi`` cap only their corresponding
+adaptive axes.  If a cap is reached, the last result is returned with a
+:class:`UserWarning` naming the axis which did not converge.  Explicit values
+are used as written and are not limited by the adaptive caps.
 
 ``method="eigen"`` builds the doubled transfer matrix, verifies that it is
 trace preserving to ``tol``, and finds the nullspace of ``transfer.T - I``.
@@ -108,6 +134,15 @@ positivity.  ``backend`` is not used by this method.
 
 Truncation and assumptions
 --------------------------
+
+The power method has two distinct errors.  Finite ``n_steps`` measures how
+far the initial memory state is from its long-time limit.  A compressed Quimb
+backend adds contraction error by truncating intermediate bonds to ``chi``;
+repeat at larger ``chi`` to measure it.  Exact tensor-functor and exact Quimb
+backends have no bond truncation, so only finite-depth, physical cutoff and
+floating-point errors remain.  The
+:doc:`notebooks/fixpoint_benchmark` notebook estimates exact contraction cost
+before execution and compares these choices.
 
 All integer size parameters and ``tol`` must be positive; ``tol`` must also
 be finite.  Fixed-point evaluation currently accepts only diagrams with

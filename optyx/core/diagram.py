@@ -67,7 +67,7 @@ Other classes
 
     EmbeddingTensor
     FeedbackBoundary
-    StreamSemantics
+    Stream
 
 Functions
 ----------
@@ -295,7 +295,7 @@ class FeedbackBoundary(NamedTuple):
     mem: Ty
 
 
-class StreamSemantics(NamedTuple):
+class Stream(NamedTuple):
     """A diagram's stream and its ordered feedback boundaries."""
     stream: monoidal_stream.Stream
     boundaries: tuple[FeedbackBoundary, ...]
@@ -401,13 +401,13 @@ class Diagram(frobenius.Diagram):
             for _, effect, loop_mem in boundaries))
         return self.id(dom) @ initial >> unrolled >> self.id(cod) @ final
 
-    def to_stream(self) -> StreamSemantics:
+    def to_stream(self) -> Stream:
         """
         Convert a diagram to its stream semantics and ordered boundaries.
 
         Every box maps to the constant stream and every :class:`Feedback`
         loop moves its memory from the wires to the memory of the stream,
-        so that :attr:`StreamSemantics.stream.now` is the one-step diagram
+        so that :attr:`Stream.stream.now` is the one-step diagram
         from `dom @ mem` to `cod @ mem`, with no feedback boxes left.
 
         This is an intentional conversion rather than a cached ``.stream``
@@ -441,7 +441,7 @@ class Diagram(frobenius.Diagram):
         functor = monoidal.Functor(
             ob_map=lambda x: x, ar_map=ar_map,
             dom=self.factory, cod=stream_factory)
-        return StreamSemantics(functor(self), tuple(boundaries))
+        return Stream(functor(self), tuple(boundaries))
 
     # pylint: disable=too-many-locals
     def to_tensor(

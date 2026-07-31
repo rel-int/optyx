@@ -138,7 +138,7 @@ def test_stream_semantics_contract_and_order():
         final_effect=photonic.Select(1))
     for diagram in (left >> right, left @ right):
         semantics = diagram.to_stream()
-        assert isinstance(semantics, core.StreamSemantics)
+        assert isinstance(semantics, core.Stream)
         assert semantics.stream.mem.now == qmode ** 2
         assert semantics.stream.now.dom == diagram.dom @ qmode ** 2
         assert semantics.stream.now.cod == diagram.cod @ qmode ** 2

@@ -510,11 +510,12 @@ class Diagram(frobenius.Diagram):
         Parameters:
             n_steps : The number of time steps unrolled by the `"power"`
                 method, doubled until convergence when `None`.
-            chi : The bound on the bond dimensions of the tensor network,
-                doubled until convergence when `None`.
-            method : Either `"power"`, contracting the unrolling with
-                bounded bond dimensions, or `"eigen"`, diagonalising the
-                transfer matrix, see below.
+            chi : The bound on the bond dimensions for a compressed tensor
+                backend, doubled until convergence when `None` and ignored by
+                exact backends.
+            method : Either `"power"`, contracting the unrolling as a tensor
+                network, or `"eigen"`, diagonalising the transfer matrix,
+                see below.
             tol : The distance below which two successive
                 approximations are deemed converged.
             cutoff : The dimension of each memory wire, `"eigen"` only.
@@ -522,18 +523,19 @@ class Diagram(frobenius.Diagram):
                 gives up and warns, `"power"` only.
             max_chi : The bond dimension at which the doubling gives up
                 and warns, `"power"` only.
-            backend : An optional compressed
-                :class:`optyx.core.backends.QuimbBackend` used by the
-                `"power"` method. Its static contraction parameters are
-                preserved while `chi` overrides ``max_bond`` per call.
+            backend : An optional
+                :class:`optyx.core.backends.TensorBackend` used by the
+                `"power"` method. Exact DisCoPy backends can select NumPy,
+                JAX or PyTorch; Quimb backends can contract exactly or use
+                Cotengra compression bounded by `chi`.
 
         The `"power"` method unrolls the diagram and contracts the doubled
-        tensor network, compressing the bonds to `chi`: this is a power
-        iteration on the transfer channel, the only method which scales
-        past a memory that fits in memory. The `"eigen"` method builds the
-        transfer matrix of one time step and diagonalises it, exact and
-        cheaper whenever `cutoff ** len(memory)` is small, with no
-        `n_steps` at all.
+        tensor network. Its default compressed backend bounds bonds by `chi`:
+        this is the scalable power iteration on the transfer channel. Exact
+        tensor backends are useful baselines for networks which fit in
+        memory. The `"eigen"` method builds the transfer matrix of one time
+        step and diagonalises it, exact and cheaper whenever
+        `cutoff ** len(memory)` is small, with no `n_steps` at all.
 
         A loop which reprepares its memory at every time step forgets its
         initial state, so it is its own stationary state:
@@ -577,35 +579,44 @@ class Diagram(frobenius.Diagram):
     def power_fix(self, n_steps, chi, tol, backend, max_steps, max_chi):
         """Approximate the stationary output by compressed iteration.
 
-        This is the separately testable implementation of ``method="power"``.
-        :meth:`fix` is the public validated dispatcher. ``n_steps`` and ``chi``
-        may independently be ``None`` for adaptive refinement; ``max_steps``
-        and ``max_chi`` cap only their corresponding adaptive parameter. The
-        supplied backend must use a compressed Cotengra optimiser.
+        The finite-time channel is first doubled and compiled by
+        :meth:`to_tensor` to a :class:`discopy.tensor.Diagram`. The fixed-point
+        algorithm knows no contraction library: it passes that tensor diagram
+        to :meth:`optyx.core.backends.TensorBackend.contract`. A backend may
+        then use the exact tensor functor under NumPy, JAX or PyTorch, exact
+        Quimb contraction, or Cotengra compression.
+
+        :meth:`fix` is the public validated dispatcher. ``n_steps`` is refined
+        independently. ``chi`` is also refined when the backend advertises
+        compression; exact backends ignore it because they truncate no bonds.
         """
         # pylint: disable=import-outside-toplevel
-        from cotengra import (
-            HyperCompressedOptimizer, ReusableHyperCompressedOptimizer)
-        from optyx.core.backends import QuimbBackend
+        from optyx.core.backends import (
+            EvalResult, QuimbBackend, StateType, TensorBackend)
 
-        compressed = (
-            HyperCompressedOptimizer, ReusableHyperCompressedOptimizer)
         if backend is None:
-            backend = QuimbBackend(
-                hyperoptimiser=HyperCompressedOptimizer())
-        elif not isinstance(backend, QuimbBackend) \
-                or not isinstance(backend.hyperoptimiser, compressed):
+            backend = QuimbBackend.compressed()
+        elif not isinstance(backend, TensorBackend):
             raise ValueError(
-                "backend must be a QuimbBackend with a compressed optimizer.")
+                "backend must implement the TensorBackend interface.")
 
-        cache = {}
+        tensor_cache, result_cache = {}, {}
+
+        def compile_tensor(steps):
+            if steps not in tensor_cache:
+                tensor_cache[steps] = \
+                    self.at_time(steps).double().to_tensor()
+            return tensor_cache[steps]
 
         def contract(steps, bond):
-            key = steps, bond
-            if key not in cache:
-                cache[key] = self.at_time(steps).eval(
-                    backend, max_bond=bond)
-            return cache[key]
+            max_bond = bond if backend.supports_compression else None
+            key = steps, max_bond
+            if key not in result_cache:
+                result_cache[key] = EvalResult(
+                    backend.contract(
+                        compile_tensor(steps), max_bond=max_bond),
+                    output_types=self.cod, state_type=StateType.DM)
+            return result_cache[key]
 
         def normalised(result):
             state = result.density_matrix
@@ -635,11 +646,11 @@ class Diagram(frobenius.Diagram):
 
         bond = chi if chi is not None else min(4, max_chi)
         _, result, steps_converged = refine_steps(bond)
-        bond_converged = chi is not None
-        if chi is None:
+        bond_converged = chi is not None or not backend.supports_compression
+        if chi is None and backend.supports_compression:
             while bond < max_chi:
                 next_bond = min(2 * bond, max_chi)
-                next_steps, next_result, next_steps_converged = \
+                _, next_result, next_steps_converged = \
                     refine_steps(next_bond)
                 if frobenius_distance(
                         normalised(next_result), normalised(result)) < tol:
