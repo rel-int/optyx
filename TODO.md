@@ -13,6 +13,8 @@
   from this fixed-point
   PR, update its tests and documentation to the smaller public interface, and
   restore green checks.
+- [WIP] @codex-2026-07-31 Remove the platform-dependent convergence-warning
+  assertion; the deterministic period-two test already covers the cap.
 
 > The documentation notebook for fixpoint should construct the setup of boson sampling with feedback with state psi and unitatry U, construct it in optyx for some random unitary and different the bosonic product state, then call the different implementations of fixpoints and map when they agree
 
