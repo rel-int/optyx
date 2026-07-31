@@ -4,10 +4,11 @@
 
 ## Tensor contraction routine
 
-- [WIP] @codex-2026-07-31 Implement issue #20 as one deterministic routine
+- [x] Implement issue #20 as one deterministic routine
   over ``discopy.tensor.Diagram`` for exact NumPy, JAX, PyTorch and Quimb
   contraction, with arbitrary Cotengra optimizers and optional bond limits.
-- [ ] Reuse the routine from the existing Quimb and DisCoPy evaluators, add
+- [WIP] @codex-2026-07-31 Reuse the routine from the existing Quimb and
+  DisCoPy evaluators, add
   concise documentation and tests, and run lint, pylint and coverage.
 - [ ] Open a draft pull request directly against ``main`` and leave every
   checklist item complete.
