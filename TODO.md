@@ -98,12 +98,12 @@ functorial interpretation of nested feedback loops; sharing it guarantees the sa
 memory and boundary-plug order without duplicating the semantics. Its public
 contract still needs to be made explicit:
 
-- [ ] document this rationale on `to_stream`, `unroll` and `one_step`, including
+- [WIP] @Codex-2026-07-31 14:41 document this rationale on `to_stream`, `unroll` and `one_step`, including
       that `stream.now` omits `initial_state` / `final_effect` and that the returned
       plugs follow feedback traversal order
-- [ ] replace the anonymous tuple annotation and `self.to_stream()[0]` with a named
+- [WIP] @Codex-2026-07-31 14:41 replace the anonymous tuple annotation and `self.to_stream()[0]` with a named
       result or clear unpacking; test sequential, tensor and nested feedback loops
-- [ ] explain why this reusable conversion follows `STYLE.md` despite #12's reduced
+- [WIP] @Codex-2026-07-31 14:41 explain why this reusable conversion follows `STYLE.md` despite #12's reduced
       interface; if exposing DisCoPy's `Stream` cannot be given a stable contract,
       expose a narrower shared one-step primitive instead
 
@@ -111,45 +111,45 @@ contract still needs to be made explicit:
 
 From a review of the first implementation, queued for the next coding session:
 
-- [ ] the convergence caps gate the wrong parameter: `fix(n_steps=100)` has
+- [WIP] @Codex-2026-07-31 14:41 the convergence caps gate the wrong parameter: `fix(n_steps=100)` has
       `steps >= max_steps` on entry, so it warns and never doubles `chi` —
       each cap should only gate the parameter being doubled
-- [ ] a user-supplied `backend` ignores `chi`: the loop doubles `bond` but the
+- [WIP] @Codex-2026-07-31 14:41 a user-supplied `backend` ignores `chi`: the loop doubles `bond` but the
       contraction never sees it — rebuild the backend per bond, or reject
       `backend` together with `chi=None`
-- [ ] validate positive `n_steps`, `chi`, `cutoff`, `max_steps`, `max_chi` and
+- [WIP] @Codex-2026-07-31 14:41 validate positive `n_steps`, `chi`, `cutoff`, `max_steps`, `max_chi` and
       `tol`; avoid `n_steps or 2` / `chi or 4`, which silently treats zero as a
       request for a default
-- [ ] converge `n_steps` and `chi` independently and report which cap was reached;
+- [WIP] @Codex-2026-07-31 14:41 converge `n_steps` and `chi` independently and report which cap was reached;
       add `stacklevel=2` to convergence warnings
-- [ ] `fixed_point` picks the eigenvalue closest to one silently — check the
+- [WIP] @Codex-2026-07-31 14:41 `fixed_point` picks the eigenvalue closest to one silently — check the
       residual and degeneracy, then preserve the initial state or raise/warn when
       the stationary state is not unique; check normalisation, Hermiticity and
       positivity before returning it
-- [ ] make `fix` a small validated dispatcher with named, separately testable power
+- [WIP] @Codex-2026-07-31 14:41 make `fix` a small validated dispatcher with named, separately testable power
       and eigen procedures; name the transfer, readout, memory dimension and
       contraction steps instead of a lambda and the `2 * (dimension,)` reshape
-- [ ] `at_time`: `Discard(self.cod ** (n_steps - 1))` instead of tensoring a
+- [WIP] @Codex-2026-07-31 14:41 `at_time`: `Discard(self.cod ** (n_steps - 1))` instead of tensoring a
       list of `Discard`s, and drop the `rest` conditional if `Discard(Ty())`
       is the empty channel
-- [ ] move the `cotengra` import inside `fix` next to the `QuimbBackend` one,
+- [WIP] @Codex-2026-07-31 14:41 move the `cotengra` import inside `fix` next to the `QuimbBackend` one,
       so importing `optyx.channel` stays light
-- [ ] move and rename `fixed_point` and `distance` rather than adding new debt to
+- [WIP] @Codex-2026-07-31 14:41 move and rename `fixed_point` and `distance` rather than adding new debt to
       `utils.misc`, whose dissolution is planned in issue #5 / PR #8; use names
       which expose the superoperator convention and Frobenius metric
-- [ ] add identity, periodic, nearly-degenerate and custom-backend tests, plus
+- [WIP] @Codex-2026-07-31 14:41 add identity, periodic, nearly-degenerate and custom-backend tests, plus
       independent adaptation tests for `n_steps` and `chi`
 
 ## Documentation round
 
-- [ ] add a short Sphinx guide linked from `docs/index.rst`: draw the one-step
+- [WIP] @Codex-2026-07-31 14:41 add a short Sphinx guide linked from `docs/index.rst`: draw the one-step
       memory channel and readout; define `feedback`, `unroll`, `to_stream`,
       `one_step`, `at_time` and `fix`; distinguish the stationary loop state from
       the density matrix returned over `cod`
-- [ ] document the power/eigen trade-off and every parameter, the Fock truncation
+- [WIP] @Codex-2026-07-31 14:41 document the power/eigen trade-off and every parameter, the Fock truncation
       convention, custom-backend behaviour, convergence and uniqueness assumptions,
       warnings and the `dom == Ty()` limit; cite arXiv:2602.05566 precisely
-- [ ] keep doctests minimal and runnable, then run `pflake8 optyx`, the full
+- [WIP] @Codex-2026-07-31 14:41 keep doctests minimal and runnable, then run `pflake8 optyx`, the full
       coverage suite and the Sphinx build before claiming the cleanup round
 
 ## Blocked on design
