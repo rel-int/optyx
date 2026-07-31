@@ -4,12 +4,13 @@
 
 ## Review cleanup and tensor-contraction split
 
-- [WIP] @codex-2026-07-31 Remove the local validation scratch file and every
+- [x] Remove the local validation scratch file and every
   suppression or inline comment introduced by this PR, then run pylint.
-- [ ] File a focused tensor-contraction issue, extract the backend-neutral
+- [x] File a focused tensor-contraction issue, extract the backend-neutral
   evaluation routine onto a branch based directly on ``main``, validate it,
   and open a separate draft PR.
-- [ ] Remove the extracted tensor-backend implementation from this fixed-point
+- [WIP] @codex-2026-07-31 Remove the extracted tensor-backend implementation
+  from this fixed-point
   PR, update its tests and documentation to the smaller public interface, and
   restore green checks.
 
