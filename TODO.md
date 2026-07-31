@@ -4,7 +4,7 @@
 
 ## Unified fixed-point example
 
-- [WIP] @codex-2026-07-31 18:44 Merge the fixed-point semantics and benchmark
+- [x] Merge the fixed-point semantics and benchmark
   material into ``docs/examples/fixpoints.rst``. Present a feedback diagram
   both as a stream and as an approximate stationary readout, then compare
   every backend through the common ``tensor.Diagram`` without restoring an
