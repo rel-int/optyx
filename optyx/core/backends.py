@@ -472,10 +472,11 @@ class QuimbBackend(AbstractBackend):
 
         if hasattr(tensor_diagram, 'terms'):
             results = sum(
-                self._process_term(term) for term in tensor_diagram.terms
+                self._process_term(term, **extra)
+                for term in tensor_diagram.terms
             )
         else:
-            results = self._process_term(tensor_diagram)
+            results = self._process_term(tensor_diagram, **extra)
 
         if diagram.is_pure:
             state_type = StateType.AMP
@@ -493,7 +494,9 @@ class QuimbBackend(AbstractBackend):
             state_type=state_type
         )
 
-    def _process_term(self, term: discopy_tensor.Diagram) -> np.ndarray:
+    def _process_term(
+            self, term: discopy_tensor.Diagram,
+            **extra: Any) -> np.ndarray:
         """
         Process a term in a sum of diagrams.
 
@@ -511,6 +514,10 @@ class QuimbBackend(AbstractBackend):
                 t.modify(data=t.data.astype(np.complex128, copy=False))
 
         if self.hyperoptimiser is None:
+            if extra:
+                raise ValueError(
+                    "Per-call contraction parameters require a "
+                    "hyperoptimiser.")
             result = quimb_tn ^ ...
         else:
             is_approx = isinstance(
@@ -538,12 +545,21 @@ class QuimbBackend(AbstractBackend):
 
             contract = quimb_tn.contract_compressed if \
                 is_approx else quimb_tn.contract
+            contraction_params = {**self.contraction_params, **extra}
+            reserved = {"optimize", "output_inds"} & contraction_params.keys()
+            if reserved:
+                raise ValueError(
+                    "Contraction parameters cannot override "
+                    + ", ".join(sorted(reserved)) + ".")
             result = contract(
                 optimize=self.hyperoptimiser,
                 output_inds=sorted(quimb_tn.outer_inds()),
-                **self.contraction_params
+                **contraction_params
             )
 
+        if isinstance(result, TensorNetwork):
+            result = result.contract(
+                output_inds=sorted(result.outer_inds()))
         if not isinstance(result, (complex, float, int)):
             result = result.data
 

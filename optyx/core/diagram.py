@@ -66,6 +66,8 @@ Other classes
     :toctree:
 
     EmbeddingTensor
+    FeedbackBoundary
+    StreamSemantics
 
 Functions
 ----------
@@ -215,7 +217,7 @@ from optyx.utils.misc import (
     calculate_right_offset,
     get_max_dim_for_box
 )
-from typing import List, Tuple, Iterable
+from typing import List, Tuple, Iterable, NamedTuple
 
 MAX_DIM = 10
 
@@ -279,6 +281,24 @@ class Bit(Ty):
     def __init__(self, n=0):
         self.n = n
         super().__init__(*["bit" for _ in range(n)])
+
+
+class FeedbackBoundary(NamedTuple):
+    """Boundary data attached to one feedback loop.
+
+    The entries are ordered by the functorial traversal used by
+    :meth:`Diagram.to_stream`: left to right for composition, with an outer
+    loop before any loop nested in its argument.
+    """
+    initial_state: object | None
+    final_effect: object | None
+    mem: Ty
+
+
+class StreamSemantics(NamedTuple):
+    """A diagram's stream and its ordered feedback boundaries."""
+    stream: monoidal_stream.Stream
+    boundaries: tuple[FeedbackBoundary, ...]
 
 
 @factory
@@ -368,42 +388,51 @@ class Diagram(frobenius.Diagram):
         """
         if n_steps < 1:
             raise ValueError("n_steps must be at least 1.")
-        stream, plugs = self.to_stream()
+        stream, boundaries = self.to_stream()
         unrolled = stream.unroll(n_steps - 1).now
         mem = stream.mem.now
         dom = unrolled.dom[:len(unrolled.dom) - len(mem)]
         cod = unrolled.cod[:len(unrolled.cod) - len(mem)]
         initial = self.id(type(mem)()).tensor(*(
             self.id(loop_mem) if state is None else state
-            for state, _, loop_mem in plugs))
+            for state, _, loop_mem in boundaries))
         final = self.id(type(mem)()).tensor(*(
             self.id(loop_mem) if effect is None else effect
-            for _, effect, loop_mem in plugs))
+            for _, effect, loop_mem in boundaries))
         return self.id(dom) @ initial >> unrolled >> self.id(cod) @ final
 
-    def to_stream(self) -> tuple:
+    def to_stream(self) -> StreamSemantics:
         """
-        The :class:`discopy.stream.Stream` semantics of a diagram, together
-        with the list of its loops' `(initial_state, final_effect, mem)`.
+        Convert a diagram to its stream semantics and ordered boundaries.
 
         Every box maps to the constant stream and every :class:`Feedback`
         loop moves its memory from the wires to the memory of the stream,
-        so that `stream.now` is the one time step diagram from `dom @ mem`
-        to `cod @ mem`. :meth:`unroll` plugs the states and effects in.
+        so that :attr:`StreamSemantics.stream.now` is the one-step diagram
+        from `dom @ mem` to `cod @ mem`, with no feedback boxes left.
+
+        This is an intentional conversion rather than a cached ``.stream``
+        property. Both :meth:`unroll` and
+        :meth:`optyx.channel.Diagram.one_step`
+        reuse it so nested loops have one definition of memory order. Boundary
+        states and effects are not applied to ``stream.now``; they are returned
+        immutably, left to right with an outer loop before nested loops, for
+        :meth:`unroll` to plug at the first and last time steps.
 
         >>> from optyx.core.zw import Create
         >>> wait = Diagram.swap(mode, mode).feedback(initial_state=Create(1))
-        >>> stream, plugs = wait.to_stream()
-        >>> assert stream.now == Diagram.swap(mode, mode)
-        >>> assert plugs == [(Create(1), None, mode)]
+        >>> semantics = wait.to_stream()
+        >>> assert semantics.stream.now == Diagram.swap(mode, mode)
+        >>> assert semantics.boundaries == (
+        ...     FeedbackBoundary(Create(1), None, mode),)
         """
         stream_factory = monoidal_stream.Stream[self.factory]
-        ty_factory, plugs = stream_factory.ob, []
+        ty_factory, boundaries = stream_factory.ob, []
 
         def ar_map(box):
             if not isinstance(box, self.feedback_factory):
                 return box
-            plugs.append((box.initial_state, box.final_effect, box.mem))
+            boundaries.append(FeedbackBoundary(
+                box.initial_state, box.final_effect, box.mem))
             inner = functor(box.arg)
             return stream_factory(
                 inner.now, dom=ty_factory(box.dom), cod=ty_factory(box.cod),
@@ -412,7 +441,7 @@ class Diagram(frobenius.Diagram):
         functor = monoidal.Functor(
             ob_map=lambda x: x, ar_map=ar_map,
             dom=self.factory, cod=stream_factory)
-        return functor(self), plugs
+        return StreamSemantics(functor(self), tuple(boundaries))
 
     # pylint: disable=too-many-locals
     def to_tensor(
