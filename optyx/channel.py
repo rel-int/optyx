@@ -550,31 +550,12 @@ class Diagram(frobenius.Diagram):
         >>> from optyx.qubits import Ket
         >>> source = (Discard(qubit) @ Ket(0) @ Ket(0)).feedback(
         ...     mem=qubit, initial_state=Ket(1))
-        >>> from discopy.symmetric import Equation
-        >>> readout = (Ket(0) >> source.one_step()
-        ...            >> Diagram.id(qubit) @ Discard(qubit))
-        >>> Equation(source, readout, symbol=r"$\\mapsto$").draw(
-        ...     path="docs/_static/fixpoint.png")
-
-        .. image:: /_static/fixpoint.png
-            :align: center
-
-        Here ``Ket(0)`` is the stationary memory. One step produces the
-        visible state and the next memory; discarding the latter leaves the
-        memory-free fixed output returned by :meth:`fix`.
-
         >>> fixed = source.fix(method="eigen")
-        >>> network = source.at_time(2).double().to_tensor()
-        >>> assert isinstance(network, tensor.Diagram)
         >>> assert np.allclose(
         ...     fixed.density_matrix, [[1, 0], [0, 0]])
 
-        The `"power"` method sends this backend-agnostic
-        :class:`discopy.tensor.Diagram` to a
-        :class:`optyx.core.backends.TensorBackend`, which may use an exact
-        array backend or compressed Quimb contraction. The transfer/readout
-        construction follows `Biriukov and Dyakonov
-        <https://doi.org/10.48550/arXiv.2602.05566>`_.
+        See :doc:`/examples/fixpoints` for the semantic diagram, contraction
+        planning and a backend benchmark.
         """
         if self.dom:
             raise ValueError(

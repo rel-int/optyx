@@ -102,7 +102,7 @@ unrolling is the scalable approximation; exact unfolding is the test baseline.
 
 ## Example
 
-- [x] Keep the example in the `Diagram.fix` documentation: show the semantic
+- [x] Keep one RST example in `docs/examples/fixpoints.rst`: show the semantic
       map from feedback to a memory-free stationary readout and the common
       `tensor.Diagram` consumed by exact or compressed backends.
 
@@ -168,7 +168,7 @@ Completed implementation review:
 
 - [x] document the two semantics locally: `to_stream` / `unroll` for streams,
       and `fix` for an approximate memory-free fixed point; draw the stationary
-      memory readout in `Diagram.fix` rather than adding a top-level guide
+      memory readout in the fixed-point example rather than a top-level page
 - [x] document the power/eigen trade-off and every parameter, the Fock truncation
       convention, custom-backend behaviour, convergence and uniqueness assumptions,
       warnings and the `dom == Ty()` limit; cite arXiv:2602.05566 precisely
@@ -184,11 +184,11 @@ Completed implementation review:
       backend interface; keep Quimb/Cotengra, exact tensor, JAX and PyTorch
       execution choices out of the fixed-point algorithm
 - [x] simplify and expand the tensor-network
-      explanation in `power_fix` and `Diagram.fix`, including where
+      explanation in `power_fix` and the fixed-point example, including where
       compression approximates the exact contraction
-- [x] keep the backend comparison concise in `Diagram.fix`: compile through
+- [x] keep the backend comparison concise in the RST example: compile through
       `to_tensor` to a `tensor.Diagram`, then explain exact array execution and
-      bounded-bond Quimb contraction without a standalone notebook
+      bounded-bond Quimb contraction without a notebook
 - [x] add compatibility tests for exact and
       compressed tensor backends, then rerun lint, coverage and documentation
 
