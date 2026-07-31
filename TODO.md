@@ -9,7 +9,7 @@
 - [x] File a focused tensor-contraction issue, extract the backend-neutral
   evaluation routine onto a branch based directly on ``main``, validate it,
   and open a separate draft PR.
-- [WIP] @codex-2026-07-31 Remove the extracted tensor-backend implementation
+- [x] Remove the extracted tensor-backend implementation
   from this fixed-point
   PR, update its tests and documentation to the smaller public interface, and
   restore green checks.

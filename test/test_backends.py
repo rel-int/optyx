@@ -15,7 +15,6 @@ import math
 from itertools import chain
 import perceval as pcvl
 import discopy.tensor as discopy_tensor
-from quimb.tensor import TensorNetwork
 
 unitary_circuit = photonic.BS
 non_unitary_circuit = (
@@ -79,23 +78,6 @@ def dict_allclose(d1: dict, d2: dict, *, rel_tol=1e-05, abs_tol=1e-10) -> bool:
     return True
 
 class TestQuimbBackend:
-    def test_per_call_contraction_params_override_static(self, monkeypatch):
-        calls = []
-        contract_compressed = TensorNetwork.contract_compressed
-
-        def record(network, *args, **kwargs):
-            calls.append(kwargs.copy())
-            return contract_compressed(network, *args, **kwargs)
-
-        monkeypatch.setattr(
-            TensorNetwork, "contract_compressed", record)
-        backend = QuimbBackend(
-            hyperoptimiser=ReusableHyperCompressedOptimizer(max_repeats=1),
-            contraction_params={"max_bond": 1, "cutoff": 1e-9})
-        qubits.Ket(0).eval(backend, max_bond=3)
-        assert calls[-1]["max_bond"] == 3
-        assert calls[-1]["cutoff"] == 1e-9
-
     # compare exact and approx backends
     @pytest.mark.parametrize("circuit", PURE_CIRCUITS_TO_TEST)
     def test_pure_circuit(self, circuit):

@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from discopy import tensor
+from cotengra import HyperCompressedOptimizer
 
 from optyx import classical, photonic, qubits
 from optyx.channel import (
@@ -8,8 +8,7 @@ from optyx.channel import (
     doubled_dimensions, frobenius_distance, normalise_density_matrix,
     stationary_vector,
 )
-from optyx.core.backends import (
-    DiscopyBackend, QuimbBackend, TensorBackend)
+from optyx.core.backends import DiscopyBackend, QuimbBackend
 
 
 def source(initial_state=1, final_effect=None):
@@ -43,19 +42,17 @@ def flip():
         mem=bit, initial_state=classical.Bit(0))
 
 
-class RecordingBackend(TensorBackend):
+class RecordingBackend(QuimbBackend):
     """A deterministic compressed backend recording per-call parameters."""
 
-    supports_compression = True
-
     def __init__(self):
+        super().__init__(hyperoptimiser=HyperCompressedOptimizer())
         self.calls = []
-        self.result = qubits.Ket(0).double().to_tensor().eval()
+        self.result = qubits.Ket(0).eval(DiscopyBackend())
 
-    def contract(self, diagram, max_bond=None, **params):
-        assert isinstance(diagram, tensor.Diagram)
-        self.calls.append((
-            len(diagram.boxes), {"max_bond": max_bond, **params}))
+    def eval(self, diagram, **extra):
+        assert isinstance(diagram, Diagram)
+        self.calls.append((len(diagram.boxes), self.contraction_params))
         return self.result
 
 
@@ -184,29 +181,14 @@ def test_adaptive_parameters_are_independent():
     assert [call[1]["max_bond"] for call in backend.calls] == [100, 100]
 
 
-def test_backend_must_contract_tensor_diagrams():
-    with pytest.raises(ValueError, match="TensorBackend"):
+def test_backend_uses_existing_interface():
+    with pytest.raises(ValueError, match="AbstractBackend"):
         source().fix(n_steps=2, chi=4, backend=object())
 
 
 def test_power_supports_numpy_tensor_functor():
     result = source().fix(
-        n_steps=2, chi=4, backend=DiscopyBackend("numpy"))
-    assert np.allclose(result.density_matrix, [[1, 0], [0, 0]])
-
-
-def test_power_supports_jax_tensor_functor():
-    jax = pytest.importorskip("jax")
-    with jax.default_device(jax.devices("cpu")[0]):
-        result = source().fix(
-            n_steps=1, chi=4, backend=DiscopyBackend("jax"))
-    assert np.allclose(result.density_matrix, [[1, 0], [0, 0]])
-
-
-def test_power_supports_pytorch_tensor_functor():
-    pytest.importorskip("torch")
-    result = source().fix(
-        n_steps=1, chi=4, backend=DiscopyBackend("pytorch"))
+        n_steps=2, chi=4, backend=DiscopyBackend())
     assert np.allclose(result.density_matrix, [[1, 0], [0, 0]])
 
 

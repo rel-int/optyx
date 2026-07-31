@@ -163,9 +163,15 @@ dual-rail encoding. For example, we can create a GHZ state:
 
 from __future__ import annotations
 
+from copy import copy
+from importlib import import_module
 import warnings
 from numbers import Integral, Real
 
+from cotengra import (
+    HyperCompressedOptimizer,
+    ReusableHyperCompressedOptimizer,
+)
 import numpy as np
 from discopy import tensor
 from discopy import monoidal, symmetric, frobenius, hypergraph
@@ -494,7 +500,7 @@ class Diagram(frobenius.Diagram):
         return initial >> unrolled \
             >> past @ self.id(self.cod) @ Discard(memory)
 
-    def fix(self, n_steps: int = None, chi: int = None,
+    def fix(self, n_steps: int = None, chi: int = None, *,
             method: str = "power", tol: float = 1e-6,
             cutoff: int = 2, backend=None,
             max_steps: int = 64, max_chi: int = 64):
@@ -531,10 +537,10 @@ class Diagram(frobenius.Diagram):
             max_chi : The bond dimension at which the doubling gives up
                 and warns, `"power"` only.
             backend : An optional
-                :class:`optyx.core.backends.TensorBackend` used by the
-                `"power"` method. Exact DisCoPy backends can select NumPy,
-                JAX or PyTorch; Quimb backends can contract exactly or use
-                Cotengra compression bounded by `chi`.
+                :class:`optyx.core.backends.AbstractBackend` used by the
+                `"power"` method. DisCoPy evaluates with ``tensor.Functor``;
+                Quimb can contract exactly or use Cotengra compression
+                bounded by `chi`.
 
         The `"power"` method unrolls the diagram and contracts the doubled
         tensor network. Its default compressed backend bounds bonds by `chi`:
@@ -554,8 +560,8 @@ class Diagram(frobenius.Diagram):
         >>> assert np.allclose(
         ...     fixed.density_matrix, [[1, 0], [0, 0]])
 
-        See :doc:`/examples/fixpoints` for the semantic diagram, contraction
-        planning and a backend benchmark.
+        See :doc:`/examples/fixpoints` for the semantic diagram, agreement
+        map and contraction planning.
         """
         if self.dom:
             raise ValueError(
@@ -584,48 +590,48 @@ class Diagram(frobenius.Diagram):
                 raise ValueError("backend is only used by method='power'.")
             return self.eigen_fix(cutoff, tol)
         return self.power_fix(
-            n_steps, chi, tol, backend, max_steps, max_chi)
+            n_steps, chi, tol, backend,
+            max_steps=max_steps, max_chi=max_chi)
 
-    def power_fix(self, n_steps, chi, tol, backend, max_steps, max_chi):
+    def power_fix(
+            self, n_steps, chi, tol, backend, *, max_steps, max_chi):
         """Approximate the stationary output by compressed iteration.
 
-        The finite-time channel is first doubled and compiled by
-        :meth:`to_tensor` to a :class:`discopy.tensor.Diagram`. The fixed-point
-        algorithm knows no contraction library: it passes that tensor diagram
-        to :meth:`optyx.core.backends.TensorBackend.contract`. A backend may
-        then use the exact tensor functor under NumPy, JAX or PyTorch, exact
-        Quimb contraction, or Cotengra compression.
+        Each finite-time channel is evaluated through the existing backend
+        interface. DisCoPy uses :class:`tensor.Functor`; Quimb converts the
+        same doubled channel to a tensor network and may ask Cotengra for
+        exact or compressed contraction. The fixed-point loop depends only on
+        :meth:`optyx.core.backends.AbstractBackend.eval`.
 
         :meth:`fix` is the public validated dispatcher. ``n_steps`` is refined
-        independently. ``chi`` is also refined when the backend advertises
-        compression; exact backends ignore it because they truncate no bonds.
+        independently. ``chi`` is also refined for a compressed Cotengra
+        optimiser; exact backends ignore it because they truncate no bonds.
         """
-        # pylint: disable=import-outside-toplevel
-        from optyx.core.backends import (
-            EvalResult, QuimbBackend, StateType, TensorBackend)
+        backends = import_module("optyx.core.backends")
 
         if backend is None:
-            backend = QuimbBackend.compressed()
-        elif not isinstance(backend, TensorBackend):
+            backend = backends.QuimbBackend(
+                hyperoptimiser=HyperCompressedOptimizer())
+        elif not isinstance(backend, backends.AbstractBackend):
             raise ValueError(
-                "backend must implement the TensorBackend interface.")
+                "backend must implement the AbstractBackend interface.")
 
-        tensor_cache, result_cache = {}, {}
-
-        def compile_tensor(steps):
-            if steps not in tensor_cache:
-                tensor_cache[steps] = \
-                    self.at_time(steps).double().to_tensor()
-            return tensor_cache[steps]
+        compressed = isinstance(
+            getattr(backend, "hyperoptimiser", None),
+            (ReusableHyperCompressedOptimizer, HyperCompressedOptimizer))
+        result_cache = {}
 
         def contract(steps, bond):
-            max_bond = bond if backend.supports_compression else None
+            max_bond = bond if compressed else None
             key = steps, max_bond
             if key not in result_cache:
-                result_cache[key] = EvalResult(
-                    backend.contract(
-                        compile_tensor(steps), max_bond=max_bond),
-                    output_types=self.cod, state_type=StateType.DM)
+                executor = copy(backend)
+                if compressed:
+                    executor.contraction_params = {
+                        **executor.contraction_params,
+                        "max_bond": max_bond,
+                    }
+                result_cache[key] = self.at_time(steps).eval(executor)
             return result_cache[key]
 
         def normalised(result):
@@ -656,8 +662,8 @@ class Diagram(frobenius.Diagram):
 
         bond = chi if chi is not None else min(4, max_chi)
         _, result, steps_converged = refine_steps(bond)
-        bond_converged = chi is not None or not backend.supports_compression
-        if chi is None and backend.supports_compression:
+        bond_converged = chi is not None or not compressed
+        if chi is None and compressed:
             while bond < max_chi:
                 next_bond = min(2 * bond, max_chi)
                 _, next_result, next_steps_converged = \
@@ -695,8 +701,7 @@ class Diagram(frobenius.Diagram):
         lost trace raises. A non-unique stationary memory state raises rather
         than choosing an arbitrary eigenvector.
         """
-        # pylint: disable=import-outside-toplevel
-        from optyx.core.backends import EvalResult, StateType
+        backends = import_module("optyx.core.backends")
         step = self.one_step()
         memory = step.cod[len(self.cod):]
         dimensions = doubled_dimensions(memory, cutoff)
@@ -724,11 +729,11 @@ class Diagram(frobenius.Diagram):
         density_matrix = (memory_state >> tensor_diagram).eval().array
         density_matrix = normalise_density_matrix(
             density_matrix, self.cod, tol)
-        return EvalResult(
+        return backends.EvalResult(
             tensor.Box(
                 "Result", tensor.Dim(1), tensor_diagram.cod,
                 density_matrix),
-            output_types=self.cod, state_type=StateType.DM)
+            output_types=self.cod, state_type=backends.StateType.DM)
 
     def needs_inflation(self) -> bool:
         """

@@ -29,18 +29,9 @@ Classes
 
     EvalResult
     AbstractBackend
-    TensorBackend
     QuimbBackend
     DiscopyBackend
     PercevalBackend
-
-Functions
----------
-
-.. autosummary::
-    :nosignatures:
-
-    materialize_spiders
 
 Examples of usage
 -----------------
@@ -60,14 +51,6 @@ Examples of usage
 >>> from cotengra import ReusableHyperCompressedOptimizer
 >>> opt = ReusableHyperCompressedOptimizer(max_repeats=32)
 >>> backend = QuimbBackend(hyperoptimiser=opt)
->>> result = diag.eval(backend)
->>> np.round(result.single_prob((2, 0)), 1)
-0.5
-
-**Exact tensor-functor contraction with another array library**
-
->>> from optyx.core.backends import DiscopyBackend
->>> backend = DiscopyBackend("numpy")
 >>> result = diag.eval(backend)
 >>> np.round(result.single_prob((2, 0)), 1)
 0.5
@@ -99,7 +82,6 @@ import perceval as pcvl
 from quimb.tensor import TensorNetwork
 from optyx.channel import Diagram, Ty, mode, bit
 from optyx.core.path import Matrix
-from optyx.utils.misc import preprocess_quimb_tensors_safe
 
 
 @dataclass
@@ -445,40 +427,7 @@ class AbstractBackend(ABC):
 
 
 # pylint: disable=too-few-public-methods
-class TensorBackend(AbstractBackend):
-    """Interface for backends which contract a :class:`tensor.Diagram`.
-
-    Optyx compilation ends at :meth:`Diagram.to_tensor`. Concrete backends
-    implement :meth:`contract` only; this class keeps conversion from channel
-    diagrams and :class:`EvalResult` construction in one place.
-    """
-
-    supports_compression = False
-
-    @abstractmethod
-    def contract(
-            self, diagram: discopy_tensor.Diagram,
-            max_bond: int = None, **params: Any) -> discopy_tensor.Tensor:
-        """Contract a compiled tensor diagram.
-
-        ``max_bond`` is an optional approximation budget. Exact backends may
-        ignore it; compressed backends advertise support through
-        :attr:`supports_compression`.
-        """
-
-    def eval(
-            self, diagram: Diagram,
-            **extra: Any) -> EvalResult:
-        """Compile a channel diagram to tensors, contract it and wrap it."""
-        tensor_diagram = self._get_discopy_tensor(diagram)
-        result = self.contract(tensor_diagram, **extra)
-        state_type = StateType.AMP if diagram.is_pure else StateType.DM
-        return EvalResult(
-            result, output_types=diagram.cod, state_type=state_type)
-
-
-# pylint: disable=too-few-public-methods
-class QuimbBackend(TensorBackend):
+class QuimbBackend(AbstractBackend):
     """
     Backend implementation using Quimb.
     """
@@ -504,45 +453,46 @@ class QuimbBackend(TensorBackend):
         self.hyperoptimiser = hyperoptimiser
         self.contraction_params = contraction_params or {}
 
-    @classmethod
-    def compressed(cls, **contraction_params) -> "QuimbBackend":
-        """Return a backend using Cotengra compressed contraction."""
-        return cls(
-            hyperoptimiser=HyperCompressedOptimizer(),
-            contraction_params=contraction_params)
-
-    @property
-    def supports_compression(self) -> bool:
-        """Whether this backend truncates intermediate bond dimensions."""
-        return isinstance(
-            self.hyperoptimiser,
-            (ReusableHyperCompressedOptimizer, HyperCompressedOptimizer))
-
-    def contract(
-            self, diagram: discopy_tensor.Diagram,
-            max_bond: int = None, **extra: Any) -> discopy_tensor.Tensor:
-        """Contract a tensor diagram with Quimb and Cotengra.
-
-        A compressed optimiser applies ``max_bond`` to intermediate tensors.
-        Exact Quimb contraction accepts and ignores that optional budget, which
-        keeps the tensor-backend interface uniform.
+    def eval(
+            self,
+            diagram: Diagram,
+            **extra: Any) -> EvalResult:
         """
-        if max_bond is not None and self.supports_compression:
-            extra = {"max_bond": max_bond, **extra}
-        if hasattr(diagram, 'terms'):
+        Evaluate the diagram using Quimb.
+
+        Args:
+            diagram (Diagram): The diagram to evaluate.
+
+        Returns:
+            The result of the evaluation.
+        """
+
+        tensor_diagram = self._get_discopy_tensor(diagram)
+
+        if hasattr(tensor_diagram, 'terms'):
             results = sum(
-                self._process_term(term, **extra)
-                for term in diagram.terms
+                self._process_term(term) for term in tensor_diagram.terms
             )
         else:
-            results = self._process_term(diagram, **extra)
-        return discopy_tensor.Box(
-            "Result", diagram.dom, diagram.cod, results
+            results = self._process_term(tensor_diagram)
+
+        if diagram.is_pure:
+            state_type = StateType.AMP
+        else:
+            state_type = StateType.DM
+
+        return EvalResult(
+            discopy_tensor.Box(
+                "Result",
+                tensor_diagram.dom,
+                tensor_diagram.cod,
+                results
+            ),
+            output_types=diagram.cod,
+            state_type=state_type
         )
 
-    def _process_term(
-            self, term: discopy_tensor.Diagram,
-            **extra: Any) -> np.ndarray:
+    def _process_term(self, term: discopy_tensor.Diagram) -> np.ndarray:
         """
         Process a term in a sum of diagrams.
 
@@ -560,10 +510,6 @@ class QuimbBackend(TensorBackend):
                 t.modify(data=t.data.astype(np.complex128, copy=False))
 
         if self.hyperoptimiser is None:
-            if extra:
-                raise ValueError(
-                    "Per-call contraction parameters require a "
-                    "hyperoptimiser.")
             result = quimb_tn ^ ...
         else:
             is_approx = isinstance(
@@ -586,21 +532,12 @@ class QuimbBackend(TensorBackend):
 
                 )
 
-            if is_approx:
-                quimb_tn = preprocess_quimb_tensors_safe(quimb_tn)
-
             contract = quimb_tn.contract_compressed if \
                 is_approx else quimb_tn.contract
-            contraction_params = {**self.contraction_params, **extra}
-            reserved = {"optimize", "output_inds"} & contraction_params.keys()
-            if reserved:
-                raise ValueError(
-                    "Contraction parameters cannot override "
-                    + ", ".join(sorted(reserved)) + ".")
             result = contract(
                 optimize=self.hyperoptimiser,
                 output_inds=sorted(quimb_tn.outer_inds()),
-                **contraction_params
+                **self.contraction_params
             )
 
         if isinstance(result, TensorNetwork):
@@ -613,60 +550,33 @@ class QuimbBackend(TensorBackend):
 
 
 # pylint: disable=too-few-public-methods
-class DiscopyBackend(TensorBackend):
+class DiscopyBackend(AbstractBackend):
     """
-    Exact tensor-functor backend using NumPy, JAX, PyTorch or TensorFlow.
+    Backend implementation using Discopy.
     """
 
-    def __init__(self, backend: str = None):
-        """Select a DisCoPy array backend, ``"numpy"`` by default."""
-        self.backend = backend
-
-    def contract(
-            self, diagram: discopy_tensor.Diagram,
-            max_bond: int = None, **params: Any) -> discopy_tensor.Tensor:
-        """Contract exactly with :class:`tensor.Functor`.
-
-        ``max_bond`` is accepted for interface compatibility and ignored
-        because tensor-functor contraction is exact.
+    def eval(self, diagram: Diagram,  **extra: Any) -> EvalResult:
         """
-        del max_bond
-        dtype = params.pop("dtype", None)
-        if self.backend not in (None, "numpy"):
-            dtype = dtype or complex
-            diagram = materialize_spiders(diagram, dtype)
-        with discopy_tensor.backend(self.backend):
-            return diagram.eval(**params) if dtype is None \
-                else diagram.eval(dtype=dtype, **params)
+        Evaluate the diagram using Discopy.
 
+        Args:
+            diagram (Diagram): The diagram to evaluate.
 
-def materialize_spiders(
-        diagram: discopy_tensor.Diagram,
-        dtype: type = complex) -> discopy_tensor.Diagram:
-    """Replace structural spiders by ordinary tensor boxes.
+        Returns:
+            The result of the evaluation.
+        """
+        tensor_diagram = self._get_discopy_tensor(diagram).eval()
 
-    DisCoPy currently constructs spider arrays with NumPy even while another
-    array backend is active.  Explicit boxes let ``tensor.Functor`` coerce
-    every operand consistently, which is required by PyTorch and harmless for
-    JAX and TensorFlow.  This adapter can be removed once DisCoPy spiders obey
-    the active tensor backend.
-    """
-    if hasattr(diagram, "terms"):
-        terms = tuple(
-            materialize_spiders(term, dtype) for term in diagram.terms)
-        return sum(terms[1:], terms[0])
+        if diagram.is_pure:
+            state_type = StateType.AMP
+        else:
+            state_type = StateType.DM
 
-    boxes = []
-    for box in diagram.boxes:
-        if isinstance(box, discopy_tensor.Spider):
-            spider = discopy_tensor.Tensor.spider_factory(
-                len(box.dom), len(box.cod), box.typ, box.phase)
-            box = discopy_tensor.Box(
-                box.name, box.dom, box.cod,
-                np.asarray(spider.array, dtype=dtype))
-        boxes.append(box)
-    return discopy_tensor.Diagram.decode(
-        diagram.dom, boxes=boxes, offsets=diagram.offsets, cod=diagram.cod)
+        return EvalResult(
+            tensor_diagram,
+            output_types=diagram.cod,
+            state_type=state_type,
+        )
 
 
 # pylint: disable=too-few-public-methods

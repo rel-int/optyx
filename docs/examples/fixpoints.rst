@@ -29,7 +29,7 @@ Fock states on the two fresh input modes.
     ...     Channel, Diagram, Discard, density_trace,
     ...     frobenius_distance, qmode)
     >>> from optyx.core import diagram
-    >>> from optyx.core.backends import DiscopyBackend, QuimbBackend
+    >>> from optyx.core.backends import DiscopyBackend
 
     >>> def random_unitary(size, seed=7):
     ...     rng = np.random.default_rng(seed)
@@ -116,7 +116,7 @@ with zeros before taking a Frobenius distance.
     ...     distances[occupation] = tuple(
     ...         padded_distance(normalised(sampler.fix(
     ...             n_steps=steps, chi=16,
-    ...             backend=DiscopyBackend("numpy")), sampler.cod), reference)
+    ...             backend=DiscopyBackend()), sampler.cod), reference)
     ...         for steps in depths)
     >>> for occupation, values in distances.items():
     ...     print(occupation, *(f"{value:.2e}" for value in values))
@@ -149,72 +149,6 @@ At tolerance ``1e-5``, the agreement map is therefore:
 This is evidence for this seeded example, not a convergence bound. Repeat the
 map after increasing ``cutoff``; the eigen method raises when truncation loses
 more trace than ``tol``.
-
-Compare tensor backends
------------------------
-
-Every power executor receives the same backend-neutral
-:class:`discopy.tensor.Diagram`. Exact NumPy, JAX, PyTorch and Quimb differ
-only in contraction engine; compressed Quimb additionally truncates
-intermediate bonds to ``chi``. The following benchmark records both runtime
-and agreement with the eigen reference.
-
-.. code-block:: python
-
-    from importlib.util import find_spec
-    from time import perf_counter
-
-    backends = {
-        "power / NumPy": DiscopyBackend("numpy"),
-        "power / Quimb exact": QuimbBackend(),
-        "power / Quimb chi=16": QuimbBackend.compressed(),
-    }
-    if find_spec("jax"):
-        backends["power / JAX"] = DiscopyBackend("jax")
-    if find_spec("torch"):
-        backends["power / PyTorch"] = DiscopyBackend("pytorch")
-
-    def benchmark(occupation, atol=1e-5):
-        sampler = feedback_sampler(occupation)
-        started = perf_counter()
-        reference = normalised(
-            sampler.fix(method="eigen", cutoff=9), sampler.cod)
-        rows = {"eigen": {
-            "seconds": perf_counter() - started,
-            "distance": 0.0,
-            "agrees": True,
-        }}
-        for name, backend in backends.items():
-            started = perf_counter()
-            try:
-                result = normalised(sampler.fix(
-                    n_steps=6, chi=16, backend=backend), sampler.cod)
-                distance = padded_distance(result, reference)
-                rows[name] = {
-                    "seconds": perf_counter() - started,
-                    "distance": distance,
-                    "agrees": distance < atol,
-                }
-            except Exception as error:
-                rows[name] = {"error": repr(error), "agrees": False}
-        return rows
-
-    if __name__ == "__main__":
-        reports = {
-            occupation: benchmark(occupation)
-            for occupation in occupations
-        }
-        agreement_map = {
-            occupation: {
-                name: row["agrees"] for name, row in rows.items()
-            }
-            for occupation, rows in reports.items()
-        }
-
-For the seeded run above, NumPy and exact Quimb have the same distances shown
-at depth six. Compressed Quimb at ``chi=16`` also agrees for all three inputs;
-its largest observed distance is ``9.01e-6``. Optional accelerator results
-should be compared by value, not by cold-start timing.
 
 Plan before contracting
 -----------------------
