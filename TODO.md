@@ -1,5 +1,18 @@
 # TODO
 
+> Let's edit the PR description, listing every contribution of this PR, described briefly. Remember the discopy STYLE.md guidelines
+>
+> Currently the repo also seems to have too many additions, the notebook should be integrated as a small documentation snippet in fix
+>
+> It should not be on the top of docs/ as it currently is
+
+## Concise documentation round
+
+- [WIP] @codex-2026-07-31 18:18 Remove the standalone fixpoint guide and
+  benchmark notebook, keep a small runnable example in ``Diagram.fix``, trim
+  their navigation/configuration, and update the PR description with every
+  contribution stated briefly.
+
 > I've opened issue https://github.com/rel-int/optyx/issues/14, make a plan for implementation.
 > Implement the plan in the PR.
 > Rebase https://github.com/rel-int/optyx/pull/15/changes on the current version of the
