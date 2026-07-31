@@ -6,6 +6,7 @@
 .. toctree::
     :hidden:
 
+    fixpoints
     api
     notebooks
 
