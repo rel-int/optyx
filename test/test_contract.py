@@ -1,10 +1,13 @@
 """Tests for backend-neutral tensor contraction."""
 
+from contextlib import nullcontext
+
 from cotengra import ReusableHyperCompressedOptimizer
 import numpy as np
 import pytest
 
 from optyx import qubits
+from optyx.core import contract
 from optyx.core.contract import contract_tensor
 
 
@@ -24,6 +27,17 @@ def test_array_backends(backend, module):
     network = qubits.Ket(0).double().to_tensor()
     result = contract_tensor(network, backend=backend)
     assert np.allclose(np.asarray(result.array), [[1, 0], [0, 0]])
+
+
+def test_array_backend_materialises_spiders(monkeypatch):
+    network = qubits.Ket(0).double().to_tensor()
+
+    def backend_context(_backend=None):
+        return nullcontext(np)
+
+    monkeypatch.setattr(contract.tensor, "backend", backend_context)
+    result = contract_tensor(network, backend="accelerator")
+    assert np.allclose(result.array, [[1, 0], [0, 0]])
 
 
 def test_compressed_quimb():

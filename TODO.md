@@ -13,5 +13,5 @@
 - [x] Open a draft pull request directly against ``main``
   and leave every
   checklist item complete.
-- [WIP] @codex-2026-07-31 Cover structural spider materialisation when the
+- [x] Cover structural spider materialisation when the
   optional JAX and PyTorch test dependencies are unavailable in CI.
