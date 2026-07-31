@@ -7,6 +7,8 @@
 > should also be justified. Review the existing code and push a TODO.md for making the code
 > cleaner.
 
+> Check out the optyx issue on fixpoints and PR [https://github.com/rel-int/optyx/pull/15/changes](https://github.com/rel-int/optyx/pull/15/changes). Why is it showing diff in core.diagram.Feedback? The to_stream addition should also be justified. Review the existing code and push a TODO.md for making the code cleaner and well documented.
+
 Plan for `channel.Diagram.fix(n_steps, chi)`: approximate the stationary state of a
 stateful diagram by tensor network contraction with bounded bond dimension.
 Stacked on #12 (`feedback` / `unroll`), rebased on its head at every round.
@@ -34,37 +36,34 @@ bond dimension `chi` — an MPO power method — approximates the fixed point.
 
 ## Methods of the ref, as tensor contractions
 
-The ref proposes three methods; each is (or embeds in) a contraction of the same
-doubled network, so `fix` can expose them as strategies and the notebook can race
-them. *Caveat: arxiv.org is unreachable from the agent environment, so this section
-is reconstructed from the abstract and standard formulations — verify against the
-paper before implementing, and correct the checkboxes if it disagrees.*
+The paper separates four pieces which should not be presented as names for the two
+`fix` strategies:
 
-1. **Spatiotemporal mode-unfolding** — time-bins become extra modes: exactly our
-   `unroll`, evaluated exactly (permanents through `to_path` /
-   `PermanentBackend`). Exponential in total photon number, no truncation error;
-   the baseline the others are tested against.
-2. **Kraus-operator formalism** — the one-step process on the memory is a channel;
-   its doubled transfer map is one tensor. Stationary state = eigenvector of the
-   transfer matrix at eigenvalue 1: for small `mem` and Fock cutoff, one
-   eigensolve, no `n_steps` at all. Iterating it instead is the `chi = d_mem²`
-   case of our MPO power method — `fix` at `chi = None, n_steps` finite.
-3. **Correlation-tensor approach** — propagate low-order correlation tensors of
-   the mode operators through one step; the stationary values solve a small linear
-   fixed-point system. Polynomial in the number of modes but returns marginals,
-   not the density matrix `fix` promises — a validation and benchmark tool, not an
-   implementation of `fix`.
+1. **Interferometer unfolding** turns time bins into spatial modes. This is the
+   exact, quickly growing baseline represented by `unroll`.
+2. **Partial-density-matrix evolution** applies one step and traces the detected
+   modes at every iteration, keeping only the state in the looped modes.
+3. **Kraus operators** represent that same loop channel, including loss. The
+   paper obtains the stationary loop state as the eigenvector at eigenvalue one
+   of its vectorised superoperator.
+4. **Correlation tensors** solve stationary moment equations recursively and can
+   reconstruct either the density matrix or only its diagonal, depending on how
+   many tensor orders are retained.
 
-Efficiency: (2) as a direct eigensolve wins whenever the memory fits in
-`cutoff^|mem|`; the `chi`-bounded power method is the only one that scales past
-that; (1) is the exact baseline for tests; (3) is the cheapest check on marginals.
+Optyx's `method="power"` and `method="eigen"` are therefore contraction strategies
+for the common channel, not the paper's method names. The eigen strategy matches
+the superoperator calculation when the truncated memory fits in memory; compressed
+unrolling is the scalable approximation; exact unfolding is the test baseline.
 
 - [ ] exact baseline: unrolled evaluation through permanents, reusing
       `PermanentBackend` (tests + notebook, little new code)
+- [ ] compare one-step partial-density-matrix iteration with the Kraus/superoperator
+      construction on a small photonic example
 - [x] `method="eigen"`: build the doubled one-step transfer tensor, eigensolve
       for the fixed point when the memory dimension is tractable
 - [x] `method="power"` (default): the `chi`-compressed contraction above
-- [ ] correlation-tensor marginals in the notebook to cross-check both
+- [ ] correlation-tensor reconstruction in the notebook to cross-check both the
+      stationary loop state and the returned output distribution
 
 ## Heuristics for the defaults
 
@@ -85,12 +84,28 @@ that; (1) is the exact baseline for tests; (3) is the cheapest check on marginal
 
 ## Still open after the first implementation round
 
-- the reading of the ref is still unverified: arxiv.org is blocked by the network
-  policy of the agent environment, so the three methods above were reconstructed
-  from the abstract. The mapping onto `method="eigen"` and `method="power"` needs
-  checking against the paper, and `n_steps` / `chi` heuristics taken from it
+- the paper truncates the joint multimode Fock space by total photon number
+  `N_max`, whereas `eigen_fix` currently gives each doubled memory wire the same
+  dimension `cutoff`; relate these conventions and document the error introduced
 - `fix` doubles `n_steps` and `chi` together rather than converging them
   separately, which is cheaper to implement but conflates two questions
+
+## Why `to_stream` belongs in this PR
+
+Keep `to_stream` as an intentional conversion, not as the cached `.stream`
+property rejected during #12. Both `unroll` and `one_step` need exactly the same
+functorial interpretation of nested feedback loops; sharing it guarantees the same
+memory and boundary-plug order without duplicating the semantics. Its public
+contract still needs to be made explicit:
+
+- [ ] document this rationale on `to_stream`, `unroll` and `one_step`, including
+      that `stream.now` omits `initial_state` / `final_effect` and that the returned
+      plugs follow feedback traversal order
+- [ ] replace the anonymous tuple annotation and `self.to_stream()[0]` with a named
+      result or clear unpacking; test sequential, tensor and nested feedback loops
+- [ ] explain why this reusable conversion follows `STYLE.md` despite #12's reduced
+      interface; if exposing DisCoPy's `Stream` cannot be given a stable contract,
+      expose a narrower shared one-step primitive instead
 
 ## Cleanup round
 
@@ -102,21 +117,40 @@ From a review of the first implementation, queued for the next coding session:
 - [ ] a user-supplied `backend` ignores `chi`: the loop doubles `bond` but the
       contraction never sees it — rebuild the backend per bond, or reject
       `backend` together with `chi=None`
-- [ ] `fixed_point` picks the eigenvalue closest to one silently — warn when it
-      is not within `tol` of one (no stationary state) or degenerate (fixed
-      point not unique)
-- [ ] `contract = lambda ...` in `fix` — a named inner `def`
+- [ ] validate positive `n_steps`, `chi`, `cutoff`, `max_steps`, `max_chi` and
+      `tol`; avoid `n_steps or 2` / `chi or 4`, which silently treats zero as a
+      request for a default
+- [ ] converge `n_steps` and `chi` independently and report which cap was reached;
+      add `stacklevel=2` to convergence warnings
+- [ ] `fixed_point` picks the eigenvalue closest to one silently — check the
+      residual and degeneracy, then preserve the initial state or raise/warn when
+      the stationary state is not unique; check normalisation, Hermiticity and
+      positivity before returning it
+- [ ] make `fix` a small validated dispatcher with named, separately testable power
+      and eigen procedures; name the transfer, readout, memory dimension and
+      contraction steps instead of a lambda and the `2 * (dimension,)` reshape
 - [ ] `at_time`: `Discard(self.cod ** (n_steps - 1))` instead of tensoring a
       list of `Discard`s, and drop the `rest` conditional if `Discard(Ty())`
       is the empty channel
-- [ ] one public entry point: fold `eigen_fix` into `fix` or rename it
-      `_eigen_fix`; factor the tensordot readout/normalisation block into a
-      helper next to the backends
 - [ ] move the `cotengra` import inside `fix` next to the `QuimbBackend` one,
       so importing `optyx.channel` stays light
-- [ ] rename `utils.misc.distance` to `frobenius_distance`
-- [ ] `to_stream` returns a bare `(stream, plugs)` tuple — a `NamedTuple` with
-      `stream` and `plugs` fields reads better at the call sites
+- [ ] move and rename `fixed_point` and `distance` rather than adding new debt to
+      `utils.misc`, whose dissolution is planned in issue #5 / PR #8; use names
+      which expose the superoperator convention and Frobenius metric
+- [ ] add identity, periodic, nearly-degenerate and custom-backend tests, plus
+      independent adaptation tests for `n_steps` and `chi`
+
+## Documentation round
+
+- [ ] add a short Sphinx guide linked from `docs/index.rst`: draw the one-step
+      memory channel and readout; define `feedback`, `unroll`, `to_stream`,
+      `one_step`, `at_time` and `fix`; distinguish the stationary loop state from
+      the density matrix returned over `cod`
+- [ ] document the power/eigen trade-off and every parameter, the Fock truncation
+      convention, custom-backend behaviour, convergence and uniqueness assumptions,
+      warnings and the `dom == Ty()` limit; cite arXiv:2602.05566 precisely
+- [ ] keep doctests minimal and runnable, then run `pflake8 optyx`, the full
+      coverage suite and the Sphinx build before claiming the cleanup round
 
 ## Blocked on design
 
