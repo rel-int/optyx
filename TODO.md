@@ -134,9 +134,9 @@ unrolling is the scalable approximation; exact unfolding is the test baseline.
 
 ## Still open after the first implementation round
 
-- the paper truncates the joint multimode Fock space by total photon number
-  `N_max`, whereas `eigen_fix` currently gives each doubled memory wire the same
-  dimension `cutoff`; relate these conventions and document the error introduced
+- [ ] the paper truncates the joint multimode Fock space by total photon number
+      `N_max`, whereas `eigen_fix` currently gives each doubled memory wire the same
+      dimension `cutoff`; relate these conventions and document the error introduced
 - [x] converge `n_steps` and `chi` separately so the depth and compression
       errors are checked independently
 
