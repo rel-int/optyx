@@ -18,10 +18,11 @@ Stacked on #12 (`feedback` / `unroll`), rebased on its head at every round.
 A diagram `D` with feedback loops of total memory `mem` denotes a family of channels
 indexed by time. For `dom == Ty()`, the state at time `n` is the unrolling over `n`
 steps with each loop's `initial_state` plugged in, every output before the last
-discarded and the final memory discarded. The stationary state is the limit
-`n → ∞`, i.e. the fixed point of the one-step doubled transfer channel on `mem`.
-The doubled unrolled network is a quasi-1D ladder, so compressed contraction with
-bond dimension `chi` — an MPO power method — approximates the fixed point.
+discarded and the final memory discarded. A stationary state is a fixed point of
+the one-step doubled transfer channel on `mem`; its readout is the `n → ∞` limit
+only when the finite-time states converge. The doubled unrolled network is a
+quasi-1D ladder, so compressed contraction with bond dimension `chi` — an MPO
+power method — approximates the fixed point reached from `initial_state`.
 
 ## Unroll and contract
 
@@ -72,7 +73,7 @@ unrolling is the scalable approximation; exact unfolding is the test baseline.
       the trace distance needs a row/column pairing of the doubled wires which
       the single wire doubling of classical types makes ambiguous
 - [x] `chi=None`: double the bond dimension until the result is stable within
-      `tol`, capped by `max_chi`; both double together in one loop
+      `tol`, capped by `max_chi`; refine the depth independently at each bond
 - [ ] leave a hook for formal bounds (photonic bounds in progress by @armandld,
       heuristics from https://arxiv.org/abs/2602.05566)
 
@@ -87,8 +88,8 @@ unrolling is the scalable approximation; exact unfolding is the test baseline.
 - the paper truncates the joint multimode Fock space by total photon number
   `N_max`, whereas `eigen_fix` currently gives each doubled memory wire the same
   dimension `cutoff`; relate these conventions and document the error introduced
-- `fix` doubles `n_steps` and `chi` together rather than converging them
-  separately, which is cheaper to implement but conflates two questions
+- [x] converge `n_steps` and `chi` separately so the depth and compression
+      errors are checked independently
 
 ## Why `to_stream` belongs in this PR
 
@@ -96,60 +97,60 @@ Keep `to_stream` as an intentional conversion, not as the cached `.stream`
 property rejected during #12. Both `unroll` and `one_step` need exactly the same
 functorial interpretation of nested feedback loops; sharing it guarantees the same
 memory and boundary-plug order without duplicating the semantics. Its public
-contract still needs to be made explicit:
+contract is made explicit below:
 
-- [WIP] @Codex-2026-07-31 14:41 document this rationale on `to_stream`, `unroll` and `one_step`, including
+- [x] document this rationale on `to_stream`, `unroll` and `one_step`, including
       that `stream.now` omits `initial_state` / `final_effect` and that the returned
       plugs follow feedback traversal order
-- [WIP] @Codex-2026-07-31 14:41 replace the anonymous tuple annotation and `self.to_stream()[0]` with a named
+- [x] replace the anonymous tuple annotation and `self.to_stream()[0]` with a named
       result or clear unpacking; test sequential, tensor and nested feedback loops
-- [WIP] @Codex-2026-07-31 14:41 explain why this reusable conversion follows `STYLE.md` despite #12's reduced
+- [x] explain why this reusable conversion follows `STYLE.md` despite #12's reduced
       interface; if exposing DisCoPy's `Stream` cannot be given a stable contract,
       expose a narrower shared one-step primitive instead
 
 ## Cleanup round
 
-From a review of the first implementation, queued for the next coding session:
+Completed implementation review:
 
-- [WIP] @Codex-2026-07-31 14:41 the convergence caps gate the wrong parameter: `fix(n_steps=100)` has
+- [x] the convergence caps gate the wrong parameter: `fix(n_steps=100)` has
       `steps >= max_steps` on entry, so it warns and never doubles `chi` —
       each cap should only gate the parameter being doubled
-- [WIP] @Codex-2026-07-31 14:41 a user-supplied `backend` ignores `chi`: the loop doubles `bond` but the
+- [x] a user-supplied `backend` ignores `chi`: the loop doubles `bond` but the
       contraction never sees it — rebuild the backend per bond, or reject
       `backend` together with `chi=None`
-- [WIP] @Codex-2026-07-31 14:41 validate positive `n_steps`, `chi`, `cutoff`, `max_steps`, `max_chi` and
+- [x] validate positive `n_steps`, `chi`, `cutoff`, `max_steps`, `max_chi` and
       `tol`; avoid `n_steps or 2` / `chi or 4`, which silently treats zero as a
       request for a default
-- [WIP] @Codex-2026-07-31 14:41 converge `n_steps` and `chi` independently and report which cap was reached;
-      add `stacklevel=2` to convergence warnings
-- [WIP] @Codex-2026-07-31 14:41 `fixed_point` picks the eigenvalue closest to one silently — check the
+- [x] converge `n_steps` and `chi` independently and report which cap was reached;
+      set the warning stack level to point at the caller of `fix`
+- [x] `fixed_point` picks the eigenvalue closest to one silently — check the
       residual and degeneracy, then preserve the initial state or raise/warn when
       the stationary state is not unique; check normalisation, Hermiticity and
       positivity before returning it
-- [WIP] @Codex-2026-07-31 14:41 make `fix` a small validated dispatcher with named, separately testable power
+- [x] make `fix` a small validated dispatcher with named, separately testable power
       and eigen procedures; name the transfer, readout, memory dimension and
       contraction steps instead of a lambda and the `2 * (dimension,)` reshape
-- [WIP] @Codex-2026-07-31 14:41 `at_time`: `Discard(self.cod ** (n_steps - 1))` instead of tensoring a
+- [x] `at_time`: `Discard(self.cod ** (n_steps - 1))` instead of tensoring a
       list of `Discard`s, and drop the `rest` conditional if `Discard(Ty())`
       is the empty channel
-- [WIP] @Codex-2026-07-31 14:41 move the `cotengra` import inside `fix` next to the `QuimbBackend` one,
+- [x] move the `cotengra` import inside `fix` next to the `QuimbBackend` one,
       so importing `optyx.channel` stays light
-- [WIP] @Codex-2026-07-31 14:41 move and rename `fixed_point` and `distance` rather than adding new debt to
+- [x] move and rename `fixed_point` and `distance` rather than adding new debt to
       `utils.misc`, whose dissolution is planned in issue #5 / PR #8; use names
       which expose the superoperator convention and Frobenius metric
-- [WIP] @Codex-2026-07-31 14:41 add identity, periodic, nearly-degenerate and custom-backend tests, plus
+- [x] add identity, periodic, nearly-degenerate and custom-backend tests, plus
       independent adaptation tests for `n_steps` and `chi`
 
 ## Documentation round
 
-- [WIP] @Codex-2026-07-31 14:41 add a short Sphinx guide linked from `docs/index.rst`: draw the one-step
+- [x] add a short Sphinx guide linked from `docs/index.rst`: draw the one-step
       memory channel and readout; define `feedback`, `unroll`, `to_stream`,
       `one_step`, `at_time` and `fix`; distinguish the stationary loop state from
       the density matrix returned over `cod`
-- [WIP] @Codex-2026-07-31 14:41 document the power/eigen trade-off and every parameter, the Fock truncation
+- [x] document the power/eigen trade-off and every parameter, the Fock truncation
       convention, custom-backend behaviour, convergence and uniqueness assumptions,
       warnings and the `dom == Ty()` limit; cite arXiv:2602.05566 precisely
-- [WIP] @Codex-2026-07-31 14:41 keep doctests minimal and runnable, then run `pflake8 optyx`, the full
+- [x] keep doctests minimal and runnable, then run `pflake8 optyx`, the full
       coverage suite and the Sphinx build before claiming the cleanup round
 
 ## Blocked on design
