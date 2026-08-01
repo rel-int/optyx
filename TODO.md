@@ -426,6 +426,27 @@ routed past every accumulated output wire. All of them disappear under the CMap 
       `discopy.tensor.CMap` is available in the pinned revision, but changing the
       contraction representation is outside this correctness and documentation round
 
+> Check that the new formulas are correct [...] Definitely the notebook should be improved
+> to check the complexity claims in the implementation. The last part on characterising the
+> distribution should be made much shorter and focus on stating why it is not poissonian,
+> etc, I wonder how it is different from a Gaussian state.
+
+## Review round: shorter characterisation, Gaussian comparison, measured complexity
+
+Formulas verified first: `F_r^Q = r! F_r^C` with `F_r^C = r! T^{r(r-1)/2} / prod_j [j]_T`
+reproduces the measured factorial moments to 1.00000 for `r = 1..4` at `T = 0.2, 0.4, 0.6`.
+They are correct as written.
+
+- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 16:15 cut the characterisation
+      section down: one statement of why the state is not Poissonian, not a tour
+- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 16:15 add the Gaussian comparison:
+      the only Fock-diagonal single-mode Gaussian states are thermal, so `F_r = r!` at
+      mean one; ours is `r! F_r^C`, which reaches `r!` only as `T -> 1`
+- [ ] measure the complexity claims rather than asserting them: time `power` and `eigen`
+      against the stated `M^{4L}` and `M^{12L}` scalings — NOTE the multimode complexity
+      round is claimed by another session in 3445e36, so coordinate before editing those
+      cells
+
 ## Blocked on design
 
 - `dom != Ty()`: the process "prepare an input state at every time step, return the
