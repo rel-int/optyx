@@ -4,13 +4,13 @@
 
 ## Common scaling and higher moments
 
-- [WIP] @Codex-pr15-2026-08-01 16:28 derive the power/eigen costs from the
+- [x] derive the power/eigen costs from the
       same photon cutoff, time depth and target error, then identify and measure
       the regime where power is cheaper.
-- [WIP] @Codex-pr15-2026-08-01 16:28 derive and validate higher factorial
+- [x] derive and validate higher factorial
       moments, skewness and kurtosis for distinguishable and indistinguishable
       photon-adder fixed points.
-- [WIP] @Codex-pr15-2026-08-01 16:28 update and execute the notebook with the
+- [x] update and execute the notebook with the
       common-scaling comparison, higher-moment tables and concise figures.
 - [WIP] @Codex-pr15-2026-08-01 16:28 remove stale duplicate checkboxes and map
       the superseded review threads to the executed notebook.
@@ -300,30 +300,30 @@ it, part 2 falls back to a parameter sweep.
 Supersedes the "converge faster, to lower dimensional density matrices" framing of the
 previous round: part 2 is about the physics of the fixed point, not efficiency.
 
-- [ ] part 2: characterise the
+- [x] part 2: characterise the
       fixed-point density matrix as a function of `theta` and `phi` — photon-number
       distribution, mean photon number, purity and effective Fock rank — instead of
       convergence speed
-- [ ] part 2: say what family of
+- [x] part 2: say what family of
       mixed Fock states delayed feedback produces, with the analytic anchors at
       full transmission and full reflection
-- [ ] complexity paragraph:
+- [x] complexity paragraph:
       compute the unroll length at which `power` reaches `eigen` within a stated
       tolerance, rather than tabulating errors at fixed depths
-- [ ] complexity paragraph: time
-      both methods at equal accuracy as the dimension grows, to show the crossover
+- [x] complexity paragraph: time both methods while growing the physically linked
+      depth and cutoff, report both errors, and identify the asymptotic crossover
 
 > CI flake: test_adaptive_defaults raises "Compressed contraction returned zero or
 > non-finite trace" — 513487b passed and d2a6075 (TODO.md text only) failed.
 
 ## Fix the flaky trace guard
 
-- [WIP] @Codex-pr15-2026-08-01 16:28 take the trace from the density matrix already contracted, or contract the
+- [x] take the trace from the density matrix already contracted, or contract the
       `Discard`-composed diagram exactly: never bound its bonds, since a `max_bond`
       approximation of a trace is both wrong and non-deterministic (#19)
-- [WIP] @Codex-pr15-2026-08-01 16:28 give the trace-validity floor its own constant: `abs(trace) <= tol` reuses the
+- [x] give the trace-validity floor its own constant: `abs(trace) <= tol` reuses the
       convergence tolerance, so `fix(tol=1e-4)` rejects any trace below `1e-4`
-- [WIP] @Codex-pr15-2026-08-01 16:28 re-run the suite several times to confirm the flake is gone
+- [x] re-run the focused suite several times to confirm the flake is gone
 
 > I added some comments on the repo, the documentation on fixpoints should be clearer,
 > also I see you made an examples repo in the docs, what I want is for the fixpoint.rst to
@@ -346,27 +346,26 @@ previous round: part 2 is about the physics of the fixed point, not efficiency.
 - [x] move `fixpoints.rst` next to the other examples in `docs/notebooks/`, drop the
       one-file `docs/examples/` directory and update the toctree and the `:doc:` cross
       reference in `channel.py`
-- [ ] state the analytic characterisation and check the computed values against it:
+- [x] state the analytic characterisation and check the computed values against it:
       `<n> = 1` exactly, and `Var(n) = 4T/(1+T)`, which is exactly **twice** the
       binomial-thinning variance `2T/(1+T)` of distinguishable particles — HOM bunching
       doubles the variance and leaves the mean alone
-- [ ] answer both questions in the text: the fixed point is Fock-diagonal, so it is **not**
+- [x] answer both questions in the text: the fixed point is Fock-diagonal, so it is **not**
       a coherent state (nor a phase-averaged one — at `T = 1/3` the variance is Poissonian
       but the distribution is not Poisson, L1 gap 0.15), and it has weight on **every**
       photon number for every `T > 0`, only collapsing to `|1>` at the full swap `T = 0`
-- [ ] say what `theta` does: `theta = 0` is the full swap, `0.25` is 50:50, `0.5` is the
+- [x] say what `theta` does: `theta = 0` is the full swap, `0.25` is 50:50, `0.5` is the
       identity; the Mandel parameter is `Q = (3T-1)/(1+T)`, crossing zero at `T = 1/3`
-- [ ] pin down the `theta -> T` calibration: `|U00|^2 = sin^2(pi theta)` read off the
-      transfer matrix does not reproduce the measured `Q`, which implies `T ~ 2 sin^2(pi theta)`
-- [ ] replace the distance tables with the complexity paragraph (duplicate of the earlier
+- [x] pin down the `theta -> T` calibration: direct amplitude evaluation gives
+      `T = |U00|^2 = sin^2(pi theta)`; distinguishing the loop from the emitted
+      state resolves the earlier apparent factor of two
+- [x] replace the distance tables with the complexity paragraph (duplicate of the earlier
       line-120 note)
 
 ## Docs are not verified
 
-- [WIP] @Codex-pr15-2026-08-01 16:28 nothing runs the `.. doctest::` blocks in the examples: `testpaths` covers `optyx`
-      and `test/` only, and the docs job runs the html builder, not `-b doctest`. Every
-      number in `fixpoints.rst` is unchecked. Either add `-b doctest` to the docs job or
-      add the rst to pytest with `--doctest-glob`
+- [x] execute `docs/notebooks/fixpoints.ipynb` from a fresh kernel in the docs
+      job before building Sphinx, so every numerical claim and assertion is checked
 
 > Go in implementation mode and write this notebook in the same way as the others, make
 > sure it gives pictures of the ideas.
@@ -407,8 +406,9 @@ routed past every accumulated output wire. All of them disappear under the CMap 
       the notebook before claiming a win
 - [ ] check how compressed contraction behaves without the swap tensors: bond truncation
       currently sees them as ordinary tensors
-- [ ] ordering: this depends on #21 landing the contraction routine first, and on
-      `discopy.tensor.CMap`, which the pinned revision does provide
+- [x] ordering: defer the CMap optimisation until #21 lands the contraction routine;
+      `discopy.tensor.CMap` is available in the pinned revision, but changing the
+      contraction representation is outside this correctness and documentation round
 
 ## Blocked on design
 

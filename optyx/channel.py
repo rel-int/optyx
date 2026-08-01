@@ -424,10 +424,12 @@ class Diagram(frobenius.Diagram):
         A non-unique stationary state is a design choice, not an arbitrary
         eigensolver choice:
 
-        >>> Diagram.id(bit).stationary_state()  # doctest: +ELLIPSIS
-        Traceback (most recent call last):
-        ...
-        ValueError: The stationary state is not unique ...
+        >>> try:
+        ...     Diagram.id(bit).stationary_state()
+        ... except ValueError as error:
+        ...     assert str(error) == (
+        ...         "The stationary state is not unique "
+        ...         "(fixed-space dimension 2).")
         """
         if any(isinstance(box, Feedback) for box in self.boxes):
             raise ValueError(
@@ -607,9 +609,9 @@ class Diagram(frobenius.Diagram):
             (ReusableHyperCompressedOptimizer, HyperCompressedOptimizer))
         result_cache = {}
 
-        def contract(steps, bond, traced=False):
+        def contract(steps, bond):
             max_bond = bond if compressed else None
-            key = steps, max_bond, traced
+            key = steps, max_bond
             if key not in result_cache:
                 executor = copy(backend)
                 if compressed:
@@ -618,18 +620,16 @@ class Diagram(frobenius.Diagram):
                         "max_bond": max_bond,
                     }
                 state = self.at_time(steps)
-                if traced:
-                    state >>= Discard(self.cod)
                 result_cache[key] = state.eval(executor)
             return result_cache[key]
 
-        def normalised(steps, bond, result):
-            state = result.density_matrix
-            trace = contract(steps, bond, traced=True).tensor.array
-            if not np.isfinite(trace) or abs(trace) <= tol:
+        def normalised(result):
+            state = np.asarray(result.density_matrix)
+            trace = self.cod.density_trace(state)
+            trace_tolerance = 100 * state.size * np.finfo(float).eps
+            if not np.isfinite(trace) or abs(trace) <= trace_tolerance:
                 raise ValueError(
-                    "Compressed contraction returned zero or non-finite "
-                    "trace.")
+                    "Contraction returned zero or non-finite trace.")
             return state / trace
 
         def refine_steps(bond):
@@ -642,8 +642,7 @@ class Diagram(frobenius.Diagram):
             while True:
                 previous = contract(steps - 1, bond)
                 if np.linalg.norm(
-                        normalised(steps, bond, result)
-                        - normalised(steps - 1, bond, previous)) < tol:
+                        normalised(result) - normalised(previous)) < tol:
                     return steps, result, True
                 if steps == max_steps:
                     return steps, result, False
@@ -651,21 +650,20 @@ class Diagram(frobenius.Diagram):
                 result = contract(steps, bond)
 
         bond = chi if chi is not None else min(4, max_chi)
-        steps, result, steps_converged = refine_steps(bond)
+        _, result, steps_converged = refine_steps(bond)
         bond_converged = chi is not None or not compressed
         if chi is None and compressed:
             while bond < max_chi:
                 next_bond = min(2 * bond, max_chi)
-                next_steps, next_result, next_steps_converged = \
+                _, next_result, next_steps_converged = \
                     refine_steps(next_bond)
                 if np.linalg.norm(
-                        normalised(next_steps, next_bond, next_result)
-                        - normalised(steps, bond, result)) < tol:
+                        normalised(next_result) - normalised(result)) < tol:
                     bond_converged = True
-                    bond, steps, result = next_bond, next_steps, next_result
+                    bond, result = next_bond, next_result
                     steps_converged = next_steps_converged
                     break
-                bond, steps, result = next_bond, next_steps, next_result
+                bond, result = next_bond, next_result
                 steps_converged = next_steps_converged
 
         failures = []
@@ -681,7 +679,7 @@ class Diagram(frobenius.Diagram):
         return backends.EvalResult(
             tensor.Box(
                 "Result", tensor.Dim(1), result.tensor.cod,
-                normalised(steps, bond, result)),
+                normalised(result)),
             output_types=self.cod, state_type=backends.StateType.DM)
 
     def eigen_fix(self, cutoff: int = 2, tol: float = 1e-6):

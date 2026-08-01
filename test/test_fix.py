@@ -47,14 +47,12 @@ class RecordingBackend(QuimbBackend):
     def __init__(self):
         super().__init__(hyperoptimiser=HyperCompressedOptimizer())
         self.calls = []
-        self.result = qubits.Ket(0).eval(DiscopyBackend())
-        self.trace = (
-            qubits.Ket(0) >> Discard(qubit)).eval(DiscopyBackend())
+        self.result = source().at_time(2).eval(DiscopyBackend())
 
     def eval(self, diagram, **extra):
         assert isinstance(diagram, Diagram)
         self.calls.append((diagram.cod, self.contraction_params))
-        return self.result if diagram.cod else self.trace
+        return self.result
 
 
 def test_one_step():
@@ -146,6 +144,15 @@ def test_adaptive_defaults():
     assert np.linalg.norm(
         diagram.fix(tol=1e-4).density_matrix
         - diagram.fix(method="eigen").density_matrix) < 1e-2
+
+
+def test_power_normalises_the_contracted_state():
+    backend = RecordingBackend()
+    backend.result.tensor.array *= 1e-4
+    result = source().fix(
+        n_steps=2, chi=4, tol=1e-4, backend=backend)
+    assert np.allclose(result.density_matrix, [[1, 0], [0, 0]])
+    assert len(backend.calls) == 1
 
 
 def test_power_does_not_alias_period_two():
