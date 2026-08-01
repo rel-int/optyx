@@ -460,18 +460,20 @@ They are correct as written.
 
 ## Restructure into three parts
 
-- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 16:55 part 1 unchanged: one beam
+- [x] part 1 unchanged: one beam
       splitter, one photon per step, stationary distribution and tail
-- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 16:55 part 2: state the stationary
+- [x] part 2: state the stationary
       boson-sampling problem in `psi`, `U`, `L`, `M`; give eigen and power costs and check
       them against measured time up to constants
-- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 16:55 correct the claims themselves:
-      the measured exponents contradict them, so separate the idealised algorithm from
-      this implementation and state which is being asserted
-- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 16:55 part 3: one paragraph on what
+- [x] correct the claims themselves: the `h^6` eigensolve never dominates at reachable
+      sizes, so the honest cost is the `h^2` build — measured exponent 1.97 against a
+      predicted 2. Power is not linear in `n` as implemented: measured 1.81. The network
+      is *not* superlinear in size (boxes exponent 1.06); the swap count is (1.60), and
+      exact contraction grows the intermediates with depth
+- [x] part 3: one paragraph on what
       the distribution is not, ending with the reduction question to one-shot boson
       sampling over polynomially many more modes and photons
-- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 16:55 cut the Gaussian section to a
+- [x] cut the Gaussian section to a
       clause and drop what the three-part plan does not need
 
 ## Blocked on design
