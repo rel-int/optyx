@@ -1,5 +1,7 @@
 # TODO
 
+> The sudoku notebook should run a learning experiment on a sudoku dataser, similar to the MapRNN demonstration.
+
 > Check out [rel-int/optyx#16](https://github.com/rel-int/optyx/pull/16), let's stack on the fixpoint implementation, we should be able to move on with TODO.md and write the notebook
 
 > I have a proposal for a new module in optyx https://github.com/rel-int/optyx/issues/13. Make a plan for implementation.
@@ -26,6 +28,15 @@ unrolling to a tensor network.
       passing and the closed-map fixed-point boundary.
 - [x] Add focused tests and run lint, coverage and
       notebook validation.
+
+## Sudoku learning experiment
+
+- [WIP] @Codex-2026-08-01-05:15 Replace the topology-only placeholder with a
+        seeded MapRNN-style learning experiment whose message routes come from
+        the Optyx `CMap`.
+- [WIP] @Codex-2026-08-01-05:15 Split the complete 4x4 sudoku corpus before
+        masking, train shared cell and constraint modules, and report
+        held-out loss, cell accuracy and valid-grid accuracy.
 
 ## `optyx.interaction` module
 
