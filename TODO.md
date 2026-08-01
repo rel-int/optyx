@@ -247,25 +247,25 @@ Completed implementation review:
 
 ## Review round: diagrammatic formulation and a two-part example
 
-- [ ] `docs/examples/fixpoints.rst` part 1, boson sampling with feedback: state the
+- [WIP] @codex-pr15-2026-08-01 06:50 `docs/examples/fixpoints.rst` part 1, boson sampling with feedback: state the
       Biriukov–Dyakonov setup and say which of its pieces `power` and `eigen` implement
-- [ ] part 2, learning fixpoints: a beam splitter `2 -> 2` with one photon into the
+- [WIP] @codex-pr15-2026-08-01 06:50 part 2, learning fixpoints: a beam splitter `2 -> 2` with one photon into the
       first input at every step and the second output fed back into the second input;
       report whether the fixed point converges and how big its density matrix is
-- [ ] part 2, tuning: adjust the two beam-splitter phases towards fixed points that
+- [WIP] @codex-pr15-2026-08-01 06:50 part 2, tuning: adjust the two beam-splitter phases towards fixed points that
       converge faster and have lower-dimensional density matrices
-- [ ] replace the backend-comparison section with a complexity comparison of `power`
+- [WIP] @codex-pr15-2026-08-01 06:50 replace the backend-comparison section with a complexity comparison of `power`
       against `eigen` as approximations of the stationary distribution
-- [ ] drop `doubled_dimensions`: `Ty` already carries its doubled dimensions, so read
+- [WIP] @codex-pr15-2026-08-01 06:50 drop `doubled_dimensions`: `Ty` already carries its doubled dimensions, so read
       the cutoff convention off `Ty.double()` rather than reimplementing it
-- [ ] `density_trace`: build the trace as a `Discard` diagram and hand it to the
+- [WIP] @codex-pr15-2026-08-01 06:50 `density_trace`: build the trace as a `Discard` diagram and hand it to the
       backend, instead of `to_tensor` followed by a hand-written `np.tensordot`
-- [ ] `stationary_vector`: define it over any optyx diagram without feedback loops, as
+- [WIP] @codex-pr15-2026-08-01 06:50 `stationary_vector`: define it over any optyx diagram without feedback loops, as
       the eigenvectors of the operator the diagram denotes, not of a superoperator array
-- [ ] no hanging module-level functions in `channel.py`: fold `frobenius_distance`,
+- [WIP] @codex-pr15-2026-08-01 06:50 no hanging module-level functions in `channel.py`: fold `frobenius_distance`,
       `normalise_density_matrix` and the rest into methods of the existing classes,
       or inline them at their single call site
-- [ ] simplify the normalisation, which reads as part of the stationary-state method
+- [WIP] @codex-pr15-2026-08-01 06:50 simplify the normalisation, which reads as part of the stationary-state method
 
 Cross-PR note: the tuning checkbox wants gradients through a contraction, which is
 exactly the differentiable half of #21. Landing #21 first makes it a few lines; without
