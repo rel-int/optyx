@@ -584,6 +584,21 @@ They are correct as written.
 - [x] say the `L` versus `M` asymmetry once, in the cost/certificate section, and let the
       later sections inherit it rather than restate it
 
+> You should also check which bound is better in practice, the loss bound or the one
+> based on eta?
+
+## Loss bound against the Dobrushin bound
+
+- [x] measure both certificates on the same lossy chains at `eps = 1e-6`, alongside the
+      depth actually needed, over `gamma` and over `(M, L)`
+- [x] verdict splits on `L`. At `L = 1` the thinned chain has `eta ~ 0.5` even at
+      `gamma = 0.99`, so `n*(eta) = 21` against `n*(loss) = 1375`, within a small factor
+      of the observed 7 — `eta` sees the mixing `U` contributes, the loss bound throws it
+      away. At `L = 2` `eta` saturates at 1 and its certificate blows up (8e8 steps at
+      `gamma = 0.99`) while the loss bound is unchanged
+- [x] state the prescription: `n* = min(n*(eta), n*(gamma))`, both being valid at once,
+      with the loss term keeping the minimum finite when `eta` saturates
+
 ## Blocked on design
 
 - `dom != Ty()`: the process "prepare an input state at every time step, return the
