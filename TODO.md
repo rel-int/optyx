@@ -4,9 +4,8 @@
 
 > I have a proposal for a new module in optyx https://github.com/rel-int/optyx/issues/13. Make a plan for implementation.
 
-Solves #13. Blocked on #12: the module is built on `channel.Diagram.feedback`
-and `unroll`, so the implementation stacks on `claude/optyx-issue-6-g9z1pv`
-(rebase onto `main` once #12 lands).
+Solves #13. The module is built on `channel.Diagram.feedback` and `unroll` from
+#12, then stacks on the `channel.Diagram.fix` implementation in #15.
 
 Mathematically, `optyx.interaction` is the Int (geometry of interaction)
 construction applied to the feedback category of optyx channels: feedback
@@ -17,15 +16,15 @@ unrolling to a tensor network.
 
 ## Fixed-point stack and notebook round
 
-- [WIP] @Codex-2026-08-01 04:39 Stack this PR on #15, merge its fixed-point
+- [x] Stack this PR on #15, merge its fixed-point
       implementation into the branch and keep the interaction diff isolated.
-- [WIP] @Codex-2026-08-01 04:39 Define `CMap.fix` by exposing the stationary
-      semantics of the closed recurrent `protocol`, without duplicating its
+- [x] Define `CMap.fix` by exposing the stationary
+      semantics of the recurrent `protocol`, without duplicating its
       convergence or backend logic.
-- [WIP] @Codex-2026-08-01 04:39 Write `examples/sudoku.ipynb` as an executable
+- [x] Write `examples/sudoku.ipynb` as an executable
       construction of the 16 cell and 12 constraint boxes, finite message
       passing and the closed-map fixed-point boundary.
-- [WIP] @Codex-2026-08-01 04:39 Add focused tests and run lint, coverage and
+- [x] Add focused tests and run lint, coverage and
       notebook validation.
 
 ## `optyx.interaction` module
@@ -53,15 +52,15 @@ unrolling to a tensor network.
 
 ## `CMap.fix`
 
-- [ ] `CMap.fix(backend=None, tol=..., max_steps=..., chi=...)` approximates
-      the stationary output distribution: unroll for doubling `n_steps`,
-      contract with `QuimbBackend` and `HyperCompressedOptimizer` at bond
-      dimension `chi`, stop when successive output distributions are within
-      `tol` (total variation); ramp `chi` until the answer is stable in `chi`
+- [x] `CMap.fix(input_state=None, initial_state=None, **params)` prepares a
+      fixed boundary input at every step, initializes the recurrent memory and
+      delegates the stationary output to `channel.Diagram.fix`, including its
+      power/eigen methods, backends and independent depth/bond refinement
 - [ ] optional exact bound when `mem` is small: mixing time from the second
       largest eigenvalue modulus of the transfer channel of `protocol`
-- [ ] return the `EvalResult` together with convergence diagnostics
-      (`n_steps`, `chi`, distances per iteration)
+- [x] return the `EvalResult` from `channel.Diagram.fix`
+- [ ] expose convergence diagnostics (`n_steps`, `chi`, distances per
+      iteration) from the shared fixed-point implementation
 
 ## Differentiability and training
 
@@ -74,13 +73,15 @@ unrolling to a tensor network.
 
 ## Notebook
 
-- [ ] `examples/sudoku.ipynb`: 4x4 sudoku as a `CMap` with 16 cell
+- [x] `examples/sudoku.ipynb`: 4x4 sudoku as a `CMap` with 16 cell
       boxes and 12 block boxes (4 rows, 4 columns, 4 squares); each cell has
       3 block neighbours plus 2 prediction qubits (3 ports in, 5 out), each
       block has its 4 cells as neighbours (4 in, 4 out)
-- [ ] message passing for `n_steps`, loss as distance from the correct
-      prediction on the 2 extra qubits per cell, backpropagation through the
-      tensor network; compare against the classical CMap-GNN of discopy#416
+- [x] demonstrate finite message passing for `n_steps` and define the loss as
+      distance from the correct prediction on the 2 extra qubits per cell
+- [ ] replace the topology's identity channels with trainable ansatzes,
+      backpropagate through the tensor network and compare against the
+      classical CMap-GNN of discopy#416
 - [ ] stretch: make `n_steps` dynamic, inferred during training via
       `CMap.fix`
 
@@ -88,8 +89,9 @@ unrolling to a tensor network.
 
 - [x] `test/test_interaction.py`: type checking, protocol construction,
       unrolling against hand-built diagrams
-- [ ] `test/test_interaction.py`: snake equations, `fix` convergence on a
-      small channel with known stationary state, gradients
+- [x] `test/test_interaction.py`: `fix` convergence on a small channel with a
+      known stationary state
+- [ ] `test/test_interaction.py`: snake equations and gradients
 - [x] doctests and `docs/api.rst` entry
 - [ ] drawings for the docs
 - [x] `pflake8 optyx` and `coverage run -m pytest` green

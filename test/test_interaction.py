@@ -4,9 +4,10 @@ import pytest
 from discopy.utils import AxiomError
 
 from optyx.channel import Diagram, Ty, qubit, qmode
+from optyx.core.backends import DiscopyBackend
 from optyx.interaction import Box, CMap
 from optyx.photonic import BS
-from optyx.qubits import Scalar, X, Z
+from optyx.qubits import Ket, Scalar, X, Z
 
 
 def cnot():
@@ -73,6 +74,29 @@ def test_unroll_matches_protocol():
     assert cmap.unroll(1) == cmap.protocol.unroll(1)
 
 
+def fixed_wire():
+    wire = Box("wire", qubit, qubit ** 2, Diagram.id(qubit ** 3))
+    return CMap([wire], [((0, 1), (0, 2))])
+
+
+def test_fix_requires_input_state():
+    with pytest.raises(ValueError, match="input_state"):
+        fixed_wire().fix(
+            initial_state=Ket(0) @ Ket(0), n_steps=2,
+            backend=DiscopyBackend())
+    with pytest.raises(AxiomError, match="state of type"):
+        fixed_wire().fix(
+            Ket(0) @ Ket(0), Ket(0) @ Ket(0), n_steps=2,
+            backend=DiscopyBackend())
+
+
+def test_fix_reuses_protocol_fixed_point():
+    result = fixed_wire().fix(
+        Ket(1), Ket(0) @ Ket(0), n_steps=2,
+        backend=DiscopyBackend())
+    assert np.allclose(result.density_matrix, [[0, 0], [0, 1]])
+
+
 def test_tensor_is_disjoint_union():
     cmap = CMap([box()], [((0, 0), (0, 1))])
     both = cmap @ cmap
@@ -105,6 +129,13 @@ def test_read_and_write_are_permutations():
 def delay():
     swap = Diagram.swap(qubit, qubit)
     return CMap([Box("wait", qubit, qubit, swap)], [((0, 0), (0, 1))])
+
+
+def test_closed_fix_needs_no_input_state():
+    result = delay().fix(
+        initial_state=Ket(0) @ Ket(0), n_steps=2,
+        backend=DiscopyBackend())
+    assert np.allclose(result.density_matrix, 1)
 
 
 def test_protocol_against_hand_built():

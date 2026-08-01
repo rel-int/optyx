@@ -4,7 +4,9 @@ Combinatorial maps of recurrent channels.
 A :class:`CMap` is a combinatorial map: a list of :class:`Box` carrying
 channels, together with edges pairing their ports. Its semantics is the
 recurrent protocol :meth:`CMap.protocol`, a :class:`optyx.channel.Diagram`
-with a feedback loop on the paired ports, evaluated by :meth:`CMap.unroll`.
+with a feedback loop on the paired ports. It has finite stream semantics
+through :meth:`CMap.unroll` and stationary semantics through
+:meth:`CMap.fix`.
 
 This is the Int (geometry of interaction) construction applied to the
 feedback category of channels: :meth:`optyx.channel.Diagram.feedback` plays
@@ -208,6 +210,11 @@ class CMap:
                          for port in self.wires])
 
     @property
+    def step(self) -> Diagram:
+        """One message-passing step before the memory is fed back."""
+        return self.read >> self.parallel >> self.write
+
+    @property
     def protocol(self) -> Diagram:
         """
         The recurrent protocol of the map: the channels of the boxes in
@@ -220,7 +227,7 @@ class CMap:
         >>> assert cmap.protocol.dom == cmap.dom
         >>> assert cmap.protocol.mem == cmap.memory
         """
-        return (self.read >> self.parallel >> self.write).feedback(
+        return self.step.feedback(
             dom=self.dom, cod=self.cod, mem=self.memory)
 
     def unroll(self, n_steps: int = 1) -> Diagram:
@@ -235,6 +242,40 @@ class CMap:
         >>> assert cmap.unroll(3).dom == cmap.unroll(3).cod
         """
         return self.protocol.unroll(n_steps)
+
+    def fix(self, input_state=None, initial_state=None, **params):
+        """
+        Approximate the stationary boundary output of the recurrent protocol.
+
+        ``input_state`` prepares the boundary input afresh at every time step.
+        It is required when the map has unpaired ports. ``initial_state``
+        prepares the feedback memory for the power method; the eigen method
+        computes a unique stationary memory independently of this choice.
+        Remaining parameters are those of :meth:`optyx.channel.Diagram.fix`.
+
+        >>> import numpy as np
+        >>> from optyx.channel import qubit
+        >>> from optyx.core.backends import DiscopyBackend
+        >>> from optyx.qubits import Ket
+        >>> wire = Box("wire", qubit, qubit ** 2, Diagram.id(qubit ** 3))
+        >>> cmap = CMap([wire], [((0, 1), (0, 2))])
+        >>> result = cmap.fix(
+        ...     Ket(1), Ket(0) @ Ket(0), n_steps=2,
+        ...     backend=DiscopyBackend())
+        >>> assert np.allclose(result.density_matrix, [[0, 0], [0, 1]])
+        """
+        if input_state is None:
+            if self.dom:
+                raise ValueError(
+                    "input_state is required for a map with a boundary.")
+            input_state = Diagram.id()
+        if (input_state.dom, input_state.cod) != (Ty(), self.dom):
+            raise AxiomError(
+                f"input_state must be a state of type {self.dom}.")
+        protocol = self.step.feedback(
+            dom=self.dom, cod=self.cod, mem=self.memory,
+            initial_state=initial_state)
+        return (input_state >> protocol).fix(**params)
 
     def to_drawing(self):
         """The drawing of the protocol."""
