@@ -526,12 +526,22 @@ They are correct as written.
       contractivity (Perez-Garcia, Wolf, Petz, Ruskai 2006), the non-normality caveat on
       `|lambda_2|` (Szehr, Reeb, Wolf 2015), the ergodicity coefficient (Dobrushin 1956),
       boson sampling (Aaronson, Arkhipov 2011)
-- [ ] open, and now with a route: check whether `Phi_{U,psi,L,M}` satisfies the quantum
-      Dobrushin condition of Bakshi, Liu, Moitra and Tang (arXiv:2510.08542, STOC 2026),
-      whose path-coupling argument gives rapid mixing. Its condition is local, so for this
-      channel it becomes a statement about the loop block of `U` — the kind of quantity
-      that stays polynomial as `L` grows. The drift bound `E[N_{t+1}] <= s1^2 E[N_t] + M`
-      is `O((M+L)^3)` but bounds occupation, not total-variation mixing
+- [x] define every quantity from first principles in the notebook: the blocks of `U`, the
+      loop block `D` and its singular values, the step channel, the loop chain `P`, `h`,
+      `|lambda_2|` as the second-largest eigenvalue modulus of `P`, `eta`, `n*`
+- [x] classical Dobrushin condition on the loop chain: holds (`eta < 1`) in 100% of Haar
+      draws at `L = 1`, fails at one step in 100% of draws at `L = 2` where `eta`
+      saturates at 1 — so a `k`-step coefficient is needed there
+- [x] Haar ensemble answering the conjecture: growing `M` at `L = 1` drives the mean gap
+      down (0.50, 0.39, 0.28) and the worst case with it (0.94, 0.78, 0.57), so slow
+      mixing gets *less* likely as `M` grows; growing `L` reverses it (mean 0.75 at
+      `L = 2`). The conjecture turns on how `L` scales with `M`
+- [ ] open: the quantum Dobrushin condition of Bakshi, Liu, Moitra and Tang
+      (arXiv:2510.08542) is **not** checked — arxiv is unreachable from this environment,
+      so its precise statement is unknown. Guess to verify: it becomes a bound on the
+      off-diagonal strength of `D`, polynomial in `L` and `M`
+- [ ] open: `k`-step Dobrushin coefficient `eta(P^k)` for `L >= 2`, giving a certificate
+      at effective rate `eta(P^k)^(1/k)`
 
 ## Blocked on design
 
