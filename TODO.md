@@ -218,6 +218,59 @@ Completed implementation review:
 - [x] add compatibility tests for exact and
       compressed tensor backends, then rerun lint, coverage and documentation
 
+> The notebook should be structured in two parts:
+> 1) Boson sampling with feedback
+> Explain the setup of Biriukov and Dyakonov and the two simulation methods implemented.
+> 2) Learning fixpoints
+> Start from a beam splitter 2 -> 2, we feed a photon at every time step to the first
+> input, we feed the second output into the second input. We compute the fixpoint of an
+> example (does it converge? how big is the density matrix?). Now, the beam splitter has
+> two phase parameters (transmittivity, reflexivity) that we can adjust. We tune the
+> parameters to find fixpoints that converge faster, to lower dimensional density matrices.
+>
+> Replace this section by a comparison of the complexity of the power method vs the eigen
+> method in terms of the approximation of the stationary distribution.
+>
+> These hanging methods should be avoided, aither use inline, or define methods of the
+> existing classes.
+>
+> This method could be defined over any optyx diagram without feedback loops, finding the
+> eigenvectors of an operator.
+>
+> Isn't this in optyx Ty already?
+>
+> The trace can be obtained diagrammatically as the Discard, why do we evaluate it
+> separately from the rest of the tensor contraction machinery? We should hand off the
+> contraction to the backend and formulate everything diagrammatically
+>
+> This seems like part of a method about the stationary state and needs to be simplified
+
+## Review round: diagrammatic formulation and a two-part example
+
+- [ ] `docs/examples/fixpoints.rst` part 1, boson sampling with feedback: state the
+      Biriukov–Dyakonov setup and say which of its pieces `power` and `eigen` implement
+- [ ] part 2, learning fixpoints: a beam splitter `2 -> 2` with one photon into the
+      first input at every step and the second output fed back into the second input;
+      report whether the fixed point converges and how big its density matrix is
+- [ ] part 2, tuning: adjust the two beam-splitter phases towards fixed points that
+      converge faster and have lower-dimensional density matrices
+- [ ] replace the backend-comparison section with a complexity comparison of `power`
+      against `eigen` as approximations of the stationary distribution
+- [ ] drop `doubled_dimensions`: `Ty` already carries its doubled dimensions, so read
+      the cutoff convention off `Ty.double()` rather than reimplementing it
+- [ ] `density_trace`: build the trace as a `Discard` diagram and hand it to the
+      backend, instead of `to_tensor` followed by a hand-written `np.tensordot`
+- [ ] `stationary_vector`: define it over any optyx diagram without feedback loops, as
+      the eigenvectors of the operator the diagram denotes, not of a superoperator array
+- [ ] no hanging module-level functions in `channel.py`: fold `frobenius_distance`,
+      `normalise_density_matrix` and the rest into methods of the existing classes,
+      or inline them at their single call site
+- [ ] simplify the normalisation, which reads as part of the stationary-state method
+
+Cross-PR note: the tuning checkbox wants gradients through a contraction, which is
+exactly the differentiable half of #21. Landing #21 first makes it a few lines; without
+it, part 2 falls back to a parameter sweep.
+
 ## Blocked on design
 
 - `dom != Ty()`: the process "prepare an input state at every time step, return the
