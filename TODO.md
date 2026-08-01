@@ -1,5 +1,9 @@
 # TODO
 
+> So we need the tensor contraction and auto diff
+
+> You ran an experiment with MapRNN but that was not the point! We need to simulate learning optyx channels to solve the sudoku, the network is quantum, not a classical NN
+
 > The sudoku notebook should run a learning experiment on a sudoku dataser, similar to the MapRNN demonstration.
 
 > Check out [rel-int/optyx#16](https://github.com/rel-int/optyx/pull/16), let's stack on the fixpoint implementation, we should be able to move on with TODO.md and write the notebook
@@ -36,6 +40,15 @@ unrolling to a tensor network.
 - [x] Split the complete 4x4 sudoku corpus before masking, train shared cell
       and constraint modules, and report held-out loss, cell accuracy and
       valid-grid accuracy.
+
+## Quantum learning correction
+
+- [WIP] @Codex-2026-08-01-05:30 Remove the classical MapRNN interpreter and
+        parameterise actual Optyx channel tensors on the sudoku interaction
+        graph.
+- [WIP] @Codex-2026-08-01-05:30 Contract the unrolled quantum network through
+        the backend-neutral tensor routine, backpropagate the sudoku loss and
+        verify non-zero gradients and learning.
 
 ## `optyx.interaction` module
 
