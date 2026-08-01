@@ -353,6 +353,24 @@ previous round: part 2 is about the physics of the fixed point, not efficiency.
       number in `fixpoints.rst` is unchecked. Either add `-b doctest` to the docs job or
       add the rst to pytest with `--doctest-glob`
 
+> Go in implementation mode and write this notebook in the same way as the others, make
+> sure it gives pictures of the ideas.
+
+## Notebook rewrite
+
+- [x] rewrite `fixpoints.rst` as `docs/notebooks/fixpoints.ipynb`, executed, in the style
+      of the other notebooks: 8 drawn figures (the loop, its unrolling, the semantic
+      equation, the transmissivity curve, the stationary distributions, the Mandel curve)
+- [x] part 1 boson sampling with feedback, part 2 the beam splitter fed one photon a step
+- [x] state and check the analytic anchors: `<n> = 1` exactly, `Var = 4T/(1+T)`, exactly
+      twice the distinguishable-particle variance — ratio measured as 2.000000
+- [x] validate `fix` against an independent Fock-space transfer matrix: distributions
+      agree to 8e-17
+- [x] answer the questions in the text: Fock-diagonal so never a coherent state, weight on
+      every photon number except at the full swap, and the sub/super-Poissonian crossover
+- [x] distinguish the loop state from the emitted state that `fix` returns; they differ
+      except at 50:50, which is why the closed form is stated for the loop
+
 ## Blocked on design
 
 - `dom != Ty()`: the process "prepare an input state at every time step, return the
