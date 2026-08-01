@@ -50,14 +50,23 @@ def test_pytorch_autodiff():
     array = torch.stack((
         torch.stack((torch.cos(theta), -torch.sin(theta))),
         torch.stack((torch.sin(theta), torch.cos(theta))),
-    )).to(torch.complex128)
+    )).to(torch.float64)
     gate = Channel("R", Box("R", bit, bit, array=array), qubit, qubit)
-    experiment = qubits.Ket(0) >> gate >> qubits.Ket(1).dagger()
     with tensor.backend("pytorch"):
-        network = experiment.get_kraus().to_tensor()
+        state = tensor.Box(
+            "zero", tensor.Dim(), tensor.Dim(2), [1, 0])
+        gate_tensor = tensor.Box(
+            "R", tensor.Dim(2), tensor.Dim(2), gate.kraus.array)
+        effect = tensor.Box(
+            "one", tensor.Dim(2), tensor.Dim(), [0, 1])
+        network = state >> gate_tensor >> effect
+    optimizer = ReusableHyperCompressedOptimizer(
+        chi=2, methods=("greedy-compressed",),
+        max_repeats=1, parallel=False)
     result = contract_tensor(
-        network.to_map(), backend="pytorch", optimize="greedy")
-    probability = abs(result.array) ** 2
+        network.to_map(), backend="pytorch", optimize=optimizer,
+        max_bond=2, dtype=float)
+    probability = result.array ** 2
     probability.backward()
     assert torch.allclose(theta.grad, torch.sin(2 * theta))
 
