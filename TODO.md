@@ -298,6 +298,18 @@ previous round: part 2 is about the physics of the fixed point, not efficiency.
 - [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 05:20 complexity paragraph: time
       both methods at equal accuracy as the dimension grows, to show the crossover
 
+> CI flake: test_adaptive_defaults raises "Compressed contraction returned zero or
+> non-finite trace" — 513487b passed and d2a6075 (TODO.md text only) failed.
+
+## Fix the flaky trace guard
+
+- [ ] take the trace from the density matrix already contracted, or contract the
+      `Discard`-composed diagram exactly: never bound its bonds, since a `max_bond`
+      approximation of a trace is both wrong and non-deterministic (#19)
+- [ ] give the trace-validity floor its own constant: `abs(trace) <= tol` reuses the
+      convergence tolerance, so `fix(tol=1e-4)` rejects any trace below `1e-4`
+- [ ] re-run the suite several times to confirm the flake is gone
+
 ## Blocked on design
 
 - `dom != Ty()`: the process "prepare an input state at every time step, return the
