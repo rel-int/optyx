@@ -4,10 +4,9 @@ from cotengra import HyperCompressedOptimizer
 
 from optyx import classical, photonic, qubits
 from optyx.channel import (
-    Diagram, Discard, Ty, bit, qmode, qubit,
-    doubled_dimensions, frobenius_distance, normalise_density_matrix,
-    stationary_vector,
+    CQMap, Diagram, Discard, Ty, bit, qmode, qubit,
 )
+from optyx.core import diagram
 from optyx.core.backends import DiscopyBackend, QuimbBackend
 
 
@@ -49,11 +48,13 @@ class RecordingBackend(QuimbBackend):
         super().__init__(hyperoptimiser=HyperCompressedOptimizer())
         self.calls = []
         self.result = qubits.Ket(0).eval(DiscopyBackend())
+        self.trace = (
+            qubits.Ket(0) >> Discard(qubit)).eval(DiscopyBackend())
 
     def eval(self, diagram, **extra):
         assert isinstance(diagram, Diagram)
-        self.calls.append((len(diagram.boxes), self.contraction_params))
-        return self.result
+        self.calls.append((diagram.cod, self.contraction_params))
+        return self.result if diagram.cod else self.trace
 
 
 def test_one_step():
@@ -121,14 +122,14 @@ def test_eigen_against_at_time():
     diagram = rotation(0.25)
     stationary = diagram.fix(method="eigen").density_matrix
     late = diagram.at_time(12).eval().density_matrix
-    assert frobenius_distance(stationary, late) < 1e-2
+    assert np.linalg.norm(stationary - late) < 1e-2
 
 
 def test_power_converges_to_eigen():
     diagram = rotation(0.25)
     stationary = diagram.fix(method="eigen").density_matrix
     power = diagram.fix(n_steps=10, chi=16).density_matrix
-    assert frobenius_distance(stationary, power) < 1e-2
+    assert np.linalg.norm(stationary - power) < 1e-2
 
 
 def test_fix_is_a_state():
@@ -142,9 +143,9 @@ def test_fix_is_a_state():
 def test_adaptive_defaults():
     """Doubling the depth and the bond dimension reaches the same state."""
     diagram = rotation(0.25)
-    assert frobenius_distance(
-        diagram.fix(tol=1e-4).density_matrix,
-        diagram.fix(method="eigen").density_matrix) < 1e-2
+    assert np.linalg.norm(
+        diagram.fix(tol=1e-4).density_matrix
+        - diagram.fix(method="eigen").density_matrix) < 1e-2
 
 
 def test_power_does_not_alias_period_two():
@@ -166,13 +167,15 @@ def test_adaptive_parameters_are_independent():
     source().fix(
         n_steps=2, chi=None, backend=backend,
         max_steps=1, max_chi=8)
-    assert [call[1]["max_bond"] for call in backend.calls] == [4, 8]
+    assert [params["max_bond"] for cod, params in backend.calls if cod] \
+        == [4, 8]
 
     backend = RecordingBackend()
     source().fix(
         n_steps=None, chi=100, backend=backend,
         max_steps=4, max_chi=64)
-    assert [call[1]["max_bond"] for call in backend.calls] == [100, 100]
+    assert [params["max_bond"] for cod, params in backend.calls if cod] \
+        == [100, 100]
 
 
 def test_backend_uses_existing_interface():
@@ -215,31 +218,56 @@ def test_eigen_boson_sampler_truncates_memory_output():
     assert np.isclose(np.trace(density_matrix), 1)
 
 
-def test_stationary_vector_convention_and_rank():
-    transition = np.array([[.9, .1], [.4, .6]])
-    state = stationary_vector(transition)
-    state /= state.sum()
+def test_stationary_state_convention_and_rank():
+    transition = CQMap(
+        "Transition",
+        diagram.Box(
+            "Transition", diagram.bit, diagram.bit,
+            array=np.array([[.9, .1], [.4, .6]])),
+        bit, bit)
+    state = transition.stationary_state()
     assert np.allclose(state, [.8, .2])
-    assert np.allclose(state @ transition, state)
-    almost_identity = np.array([[1 - 1e-9, 1e-9],
-                                [1e-9, 1 - 1e-9]])
+    almost_identity = CQMap(
+        "Almost identity",
+        diagram.Box(
+            "Almost identity", diagram.bit, diagram.bit,
+            array=np.array([[1 - 1e-9, 1e-9],
+                            [1e-9, 1 - 1e-9]])),
+        bit, bit)
     assert np.allclose(
-        stationary_vector(almost_identity)
-        / stationary_vector(almost_identity).sum(), [.5, .5])
+        almost_identity.stationary_state(), [.5, .5])
     with pytest.raises(ValueError, match="not unique"):
-        stationary_vector(np.eye(2))
-    with pytest.raises(ValueError, match="no stationary state"):
-        stationary_vector(.9 * np.eye(2))
+        Diagram.id(bit).stationary_state()
 
 
-def test_frobenius_distance_and_density_validation():
-    assert np.isclose(frobenius_distance(np.eye(2), np.eye(2)), 0)
-    assert np.isclose(frobenius_distance(np.zeros(4), np.ones(4)), 2)
-    with pytest.raises(ValueError, match="not Hermitian"):
-        normalise_density_matrix(np.array([[1, 1], [0, 0]]), qubit, 1e-6)
-    with pytest.raises(ValueError, match="not positive"):
-        normalise_density_matrix(np.diag([2, -1]), qubit, 1e-6)
+@pytest.mark.parametrize(("state", "message"), [
+    (np.array([[1, 1], [0, 0]]), "not Hermitian"),
+    (np.diag([2, -1]), "not positive"),
+])
+def test_stationary_state_validates_density_matrix(state, message):
+    trace = np.array([1, 0, 0, 1])
+    replacement = CQMap(
+        "Replacement",
+        diagram.Box(
+            "Replacement", diagram.bit ** 2, diagram.bit ** 2,
+            array=np.outer(trace, state.reshape(-1))),
+        qubit, qubit)
+    with pytest.raises(ValueError, match=message):
+        replacement.stationary_state()
 
 
-def test_doubled_dimensions_keep_qubits_binary():
-    assert doubled_dimensions(qubit @ qmode, 3) == [2, 2, 3, 3]
+def test_stationary_state_guards():
+    with pytest.raises(ValueError, match="without feedback"):
+        identity().stationary_state()
+    with pytest.raises(ValueError, match="endomorphisms"):
+        qubits.Ket(0).stationary_state()
+    with pytest.raises(ValueError, match="dimensions"):
+        qubits.Id(1).stationary_state([2])
+    with pytest.raises(ValueError, match="tol"):
+        qubits.Id(1).stationary_state(tol=0)
+
+
+def test_ty_double_exposes_cutoff_dimensions():
+    doubled = (qubit @ qmode).double()
+    assert [3 if ob.inside[0].name == "mode" else 2 for ob in doubled] \
+        == [2, 2, 3, 3]

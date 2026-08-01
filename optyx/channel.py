@@ -52,21 +52,6 @@ Generators and diagrams
     Discard
     Feedback
 
-Functions
----------
-
-.. autosummary::
-    :template: function.rst
-    :nosignatures:
-    :toctree:
-
-    stationary_vector
-    frobenius_distance
-    doubled_dimensions
-    density_trace
-    normalise_density_matrix
-
-
 Examples
 --------
 
@@ -261,148 +246,60 @@ class Ty(frobenius.Ty):
                 *(o**d if o.needs_inflation() else o for o in self)
         )
 
+    def density_trace(self, state):
+        """Return the trace by composing a state with :class:`Discard`."""
+        array = np.asarray(state)
+        discard = Discard(self).double().to_tensor(list(array.shape))
+        return (tensor.Box(
+            "State", tensor.Dim(1), discard.dom, array)
+            >> discard).eval().array
+
+    def normalise_density_matrix(self, state, tol: float):
+        """Normalise and validate a classical-quantum state.
+
+        The trace is evaluated as the diagrammatic composition with
+        :class:`Discard`. Hermiticity uses the ket/bra pairs in this type,
+        and positivity is checked independently in every classical block.
+        """
+        array = np.asarray(state)
+        trace = self.density_trace(array)
+        if not np.isfinite(trace) or abs(trace) <= tol:
+            raise ValueError(
+                "The stationary state has zero or non-finite trace.")
+        array = array / trace
+
+        classical, quantum, position = [], [], 0
+        for ob in self.inside:
+            if ob.is_classical:
+                classical.append(position)
+                position += 1
+            else:
+                quantum.append((position, position + 1))
+                position += 2
+        dagger_axes = list(range(array.ndim))
+        for row, column in quantum:
+            dagger_axes[row], dagger_axes[column] = column, row
+        if not np.allclose(
+                array, np.transpose(array.conjugate(), dagger_axes),
+                atol=tol, rtol=0):
+            raise ValueError("The stationary state is not Hermitian.")
+        array = (
+            array + np.transpose(array.conjugate(), dagger_axes)) / 2
+
+        rows, columns = map(list, zip(*quantum)) if quantum else ([], [])
+        blocks = np.transpose(array, classical + rows + columns).reshape(
+            int(np.prod([array.shape[axis] for axis in classical], dtype=int)),
+            int(np.prod([array.shape[axis] for axis in rows], dtype=int)),
+            int(np.prod([array.shape[axis] for axis in rows], dtype=int)))
+        if min(np.linalg.eigvalsh(block).min() for block in blocks) < -tol:
+            raise ValueError("The stationary state is not positive.")
+        return np.real_if_close(array)
+
 
 bit = Ty("bit")
 mode = Ty("mode")
 qubit = Ty("qubit")
 qmode = Ty("qmode")
-
-
-def frobenius_distance(state, other):
-    """Return the Frobenius distance between two state arrays.
-
-    This metric does not require pairing doubled wires into matrix rows and
-    columns, so it also applies to states with classical outputs.
-
-    >>> assert np.isclose(
-    ...     frobenius_distance(np.eye(2) / 2, np.eye(2) / 2), 0)
-    >>> assert np.isclose(
-    ...     frobenius_distance(np.diag([1, 0]), np.diag([0, 1])),
-    ...     np.sqrt(2))
-    """
-    return np.linalg.norm(np.asarray(state) - np.asarray(other))
-
-
-def stationary_vector(superoperator):
-    """Return the unique stationary row vector of a superoperator.
-
-    Optyx tensor arrays act on states from the right, hence a stationary
-    vector ``state`` satisfies ``state @ superoperator == state``. The null
-    space is computed with the numerical-rank tolerance of NumPy's SVD,
-    independently of the convergence tolerance used by :meth:`Diagram.fix`.
-
-    >>> transition = np.array([[.9, .1], [.4, .6]])
-    >>> state = stationary_vector(transition)
-    >>> assert np.allclose(state / state.sum(), [.8, .2])
-
-    A non-unique stationary state is a design choice, not an arbitrary
-    eigensolver choice:
-
-    >>> stationary_vector(np.eye(2))
-    Traceback (most recent call last):
-    ...
-    ValueError: The stationary state is not unique (fixed-space dimension 2).
-    """
-    matrix = np.asarray(superoperator)
-    if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
-        raise ValueError("The superoperator must be a square matrix.")
-    fixed = matrix.T - np.eye(matrix.shape[0], dtype=matrix.dtype)
-    _, singular_values, vectors = np.linalg.svd(fixed)
-    scale = max(
-        np.linalg.norm(matrix, ord=2),
-        singular_values[0] if singular_values.size else 0)
-    rank_tolerance = max(fixed.shape) * np.finfo(float).eps * scale
-    rank = np.count_nonzero(singular_values > rank_tolerance)
-    nullity = matrix.shape[0] - rank
-    if nullity == 0:
-        raise ValueError(
-            "The truncated transfer map has no stationary state; "
-            "increase cutoff or check that the channel is trace preserving.")
-    if nullity != 1:
-        raise ValueError(
-            "The stationary state is not unique "
-            f"(fixed-space dimension {nullity}).")
-    state = vectors[-1].conjugate()
-    residual = np.linalg.norm(state @ matrix - state)
-    residual_tolerance = max(matrix.shape) * np.finfo(float).eps \
-        * max(1, np.linalg.norm(matrix))
-    if residual > residual_tolerance:
-        raise ValueError(
-            f"The stationary-state residual {residual} is too large.")
-    return state
-
-
-def doubled_dimensions(ty: Ty, cutoff: int) -> list[int]:
-    """Return local dimensions for the doubled representation of ``ty``.
-
-    Classical bits and modes have one tensor axis; quantum wires have one
-    axis for the ket and one for the bra.
-    """
-    dimensions = []
-    for ob in ty.inside:
-        if ob.name == "bit":
-            dimensions.append(2)
-        elif ob.name == "qubit":
-            dimensions.extend((2, 2))
-        elif ob.name == "mode":
-            dimensions.append(cutoff)
-        elif ob.name == "qmode":
-            dimensions.extend((cutoff, cutoff))
-        else:
-            raise ValueError(f"Unknown channel object {ob}.")
-    return dimensions
-
-
-def density_trace(state, cod: Ty):
-    """Return the categorical trace of a doubled state over ``cod``.
-
-    Unlike :func:`numpy.trace`, this also sums classical outcomes and handles
-    any interleaving of classical and quantum output wires.
-    """
-    array = np.asarray(state)
-    dimensions = list(array.shape)
-    discard = Discard(cod).double().to_tensor(dimensions).eval().array
-    return np.tensordot(array, discard, axes=array.ndim)
-
-
-def normalise_density_matrix(state, cod: Ty, tol: float):
-    """Normalise and validate a classical-quantum density matrix.
-
-    Validation uses the categorical trace, the dagger induced by ``cod`` and
-    positivity of each classical block.
-    """
-    array = np.asarray(state)
-    trace = density_trace(array, cod)
-    if not np.isfinite(trace) or abs(trace) <= tol:
-        raise ValueError("The stationary state has zero or non-finite trace.")
-    array = array / trace
-
-    classical, rows, columns, position = [], [], [], 0
-    for ob in cod.inside:
-        if ob.is_classical:
-            classical.append(position)
-            position += 1
-        else:
-            rows.append(position)
-            columns.append(position + 1)
-            position += 2
-    dagger_axes = list(range(array.ndim))
-    for row, column in zip(rows, columns):
-        dagger_axes[row], dagger_axes[column] = column, row
-    dagger = np.transpose(array.conjugate(), dagger_axes)
-    if not np.allclose(array, dagger, atol=tol, rtol=0):
-        raise ValueError("The stationary state is not Hermitian.")
-    array = (array + dagger) / 2
-
-    classical_dimension = int(np.prod(
-        [array.shape[axis] for axis in classical], dtype=int))
-    quantum_dimension = int(np.prod(
-        [array.shape[axis] for axis in rows], dtype=int))
-    blocks = np.transpose(array, classical + rows + columns).reshape(
-        classical_dimension, quantum_dimension, quantum_dimension)
-    if min(np.linalg.eigvalsh(block).min() for block in blocks) < -tol:
-        raise ValueError("The stationary state is not positive.")
-    return np.real_if_close(array)
 
 
 @factory
@@ -499,6 +396,95 @@ class Diagram(frobenius.Diagram):
         memory = semantics.stream.mem.now
         return initial >> unrolled \
             >> past @ self.id(self.cod) @ Discard(memory)
+
+    def stationary_state(
+            self, dimensions: list[int] = None, tol: float = 1e-6):
+        """Return the unique stationary state of a loop-free endomorphism.
+
+        The diagram denotes the transfer operator; its doubled tensor is
+        projected back to ``dimensions`` before the eigenspace at eigenvalue
+        one is found. The state is traced by composing it with
+        :class:`Discard`, then checked for Hermiticity and positivity.
+
+        Parameters:
+            dimensions : Dimensions of the doubled input wires, all two by
+                default. Optical simulations typically use ``cutoff`` for
+                every mode in ``self.dom.double()``.
+            tol : Tolerance for trace preservation and state validation.
+
+        >>> from optyx import classical
+        >>> transition = classical.ClassicalBox(
+        ...     "Transition",
+        ...     diagram.Box("Transition", diagram.bit, diagram.bit,
+        ...                 array=np.array([[.9, .1], [.4, .6]])),
+        ...     bit, bit)
+        >>> state = transition.stationary_state()
+        >>> assert np.allclose(state, [.8, .2])
+
+        A non-unique stationary state is a design choice, not an arbitrary
+        eigensolver choice:
+
+        >>> Diagram.id(bit).stationary_state()  # doctest: +ELLIPSIS
+        Traceback (most recent call last):
+        ...
+        ValueError: The stationary state is not unique ...
+        """
+        if any(isinstance(box, Feedback) for box in self.boxes):
+            raise ValueError(
+                "stationary_state is defined for diagrams without feedback "
+                "loops; call one_step first.")
+        if self.dom != self.cod:
+            raise ValueError(
+                "stationary_state is defined for endomorphisms, got "
+                f"{self.dom} -> {self.cod}.")
+        if not isinstance(tol, Real) or isinstance(tol, bool) \
+                or not np.isfinite(tol) or tol <= 0:
+            raise ValueError("tol must be a positive finite real number.")
+
+        if dimensions is None:
+            dimensions = [2] * len(self.dom.double())
+        if len(dimensions) != len(self.dom.double()) or any(
+                not isinstance(value, Integral) or isinstance(value, bool)
+                or value <= 0 for value in dimensions):
+            raise ValueError(
+                "dimensions must contain one positive integer per doubled "
+                "input wire.")
+        dimensions = [int(value) for value in dimensions]
+        tensor_transfer = self.double().to_tensor(dimensions)
+        operator = tensor_transfer >> tensor.Diagram.tensor(*(
+            diagram.EmbeddingTensor(source.inside[0], target)
+            for source, target in zip(tensor_transfer.cod, dimensions)))
+        size = int(np.prod(dimensions, dtype=int))
+        matrix = operator.eval().array.reshape(size, size)
+
+        discard = Discard(self.dom).double().to_tensor(dimensions)
+        trace_residual = np.linalg.norm(
+            (operator >> discard).eval().array - discard.eval().array)
+        if trace_residual > tol:
+            raise ValueError(
+                "The truncated transfer map is not trace preserving "
+                f"(residual {trace_residual}); increase cutoff.")
+
+        eigenvalues, eigenvectors = np.linalg.eig(matrix.T)
+        eigen_tolerance = 100 * size * np.finfo(float).eps \
+            * max(1, np.linalg.norm(matrix))
+        fixed = np.flatnonzero(abs(eigenvalues - 1) <= eigen_tolerance)
+        if not fixed.size:
+            raise ValueError(
+                "The truncated transfer map has no stationary state; "
+                "increase cutoff or check that the channel is trace "
+                "preserving.")
+        if len(fixed) != 1:
+            raise ValueError(
+                "The stationary state is not unique "
+                f"(fixed-space dimension {len(fixed)}).")
+        state = eigenvectors[:, fixed[0]]
+        residual = np.linalg.norm(state @ matrix - state)
+        if residual > eigen_tolerance:
+            raise ValueError(
+                f"The stationary-state residual {residual} is too large.")
+        return self.dom.normalise_density_matrix(
+            state.reshape(dimensions), tol)
 
     def fix(self, n_steps: int = None, chi: int = None, *,
             method: str = "power", tol: float = 1e-6,
@@ -621,9 +607,9 @@ class Diagram(frobenius.Diagram):
             (ReusableHyperCompressedOptimizer, HyperCompressedOptimizer))
         result_cache = {}
 
-        def contract(steps, bond):
+        def contract(steps, bond, traced=False):
             max_bond = bond if compressed else None
-            key = steps, max_bond
+            key = steps, max_bond, traced
             if key not in result_cache:
                 executor = copy(backend)
                 if compressed:
@@ -631,12 +617,15 @@ class Diagram(frobenius.Diagram):
                         **executor.contraction_params,
                         "max_bond": max_bond,
                     }
-                result_cache[key] = self.at_time(steps).eval(executor)
+                state = self.at_time(steps)
+                if traced:
+                    state >>= Discard(self.cod)
+                result_cache[key] = state.eval(executor)
             return result_cache[key]
 
-        def normalised(result):
+        def normalised(steps, bond, result):
             state = result.density_matrix
-            trace = density_trace(state, self.cod)
+            trace = contract(steps, bond, traced=True).tensor.array
             if not np.isfinite(trace) or abs(trace) <= tol:
                 raise ValueError(
                     "Compressed contraction returned zero or non-finite "
@@ -652,8 +641,9 @@ class Diagram(frobenius.Diagram):
                 return steps, result, False
             while True:
                 previous = contract(steps - 1, bond)
-                if frobenius_distance(
-                        normalised(result), normalised(previous)) < tol:
+                if np.linalg.norm(
+                        normalised(steps, bond, result)
+                        - normalised(steps - 1, bond, previous)) < tol:
                     return steps, result, True
                 if steps == max_steps:
                     return steps, result, False
@@ -661,20 +651,21 @@ class Diagram(frobenius.Diagram):
                 result = contract(steps, bond)
 
         bond = chi if chi is not None else min(4, max_chi)
-        _, result, steps_converged = refine_steps(bond)
+        steps, result, steps_converged = refine_steps(bond)
         bond_converged = chi is not None or not compressed
         if chi is None and compressed:
             while bond < max_chi:
                 next_bond = min(2 * bond, max_chi)
-                _, next_result, next_steps_converged = \
+                next_steps, next_result, next_steps_converged = \
                     refine_steps(next_bond)
-                if frobenius_distance(
-                        normalised(next_result), normalised(result)) < tol:
+                if np.linalg.norm(
+                        normalised(next_steps, next_bond, next_result)
+                        - normalised(steps, bond, result)) < tol:
                     bond_converged = True
-                    bond, result = next_bond, next_result
+                    bond, steps, result = next_bond, next_steps, next_result
                     steps_converged = next_steps_converged
                     break
-                bond, result = next_bond, next_result
+                bond, steps, result = next_bond, next_steps, next_result
                 steps_converged = next_steps_converged
 
         failures = []
@@ -687,7 +678,11 @@ class Diagram(frobenius.Diagram):
             warnings.warn(
                 f"fix did not converge to tol={tol} in "
                 + " or ".join(failures), UserWarning, stacklevel=3)
-        return result
+        return backends.EvalResult(
+            tensor.Box(
+                "Result", tensor.Dim(1), result.tensor.cod,
+                normalised(steps, bond, result)),
+            output_types=self.cod, state_type=backends.StateType.DM)
 
     def eigen_fix(self, cutoff: int = 2, tol: float = 1e-6):
         """
@@ -701,38 +696,23 @@ class Diagram(frobenius.Diagram):
         lost trace raises. A non-unique stationary memory state raises rather
         than choosing an arbitrary eigenvector.
         """
-        backends = import_module("optyx.core.backends")
         step = self.one_step()
         memory = step.cod[len(self.cod):]
-        dimensions = doubled_dimensions(memory, cutoff)
-        memory_dimension = int(np.prod(dimensions, dtype=int))
-        transfer = (step >> Discard(self.cod) @ self.id(memory)).double()
-        readout = (step >> self.id(self.cod) @ Discard(memory)).double()
-        tensor_transfer = transfer.to_tensor(dimensions)
-        projection = tensor.Diagram.tensor(*(
-            diagram.EmbeddingTensor(source.inside[0], target)
-            for source, target in zip(tensor_transfer.cod, dimensions)))
-        matrix = (tensor_transfer >> projection).eval().array.reshape(
-            memory_dimension, memory_dimension)
-        discard = Discard(memory).double().to_tensor(
-            dimensions).eval().array.reshape(memory_dimension)
-        trace_residual = np.linalg.norm(matrix @ discard - discard)
-        if trace_residual > tol:
-            raise ValueError(
-                "The truncated transfer map is not trace preserving "
-                f"(residual {trace_residual}); increase cutoff.")
-        state = stationary_vector(matrix).reshape(dimensions)
-        state = normalise_density_matrix(state, memory, tol)
-        tensor_diagram = readout.to_tensor(dimensions)
+        dimensions = [
+            cutoff if ob.inside[0].name == "mode" else 2
+            for ob in memory.double()]
+        transfer = step >> Discard(self.cod) @ self.id(memory)
+        readout = step >> self.id(self.cod) @ Discard(memory)
+        state = transfer.stationary_state(dimensions, tol)
+        tensor_diagram = readout.double().to_tensor(dimensions)
         memory_state = tensor.Box(
             "Stationary memory", tensor.Dim(1), tensor_diagram.dom, state)
         density_matrix = (memory_state >> tensor_diagram).eval().array
-        density_matrix = normalise_density_matrix(
-            density_matrix, self.cod, tol)
+        backends = import_module("optyx.core.backends")
         return backends.EvalResult(
             tensor.Box(
                 "Result", tensor.Dim(1), tensor_diagram.cod,
-                density_matrix),
+                np.real_if_close(density_matrix)),
             output_types=self.cod, state_type=backends.StateType.DM)
 
     def needs_inflation(self) -> bool:
