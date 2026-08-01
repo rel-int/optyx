@@ -9,10 +9,11 @@ Functions
 
     contract_tensor
 
-``contract_tensor`` evaluates the output of ``Diagram.to_tensor`` without
-coupling the diagram to an execution library. NumPy is the default exact
-executor; JAX and PyTorch use the same exact semantics. Quimb accepts any
-compatible Cotengra optimizer and optionally bounds intermediate bonds.
+``contract_tensor`` evaluates the output of ``Diagram.to_tensor`` or its
+combinatorial map without coupling the network to an execution library.
+NumPy is the default exact executor; JAX and PyTorch preserve accelerator
+arrays and gradients. Quimb accepts any compatible Cotengra optimizer and
+optionally bounds intermediate bonds.
 """
 
 from typing import Any
@@ -23,7 +24,45 @@ from cotengra import (
 )
 from discopy import tensor
 import numpy as np
-from quimb.tensor import Tensor
+from quimb.tensor import Tensor, TensorNetwork
+
+
+def _to_quimb(diagram):
+    """Translate a tensor diagram or combinatorial map to Quimb."""
+    if not isinstance(diagram, tensor.CMap):
+        return diagram.to_quimb()
+    wires, fresh = {}, iter(range(len(diagram.ports) * 2))
+    for source, target in enumerate(diagram.edges):
+        if source <= target:
+            wire = next(fresh)
+            wires[source] = wires[target] = f"i{wire}"
+    tensors, output = [], []
+    for port in range(len(diagram.dom)):
+        external = f"o{next(fresh)}"
+        dimension = int(np.prod(diagram.ports[port].obj.inside))
+        tensors.append(Tensor(
+            np.eye(dimension), inds=(external, wires[port])))
+        output.append(external)
+    start = len(diagram.dom)
+    for box in diagram.boxes:
+        arity, coarity = len(box.dom), len(box.cod)
+        ports = list(range(start, start + arity)) + list(reversed(range(
+            start + arity, start + arity + coarity)))
+        tensors.append(Tensor(box.eval().array, inds=tuple(
+            wires[port] for port in ports)))
+        start += arity + coarity
+    for port in range(
+            len(diagram.ports) - len(diagram.cod), len(diagram.ports)):
+        external = f"o{next(fresh)}"
+        dimension = int(np.prod(diagram.ports[port].obj.inside))
+        tensors.append(Tensor(
+            np.eye(dimension), inds=(wires[port], external)))
+        output.append(external)
+    for loop in diagram.loops:
+        wire = f"i{next(fresh)}"
+        dimension = int(np.prod(loop.inside))
+        tensors.append(Tensor(np.eye(dimension), inds=(wire, wire)))
+    return TensorNetwork(tensors), output
 
 
 def _materialize_arrays(
@@ -42,6 +81,10 @@ def _materialize_arrays(
             box = tensor.Box(box.name, box.dom, box.cod,
                              array_module.array(array, dtype=dtype))
             boxes.append(box)
+    if isinstance(diagram, tensor.CMap):
+        return tensor.CMap(
+            diagram.dom, diagram.cod, tuple(boxes), diagram.edges,
+            offsets=diagram.offsets, loops=diagram.loops)
     return tensor.Diagram.decode(
         diagram.dom, boxes=boxes, offsets=diagram.offsets, cod=diagram.cod)
 
@@ -60,7 +103,11 @@ def _contract_quimb(
             "Contraction parameters cannot override "
             + ", ".join(sorted(reserved)) + ".")
     with tensor.backend(tensor_backend):
-        network = diagram.to_quimb()
+        network = _to_quimb(diagram)
+    if isinstance(network, tuple):
+        network, output_inds = network
+    else:
+        output_inds = sorted(network.outer_inds())
     if tensor_backend is not None:
         with tensor.backend(tensor_backend) as array_module:
             for quimb_tensor in network:
@@ -74,10 +121,7 @@ def _contract_quimb(
             if quimb_tensor.data.dtype.kind in {"i", "u", "b"}:
                 quimb_tensor.modify(data=quimb_tensor.data.astype(
                     np.complex128, copy=False))
-    contract_params = {
-        "output_inds": sorted(network.outer_inds()), **params}
-    if backend is not None:
-        contract_params["backend"] = backend
+    contract_params = {"output_inds": output_inds, **params}
     if optimize is not None:
         contract_params["optimize"] = optimize
     compressed = max_bond is not None or isinstance(
@@ -87,6 +131,9 @@ def _contract_quimb(
         contract_params["max_bond"] = max_bond
     contract = network.contract_compressed if compressed else network.contract
     result = contract(**contract_params)
+    if isinstance(result, TensorNetwork):
+        result = result.contract(
+            output_inds=sorted(result.outer_inds()))
     array = result.data if isinstance(result, Tensor) else result
     with tensor.backend(tensor_backend):
         return tensor.Tensor(array, diagram.dom, diagram.cod)
@@ -98,7 +145,7 @@ def contract_tensor(
         optimize=None,
         max_bond: int = None,
         **params: Any) -> tensor.Tensor:
-    """Contract a backend-neutral :class:`discopy.tensor.Diagram`.
+    """Contract a backend-neutral tensor diagram or combinatorial map.
 
     ``backend`` selects NumPy, JAX, PyTorch or Quimb arrays. JAX and PyTorch
     contractions preserve automatic differentiation. ``optimize`` may be any
@@ -106,7 +153,8 @@ def contract_tensor(
     contraction.
 
     Args:
-        diagram: The tensor diagram to contract.
+        diagram: The :class:`discopy.tensor.Diagram` or
+            :class:`discopy.tensor.CMap` to contract.
         backend: ``None``, ``"numpy"``, ``"jax"``, ``"pytorch"`` or
             ``"quimb"``.
         optimize: An optional Quimb or Cotengra path optimizer for Quimb,
@@ -135,6 +183,11 @@ def contract_tensor(
         result_backend = None if backend == "quimb" else backend
         with tensor.backend(result_backend):
             return tensor.Tensor(array, diagram.dom, diagram.cod)
+    if isinstance(diagram, tensor.CMap) and backend in (None, "numpy"):
+        dtype = params.pop("dtype", complex)
+        diagram = _materialize_arrays(diagram, "numpy", dtype)
+        return _contract_quimb(
+            diagram, optimize, max_bond, **params)
     if backend == "quimb":
         return _contract_quimb(diagram, optimize, max_bond, **params)
     if backend in ("jax", "pytorch"):
