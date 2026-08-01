@@ -437,15 +437,16 @@ Formulas verified first: `F_r^Q = r! F_r^C` with `F_r^C = r! T^{r(r-1)/2} / prod
 reproduces the measured factorial moments to 1.00000 for `r = 1..4` at `T = 0.2, 0.4, 0.6`.
 They are correct as written.
 
-- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 16:15 cut the characterisation
-      section down: one statement of why the state is not Poissonian, not a tour
-- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 16:15 add the Gaussian comparison:
+- [x] cut the characterisation section down: one statement of why the state is
+      not Poissonian, not a tour
+- [x] add the Gaussian comparison:
       the only Fock-diagonal single-mode Gaussian states are thermal, so `F_r = r!` at
       mean one; ours is `r! F_r^C`, which reaches `r!` only as `T -> 1`
-- [ ] measure the complexity claims rather than asserting them: time `power` and `eigen`
-      against the stated `M^{4L}` and `M^{12L}` scalings — NOTE the multimode complexity
-      round is claimed by another session in 3445e36, so coordinate before editing those
-      cells
+- [x] measure the complexity claims rather than asserting them: fitted exponents are
+      2.14 in `D` for eigen against a predicted 6, and 1.84 in `n` for power against a
+      predicted 1. Both are explained in the notebook: the eigen solve is not yet the
+      bottleneck at reachable cutoffs, and power is superlinear because unrolling widens
+      the diagram as it deepens — the routing overhead the CMap contraction would remove
 
 ## Blocked on design
 
