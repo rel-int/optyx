@@ -4,16 +4,16 @@
 
 ## Multimode complexity and notebook order
 
-- [WIP] @Codex-pr15-2026-08-01 derive the power and eigen costs for an
+- [x] derive the power and eigen costs for an
       arbitrary `M`-mode unitary with `L` looped modes, one photon per input
       mode and `n = M`, using only `L`, `M` and the cost of applying `U`.
-- [WIP] @Codex-pr15-2026-08-01 make the single-photon beam-splitter feedback
+- [x] make the single-photon beam-splitter feedback
       experiment the notebook entry point, followed immediately by its
       stationary distribution and tail plots.
-- [WIP] @Codex-pr15-2026-08-01 move the general boson-sampling construction
+- [x] move the general boson-sampling construction
       after the motivating experiment and replace the single-mode complexity
       discussion with the multimode result.
-- [WIP] @Codex-pr15-2026-08-01 execute the notebook, run focused validation,
+- [x] execute the notebook, run focused validation,
       update the PR description and push the completed round.
 
 > Yes, and I think the notebook can be pushed a bit further. The comparison of the complexity between power and eigen currently makes it seem that eigen is much more efficient, is there a regime when power gets more efficient? The max number of photons D is related to the the number of time steps n, so the complexities should be compared as functions of of the same variables. For the photon-adder protocol, it would be interesting to know also the higher moments of the distribution classical (distinguishable) vs quantum (indistinguishable).
