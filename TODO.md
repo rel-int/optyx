@@ -169,25 +169,25 @@ unrolling to a tensor network.
 
 ## Upstream fixed-point review
 
-- [ ] `docs/examples/fixpoints.rst` part 1, boson sampling with feedback: state
-      the Biriukov–Dyakonov setup and say which of its pieces `power` and
-      `eigen` implement.
-- [ ] Part 2, learning fixpoints: a beam splitter `2 -> 2` with one photon into
-      the first input at every step and the second output fed back into the
-      second input; report convergence and the density-matrix size.
-- [ ] Part 2, tuning: adjust the two beam-splitter phases towards fixed points
-      that converge faster and have lower-dimensional density matrices.
-- [ ] Replace the backend-comparison section with a complexity comparison of
-      `power` against `eigen` as approximations of the stationary distribution.
-- [ ] Drop `doubled_dimensions`: `Ty` already carries its doubled dimensions,
-      so read the cutoff convention off `Ty.double()`.
-- [ ] Build the trace as a `Discard` diagram and hand it to the backend instead
-      of calling `to_tensor` followed by a hand-written `np.tensordot`.
-- [ ] Define `stationary_vector` over any Optyx diagram without feedback loops,
-      as eigenvectors of the denoted operator rather than a superoperator array.
-- [ ] Fold module-level fixed-point helpers into methods of existing classes or
-      inline them at their single call site.
-- [ ] Simplify normalisation as part of the stationary-state method.
+- [WIP] @codex-pr15-2026-08-01 06:50 `docs/examples/fixpoints.rst` part 1, boson sampling with feedback: state the
+      Biriukov–Dyakonov setup and say which of its pieces `power` and `eigen` implement
+- [WIP] @codex-pr15-2026-08-01 06:50 part 2, learning fixpoints: a beam splitter `2 -> 2` with one photon into the
+      first input at every step and the second output fed back into the second input;
+      report whether the fixed point converges and how big its density matrix is
+- [WIP] @codex-pr15-2026-08-01 06:50 part 2, tuning: adjust the two beam-splitter phases towards fixed points that
+      converge faster and have lower-dimensional density matrices
+- [WIP] @codex-pr15-2026-08-01 06:50 replace the backend-comparison section with a complexity comparison of `power`
+      against `eigen` as approximations of the stationary distribution
+- [WIP] @codex-pr15-2026-08-01 06:50 drop `doubled_dimensions`: `Ty` already carries its doubled dimensions, so read
+      the cutoff convention off `Ty.double()` rather than reimplementing it
+- [WIP] @codex-pr15-2026-08-01 06:50 `density_trace`: build the trace as a `Discard` diagram and hand it to the
+      backend, instead of `to_tensor` followed by a hand-written `np.tensordot`
+- [WIP] @codex-pr15-2026-08-01 06:50 `stationary_vector`: define it over any optyx diagram without feedback loops, as
+      the eigenvectors of the operator the diagram denotes, not of a superoperator array
+- [WIP] @codex-pr15-2026-08-01 06:50 no hanging module-level functions in `channel.py`: fold `frobenius_distance`,
+      `normalise_density_matrix` and the rest into methods of the existing classes,
+      or inline them at their single call site
+- [WIP] @codex-pr15-2026-08-01 06:50 simplify the normalisation, which reads as part of the stationary-state method
 
 The tuning work depends on differentiable contraction from #21. Landing #21
 first keeps it to a few lines; without it, tuning falls back to a parameter
