@@ -1,5 +1,20 @@
 # TODO
 
+> Yes, and I think the notebook can be pushed a bit further. The comparison of the complexity between power and eigen currently makes it seem that eigen is much more efficient, is there a regime when power gets more efficient? The max number of photons D is related to the the number of time steps n, so the complexities should be compared as functions of of the same variables. For the photon-adder protocol, it would be interesting to know also the higher moments of the distribution classical (distinguishable) vs quantum (indistinguishable).
+
+## Common scaling and higher moments
+
+- [WIP] @Codex-pr15-2026-08-01 16:28 derive the power/eigen costs from the
+      same photon cutoff, time depth and target error, then identify and measure
+      the regime where power is cheaper.
+- [WIP] @Codex-pr15-2026-08-01 16:28 derive and validate higher factorial
+      moments, skewness and kurtosis for distinguishable and indistinguishable
+      photon-adder fixed points.
+- [WIP] @Codex-pr15-2026-08-01 16:28 update and execute the notebook with the
+      common-scaling comparison, higher-moment tables and concise figures.
+- [WIP] @Codex-pr15-2026-08-01 16:28 remove stale duplicate checkboxes and map
+      the superseded review threads to the executed notebook.
+
 > Two problems: 1) I see you added a lot of pylint disables, inline comments are not allowed in optyx as in discopy! remove them and check the pylint, 2) The tensor backend is a large addition, write an issue and open a separate PR directly on main that proposes a new routine for evaluating optyx tensor contractions. The logic needs to be simple and flexible accross quimb, cotengra, jax and pytorch
 
 ## Review cleanup and tensor-contraction split
@@ -303,12 +318,12 @@ previous round: part 2 is about the physics of the fixed point, not efficiency.
 
 ## Fix the flaky trace guard
 
-- [ ] take the trace from the density matrix already contracted, or contract the
+- [WIP] @Codex-pr15-2026-08-01 16:28 take the trace from the density matrix already contracted, or contract the
       `Discard`-composed diagram exactly: never bound its bonds, since a `max_bond`
       approximation of a trace is both wrong and non-deterministic (#19)
-- [ ] give the trace-validity floor its own constant: `abs(trace) <= tol` reuses the
+- [WIP] @Codex-pr15-2026-08-01 16:28 give the trace-validity floor its own constant: `abs(trace) <= tol` reuses the
       convergence tolerance, so `fix(tol=1e-4)` rejects any trace below `1e-4`
-- [ ] re-run the suite several times to confirm the flake is gone
+- [WIP] @Codex-pr15-2026-08-01 16:28 re-run the suite several times to confirm the flake is gone
 
 > I added some comments on the repo, the documentation on fixpoints should be clearer,
 > also I see you made an examples repo in the docs, what I want is for the fixpoint.rst to
@@ -348,7 +363,7 @@ previous round: part 2 is about the physics of the fixed point, not efficiency.
 
 ## Docs are not verified
 
-- [ ] nothing runs the `.. doctest::` blocks in the examples: `testpaths` covers `optyx`
+- [WIP] @Codex-pr15-2026-08-01 16:28 nothing runs the `.. doctest::` blocks in the examples: `testpaths` covers `optyx`
       and `test/` only, and the docs job runs the html builder, not `-b doctest`. Every
       number in `fixpoints.rst` is unchecked. Either add `-b doctest` to the docs job or
       add the rst to pytest with `--doctest-glob`
