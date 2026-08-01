@@ -12,7 +12,7 @@
       photon-adder fixed points.
 - [x] update and execute the notebook with the
       common-scaling comparison, higher-moment tables and concise figures.
-- [WIP] @Codex-pr15-2026-08-01 16:28 remove stale duplicate checkboxes and map
+- [x] remove stale duplicate checkboxes and map
       the superseded review threads to the executed notebook.
 
 > Two problems: 1) I see you added a lot of pylint disables, inline comments are not allowed in optyx as in discopy! remove them and check the pylint, 2) The tensor backend is a large addition, write an issue and open a separate PR directly on main that proposes a new routine for evaluating optyx tensor contractions. The logic needs to be simple and flexible accross quimb, cotengra, jax and pytorch
