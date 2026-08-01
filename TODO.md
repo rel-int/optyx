@@ -476,6 +476,28 @@ They are correct as written.
 - [x] cut the Gaussian section to a
       clause and drop what the three-part plan does not need
 
+> I have two important suggestions for improvement. First, let's keep only parts 1 and 2 and
+> split the conclusion in the relevant parts. Second, the comparison of costs should include
+> the space complexity and should make the first time steps to understanding the
+> relationship between the expected time of convergence and U, M and L.
+
+## Two parts, space complexity, convergence time
+
+- [x] drop part 3: the "what it is not" paragraph moves into part 1, the reduction question
+      becomes the closing section of part 2
+- [x] give the cost comparison a space column: `power` holds one `h^2` density matrix,
+      `eigen` materialises an `h^2 x h^2` transfer operator, so `h^4` — the square. Space,
+      not the `h^6` solve, is what stops `eigen` first
+- [x] first steps on convergence time: the error decays like `|lambda_2|^n`, so
+      `n* = log(eps)/log|lambda_2|`. Measured `|lambda_2| = T` exactly for the one-mode
+      loop, giving `n* = log(eps)/log(T)`
+- [x] relate it to `U`, `M`, `L`: `|lambda_2| ~ s_1^2` with `s_1` the largest singular value
+      of the `L x L` loop block of `U` while one photon dominates; `M` enters through how
+      fast the loop fills. The many-photon regime is left open and named as the next
+      experiment
+- [ ] measure `|lambda_2|` directly for random `U` at small `L` and `M` — the open half of
+      the convergence question, and the input the reduction question needs
+
 ## Blocked on design
 
 - `dom != Ty()`: the process "prepare an input state at every time step, return the
