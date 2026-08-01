@@ -503,6 +503,27 @@ They are correct as written.
       conservative bound; and the `s1^2` guess is **refuted**, disagreeing in every Haar
       case, so the gap must be measured rather than read off `U`
 
+> It's also good if superoperator norm is an upper bound, can it be computed efficiently?
+> The goal is to predict a big enough unroll time so that the truncation is a good
+> approximation of the limiting process. Even better if we can show it is polynomial in
+> L and/or M.
+
+## A certified unroll depth
+
+- [x] use the trace-norm contraction coefficient instead of `|lambda_2|`: because the
+      dynamics stays Fock-diagonal this is the classical Dobrushin coefficient of the
+      population chain, submultiplicative, so it bounds every power at once
+- [x] verify `eta >= |lambda_2|` and that `n*(eta)` clears the target: measured
+      2.4e-16, 1.3e-7, 2.6e-16 against a 1e-4 goal, so the depth is a certificate
+- [x] cost it: `O(h)` channel applications plus `O(h^2)` arithmetic, against `eigen`'s
+      `O(h^2)` applications and `O(h^6)` solve — the bound is a factor `h` cheaper than
+      the answer, so a depth can be certified where `eigen` is out of reach
+- [x] scaling: polynomial in `M` at fixed `L`, exponential in `L` since `h ~ (nM)^L/L!`
+- [ ] open: a bound polynomial in both `L` and `M` needs a quantity read off `U`. The
+      drift `E[N_{t+1}] <= s1^2 E[N_t] + M` is `O((M+L)^3)` and bounds how fast the photon
+      number settles — which fixes the Fock cutoff — but not the total-variation mixing.
+      Turning it into a mixing bound is the open problem before the reduction question
+
 ## Blocked on design
 
 - `dom != Ty()`: the process "prepare an input state at every time step, return the
