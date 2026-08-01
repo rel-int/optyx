@@ -495,8 +495,13 @@ They are correct as written.
       of the `L x L` loop block of `U` while one photon dominates; `M` enters through how
       fast the loop fills. The many-photon regime is left open and named as the next
       experiment
-- [ ] measure `|lambda_2|` directly for random `U` at small `L` and `M` — the open half of
-      the convergence question, and the input the reduction question needs
+- [x] measure `|lambda_2|` directly for Haar `U` at small `L` and `M`, and check the
+      unrolling: `|l1| = 1` exactly, `n*` from the population gap hits the 1e-4 target and
+      doubling the depth squares the error. Two findings — the relevant rate is the
+      **population-sector** eigenvalue (a Fock-diagonal start never excites the coherence
+      sector), matching the measured decay to four digits, while the full `|lambda_2|` is a
+      conservative bound; and the `s1^2` guess is **refuted**, disagreeing in every Haar
+      case, so the gap must be measured rather than read off `U`
 
 ## Blocked on design
 
