@@ -519,10 +519,19 @@ They are correct as written.
       `O(h^2)` applications and `O(h^6)` solve — the bound is a factor `h` cheaper than
       the answer, so a depth can be certified where `eigen` is out of reach
 - [x] scaling: polynomial in `M` at fixed `L`, exponential in `L` since `h ~ (nM)^L/L!`
-- [ ] open: a bound polynomial in both `L` and `M` needs a quantity read off `U`. The
-      drift `E[N_{t+1}] <= s1^2 E[N_t] + M` is `O((M+L)^3)` and bounds how fast the photon
-      number settles — which fixes the Fock cutoff — but not the total-variation mixing.
-      Turning it into a mixing bound is the open problem before the reduction question
+- [x] state the analysis for the general channel `Phi_{U,psi,L,M}`, not the beam splitter:
+      Fock-diagonality holds for any `L`, `M` by number conservation, so the Dobrushin
+      reduction is general; the beam splitter is the `L = M = 1` special case
+- [x] reference the mathematics: collision models (Ciccarello et al. 2022), trace-norm
+      contractivity (Perez-Garcia, Wolf, Petz, Ruskai 2006), the non-normality caveat on
+      `|lambda_2|` (Szehr, Reeb, Wolf 2015), the ergodicity coefficient (Dobrushin 1956),
+      boson sampling (Aaronson, Arkhipov 2011)
+- [ ] open, and now with a route: check whether `Phi_{U,psi,L,M}` satisfies the quantum
+      Dobrushin condition of Bakshi, Liu, Moitra and Tang (arXiv:2510.08542, STOC 2026),
+      whose path-coupling argument gives rapid mixing. Its condition is local, so for this
+      channel it becomes a statement about the loop block of `U` — the kind of quantity
+      that stays polynomial as `L` grows. The drift bound `E[N_{t+1}] <= s1^2 E[N_t] + M`
+      is `O((M+L)^3)` but bounds occupation, not total-variation mixing
 
 ## Blocked on design
 
