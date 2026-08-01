@@ -82,7 +82,6 @@ import perceval as pcvl
 from quimb.tensor import TensorNetwork
 from optyx.channel import Diagram, Ty, mode, bit
 from optyx.core.path import Matrix
-from optyx.utils.misc import preprocess_quimb_tensors_safe
 
 
 @dataclass
@@ -533,9 +532,6 @@ class QuimbBackend(AbstractBackend):
 
                 )
 
-            if is_approx:
-                quimb_tn = preprocess_quimb_tensors_safe(quimb_tn)
-
             contract = quimb_tn.contract_compressed if \
                 is_approx else quimb_tn.contract
             result = contract(
@@ -544,6 +540,9 @@ class QuimbBackend(AbstractBackend):
                 **self.contraction_params
             )
 
+        if isinstance(result, TensorNetwork):
+            result = result.contract(
+                output_inds=sorted(result.outer_inds()))
         if not isinstance(result, (complex, float, int)):
             result = result.data
 

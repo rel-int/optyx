@@ -129,6 +129,50 @@ def test_memory_order():
     assert nested.unroll(1).dom == nested.dom @ qmode ** 2
 
 
+def test_stream_semantics_contract_and_order():
+    left = photonic.BS.feedback(
+        initial_state=photonic.Create(0),
+        final_effect=photonic.Select(0))
+    right = photonic.BS.feedback(
+        initial_state=photonic.Create(1),
+        final_effect=photonic.Select(1))
+    for diagram in (left >> right, left @ right):
+        semantics = diagram.to_stream()
+        assert isinstance(semantics, core.Stream)
+        assert semantics.stream.mem.now == qmode ** 2
+        assert semantics.stream.now.dom == diagram.dom @ qmode ** 2
+        assert semantics.stream.now.cod == diagram.cod @ qmode ** 2
+        assert tuple(boundary.initial_state
+                     for boundary in semantics.boundaries) == (
+                         photonic.Create(0), photonic.Create(1))
+        assert tuple(boundary.final_effect
+                     for boundary in semantics.boundaries) == (
+                         photonic.Select(0), photonic.Select(1))
+        assert not any(isinstance(box, Feedback)
+                       for box in semantics.stream.now.boxes)
+
+    inner = photonic.BS.feedback(initial_state=photonic.Create(0))
+    nested = (inner @ qmode >> Diagram.swap(qmode, qmode)).feedback(
+        initial_state=photonic.Create(1))
+    assert tuple(boundary.initial_state
+                 for boundary in nested.to_stream().boundaries) == (
+                     photonic.Create(1), photonic.Create(0))
+
+
+def test_stream_semantics_is_uncached_and_boundary_free():
+    wait = delay(
+        initial_state=photonic.Create(0),
+        final_effect=photonic.Select(0))
+    first, second = wait.to_stream(), wait.to_stream()
+    assert first == second and first is not second
+    assert first.stream is not second.stream
+    assert wait.one_step() == delay().one_step()
+    assert wait.unroll(1) != wait.one_step()
+    stateless = photonic.BS.to_stream()
+    assert stateless.stream.now == photonic.BS
+    assert stateless.boundaries == ()
+
+
 def test_matrix_has_no_feedback():
     assert not hasattr(path.Matrix, "feedback")
     assert not hasattr(path, "Feedback")

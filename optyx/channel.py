@@ -52,6 +52,20 @@ Generators and diagrams
     Discard
     Feedback
 
+Functions
+---------
+
+.. autosummary::
+    :template: function.rst
+    :nosignatures:
+    :toctree:
+
+    stationary_vector
+    frobenius_distance
+    doubled_dimensions
+    density_trace
+    normalise_density_matrix
+
 
 Examples
 --------
@@ -149,6 +163,16 @@ dual-rail encoding. For example, we can create a GHZ state:
 
 from __future__ import annotations
 
+from copy import copy
+from importlib import import_module
+import warnings
+from numbers import Integral, Real
+
+from cotengra import (
+    HyperCompressedOptimizer,
+    ReusableHyperCompressedOptimizer,
+)
+import numpy as np
 from discopy import tensor
 from discopy import monoidal, symmetric, frobenius, hypergraph
 from discopy.cat import factory
@@ -244,6 +268,143 @@ qubit = Ty("qubit")
 qmode = Ty("qmode")
 
 
+def frobenius_distance(state, other):
+    """Return the Frobenius distance between two state arrays.
+
+    This metric does not require pairing doubled wires into matrix rows and
+    columns, so it also applies to states with classical outputs.
+
+    >>> assert np.isclose(
+    ...     frobenius_distance(np.eye(2) / 2, np.eye(2) / 2), 0)
+    >>> assert np.isclose(
+    ...     frobenius_distance(np.diag([1, 0]), np.diag([0, 1])),
+    ...     np.sqrt(2))
+    """
+    return np.linalg.norm(np.asarray(state) - np.asarray(other))
+
+
+def stationary_vector(superoperator):
+    """Return the unique stationary row vector of a superoperator.
+
+    Optyx tensor arrays act on states from the right, hence a stationary
+    vector ``state`` satisfies ``state @ superoperator == state``. The null
+    space is computed with the numerical-rank tolerance of NumPy's SVD,
+    independently of the convergence tolerance used by :meth:`Diagram.fix`.
+
+    >>> transition = np.array([[.9, .1], [.4, .6]])
+    >>> state = stationary_vector(transition)
+    >>> assert np.allclose(state / state.sum(), [.8, .2])
+
+    A non-unique stationary state is a design choice, not an arbitrary
+    eigensolver choice:
+
+    >>> stationary_vector(np.eye(2))
+    Traceback (most recent call last):
+    ...
+    ValueError: The stationary state is not unique (fixed-space dimension 2).
+    """
+    matrix = np.asarray(superoperator)
+    if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
+        raise ValueError("The superoperator must be a square matrix.")
+    fixed = matrix.T - np.eye(matrix.shape[0], dtype=matrix.dtype)
+    _, singular_values, vectors = np.linalg.svd(fixed)
+    scale = max(
+        np.linalg.norm(matrix, ord=2),
+        singular_values[0] if singular_values.size else 0)
+    rank_tolerance = max(fixed.shape) * np.finfo(float).eps * scale
+    rank = np.count_nonzero(singular_values > rank_tolerance)
+    nullity = matrix.shape[0] - rank
+    if nullity == 0:
+        raise ValueError(
+            "The truncated transfer map has no stationary state; "
+            "increase cutoff or check that the channel is trace preserving.")
+    if nullity != 1:
+        raise ValueError(
+            "The stationary state is not unique "
+            f"(fixed-space dimension {nullity}).")
+    state = vectors[-1].conjugate()
+    residual = np.linalg.norm(state @ matrix - state)
+    residual_tolerance = max(matrix.shape) * np.finfo(float).eps \
+        * max(1, np.linalg.norm(matrix))
+    if residual > residual_tolerance:
+        raise ValueError(
+            f"The stationary-state residual {residual} is too large.")
+    return state
+
+
+def doubled_dimensions(ty: Ty, cutoff: int) -> list[int]:
+    """Return local dimensions for the doubled representation of ``ty``.
+
+    Classical bits and modes have one tensor axis; quantum wires have one
+    axis for the ket and one for the bra.
+    """
+    dimensions = []
+    for ob in ty.inside:
+        if ob.name == "bit":
+            dimensions.append(2)
+        elif ob.name == "qubit":
+            dimensions.extend((2, 2))
+        elif ob.name == "mode":
+            dimensions.append(cutoff)
+        elif ob.name == "qmode":
+            dimensions.extend((cutoff, cutoff))
+        else:
+            raise ValueError(f"Unknown channel object {ob}.")
+    return dimensions
+
+
+def density_trace(state, cod: Ty):
+    """Return the categorical trace of a doubled state over ``cod``.
+
+    Unlike :func:`numpy.trace`, this also sums classical outcomes and handles
+    any interleaving of classical and quantum output wires.
+    """
+    array = np.asarray(state)
+    dimensions = list(array.shape)
+    discard = Discard(cod).double().to_tensor(dimensions).eval().array
+    return np.tensordot(array, discard, axes=array.ndim)
+
+
+def normalise_density_matrix(state, cod: Ty, tol: float):
+    """Normalise and validate a classical-quantum density matrix.
+
+    Validation uses the categorical trace, the dagger induced by ``cod`` and
+    positivity of each classical block.
+    """
+    array = np.asarray(state)
+    trace = density_trace(array, cod)
+    if not np.isfinite(trace) or abs(trace) <= tol:
+        raise ValueError("The stationary state has zero or non-finite trace.")
+    array = array / trace
+
+    classical, rows, columns, position = [], [], [], 0
+    for ob in cod.inside:
+        if ob.is_classical:
+            classical.append(position)
+            position += 1
+        else:
+            rows.append(position)
+            columns.append(position + 1)
+            position += 2
+    dagger_axes = list(range(array.ndim))
+    for row, column in zip(rows, columns):
+        dagger_axes[row], dagger_axes[column] = column, row
+    dagger = np.transpose(array.conjugate(), dagger_axes)
+    if not np.allclose(array, dagger, atol=tol, rtol=0):
+        raise ValueError("The stationary state is not Hermitian.")
+    array = (array + dagger) / 2
+
+    classical_dimension = int(np.prod(
+        [array.shape[axis] for axis in classical], dtype=int))
+    quantum_dimension = int(np.prod(
+        [array.shape[axis] for axis in rows], dtype=int))
+    blocks = np.transpose(array, classical + rows + columns).reshape(
+        classical_dimension, quantum_dimension, quantum_dimension)
+    if min(np.linalg.eigvalsh(block).min() for block in blocks) < -tol:
+        raise ValueError("The stationary state is not positive.")
+    return np.real_if_close(array)
+
+
 @factory
 class Diagram(frobenius.Diagram):
     """Classical-quantum circuits over qubits and optical modes"""
@@ -251,6 +412,7 @@ class Diagram(frobenius.Diagram):
     ob = Ty
     grad = tensor.Diagram.grad
     unroll = diagram.Diagram.unroll
+    to_stream = diagram.Diagram.to_stream
 
     def feedback(self, dom=None, cod=None, mem=None,
                  initial_state=None, final_effect=None) -> Diagram:
@@ -284,6 +446,294 @@ class Diagram(frobenius.Diagram):
         return self.feedback_factory(
             self, dom=dom, cod=cod, mem=mem,
             initial_state=initial_state, final_effect=final_effect)
+
+    def one_step(self) -> Diagram:
+        """
+        Open every feedback loop to obtain one time step of the stateful
+        diagram, from ``dom @ memory`` to ``cod @ memory``.
+
+        This reuses :meth:`to_stream`, so the memory order is exactly the
+        order used by :meth:`unroll`. Boundary ``initial_state`` and
+        ``final_effect`` values are metadata and do not change this channel.
+
+        >>> from optyx.photonic import Create
+        >>> wait = Diagram.swap(qmode, qmode).feedback(
+        ...     initial_state=Create(0))
+        >>> assert wait.one_step() == Diagram.swap(qmode, qmode)
+        """
+        return self.to_stream().stream.now
+
+    def at_time(self, n_steps: int) -> Diagram:
+        """
+        The state of a stateful diagram after `n_steps` time steps: every
+        output before the last one and the final memory are discarded.
+
+        The diagram must be a state and every feedback loop needs an
+        `initial_state`. A loop's `final_effect` belongs to finite unrolling
+        and is deliberately ignored here: stationary-state simulation traces
+        out the memory rather than conditioning on it.
+
+        >>> from optyx.qubits import Ket
+        >>> source = (Discard(qubit) @ Ket(0) @ Ket(0)).feedback(
+        ...     mem=qubit, initial_state=Ket(1))
+        >>> assert source.at_time(3).dom == Ty()
+        >>> assert source.at_time(3).cod == qubit
+        """
+        if self.dom:
+            raise ValueError(
+                "at_time builds a state, so the diagram must have an empty "
+                f"domain, got dom={self.dom}.")
+        if not isinstance(n_steps, Integral) or isinstance(n_steps, bool) \
+                or n_steps < 1:
+            raise ValueError("n_steps must be a positive integer.")
+        semantics = self.to_stream()
+        if any(boundary.initial_state is None
+               for boundary in semantics.boundaries):
+            raise ValueError(
+                "Every feedback loop needs an initial_state.")
+        initial = self.id(Ty()).tensor(*(
+            boundary.initial_state for boundary in semantics.boundaries))
+        unrolled = semantics.stream.unroll(n_steps - 1).now
+        past = Discard(self.cod ** (n_steps - 1)) \
+            if n_steps > 1 else self.id(Ty())
+        memory = semantics.stream.mem.now
+        return initial >> unrolled \
+            >> past @ self.id(self.cod) @ Discard(memory)
+
+    def fix(self, n_steps: int = None, chi: int = None, *,
+            method: str = "power", tol: float = 1e-6,
+            cutoff: int = 2, backend=None,
+            max_steps: int = 64, max_chi: int = 64):
+        """
+        Approximate a stationary state of a stateful diagram as a density
+        matrix over its codomain.
+
+        A diagram with a feedback loop has stream semantics through
+        :meth:`to_stream` and :meth:`unroll`, and approximate fixed-point
+        semantics through :meth:`fix`. Both use the same open one-step
+        process; the fixed-point semantics evolves an approximate stationary
+        memory once, then discards the next memory and returns only the visible
+        output.
+
+        The stationary state is the fixed point of the transfer channel
+        which one time step induces on the memory of the feedback loops.
+        It is the limit of :meth:`at_time` only when iteration converges;
+        periodic channels can have a fixed state while their iterates cycle.
+
+        Parameters:
+            n_steps : The number of time steps unrolled by the `"power"`
+                method, doubled until convergence when `None`.
+            chi : The bound on the bond dimensions for a compressed tensor
+                backend, doubled until convergence when `None` and ignored by
+                exact backends.
+            method : Either `"power"`, contracting the unrolling as a tensor
+                network, or `"eigen"`, diagonalising the transfer matrix,
+                see below.
+            tol : The distance below which two successive
+                approximations are deemed converged.
+            cutoff : The dimension of each memory wire, `"eigen"` only.
+            max_steps : The number of time steps at which the doubling
+                gives up and warns, `"power"` only.
+            max_chi : The bond dimension at which the doubling gives up
+                and warns, `"power"` only.
+            backend : An optional
+                :class:`optyx.core.backends.AbstractBackend` used by the
+                `"power"` method. DisCoPy evaluates with ``tensor.Functor``;
+                Quimb can contract exactly or use Cotengra compression
+                bounded by `chi`.
+
+        The `"power"` method unrolls the diagram and contracts the doubled
+        tensor network. Its default compressed backend bounds bonds by `chi`:
+        this is the scalable power iteration on the transfer channel. Exact
+        tensor backends are useful baselines for networks which fit in
+        memory. The `"eigen"` method builds the transfer matrix of one time
+        step and diagonalises it, exact and cheaper whenever
+        `cutoff ** len(memory)` is small, with no `n_steps` at all.
+
+        A loop which reprepares its memory at every time step forgets its
+        initial state, so it is its own stationary state:
+
+        >>> from optyx.qubits import Ket
+        >>> source = (Discard(qubit) @ Ket(0) @ Ket(0)).feedback(
+        ...     mem=qubit, initial_state=Ket(1))
+        >>> fixed = source.fix(method="eigen")
+        >>> assert np.allclose(
+        ...     fixed.density_matrix, [[1, 0], [0, 0]])
+
+        See :doc:`/examples/fixpoints` for the semantic diagram, agreement
+        map and contraction planning.
+        """
+        if self.dom:
+            raise ValueError(
+                "The stationary state of a diagram with a domain is not "
+                f"defined, got dom={self.dom}.")
+        if not any(isinstance(box, Feedback) for box in self.boxes):
+            raise ValueError(
+                "The diagram has no feedback loop, so it is already its "
+                "own stationary state.")
+        if method not in ("power", "eigen"):
+            raise ValueError(
+                f"Unknown method {method}, use 'power' or 'eigen'.")
+        for name, value in {
+                "n_steps": n_steps, "chi": chi, "cutoff": cutoff,
+                "max_steps": max_steps, "max_chi": max_chi}.items():
+            if value is None and name in ("n_steps", "chi"):
+                continue
+            if not isinstance(value, Integral) or isinstance(value, bool) \
+                    or value <= 0:
+                raise ValueError(f"{name} must be a positive integer.")
+        if not isinstance(tol, Real) or isinstance(tol, bool) \
+                or not np.isfinite(tol) or tol <= 0:
+            raise ValueError("tol must be a positive finite real number.")
+        if method == "eigen":
+            if backend is not None:
+                raise ValueError("backend is only used by method='power'.")
+            return self.eigen_fix(cutoff, tol)
+        return self.power_fix(
+            n_steps, chi, tol, backend,
+            max_steps=max_steps, max_chi=max_chi)
+
+    def power_fix(
+            self, n_steps, chi, tol, backend, *, max_steps, max_chi):
+        """Approximate the stationary output by compressed iteration.
+
+        Each finite-time channel is evaluated through the existing backend
+        interface. DisCoPy uses :class:`tensor.Functor`; Quimb converts the
+        same doubled channel to a tensor network and may ask Cotengra for
+        exact or compressed contraction. The fixed-point loop depends only on
+        :meth:`optyx.core.backends.AbstractBackend.eval`.
+
+        :meth:`fix` is the public validated dispatcher. ``n_steps`` is refined
+        independently. ``chi`` is also refined for a compressed Cotengra
+        optimiser; exact backends ignore it because they truncate no bonds.
+        """
+        backends = import_module("optyx.core.backends")
+
+        if backend is None:
+            backend = backends.QuimbBackend(
+                hyperoptimiser=HyperCompressedOptimizer())
+        elif not isinstance(backend, backends.AbstractBackend):
+            raise ValueError(
+                "backend must implement the AbstractBackend interface.")
+
+        compressed = isinstance(
+            getattr(backend, "hyperoptimiser", None),
+            (ReusableHyperCompressedOptimizer, HyperCompressedOptimizer))
+        result_cache = {}
+
+        def contract(steps, bond):
+            max_bond = bond if compressed else None
+            key = steps, max_bond
+            if key not in result_cache:
+                executor = copy(backend)
+                if compressed:
+                    executor.contraction_params = {
+                        **executor.contraction_params,
+                        "max_bond": max_bond,
+                    }
+                result_cache[key] = self.at_time(steps).eval(executor)
+            return result_cache[key]
+
+        def normalised(result):
+            state = result.density_matrix
+            trace = density_trace(state, self.cod)
+            if not np.isfinite(trace) or abs(trace) <= tol:
+                raise ValueError(
+                    "Compressed contraction returned zero or non-finite "
+                    "trace.")
+            return state / trace
+
+        def refine_steps(bond):
+            if n_steps is not None:
+                return n_steps, contract(n_steps, bond), True
+            steps = min(2, max_steps)
+            result = contract(steps, bond)
+            if steps == 1:
+                return steps, result, False
+            while True:
+                previous = contract(steps - 1, bond)
+                if frobenius_distance(
+                        normalised(result), normalised(previous)) < tol:
+                    return steps, result, True
+                if steps == max_steps:
+                    return steps, result, False
+                steps = min(2 * steps, max_steps)
+                result = contract(steps, bond)
+
+        bond = chi if chi is not None else min(4, max_chi)
+        _, result, steps_converged = refine_steps(bond)
+        bond_converged = chi is not None or not compressed
+        if chi is None and compressed:
+            while bond < max_chi:
+                next_bond = min(2 * bond, max_chi)
+                _, next_result, next_steps_converged = \
+                    refine_steps(next_bond)
+                if frobenius_distance(
+                        normalised(next_result), normalised(result)) < tol:
+                    bond_converged = True
+                    bond, result = next_bond, next_result
+                    steps_converged = next_steps_converged
+                    break
+                bond, result = next_bond, next_result
+                steps_converged = next_steps_converged
+
+        failures = []
+        if n_steps is None and not steps_converged:
+            failures.append(
+                f"n_steps before max_steps={max_steps}")
+        if chi is None and not bond_converged:
+            failures.append(f"chi before max_chi={max_chi}")
+        if failures:
+            warnings.warn(
+                f"fix did not converge to tol={tol} in "
+                + " or ".join(failures), UserWarning, stacklevel=3)
+        return result
+
+    def eigen_fix(self, cutoff: int = 2, tol: float = 1e-6):
+        """
+        The stationary state obtained by diagonalising the transfer matrix
+        which one time step induces on the memory.
+
+        ``cutoff`` is the local dimension of each optical mode, spanning
+        occupations ``0`` through ``cutoff - 1``. Qubit dimensions remain
+        two. Fresh photons may enlarge the output memory axes, which are
+        projected back to the same cutoff before diagonalisation; excessive
+        lost trace raises. A non-unique stationary memory state raises rather
+        than choosing an arbitrary eigenvector.
+        """
+        backends = import_module("optyx.core.backends")
+        step = self.one_step()
+        memory = step.cod[len(self.cod):]
+        dimensions = doubled_dimensions(memory, cutoff)
+        memory_dimension = int(np.prod(dimensions, dtype=int))
+        transfer = (step >> Discard(self.cod) @ self.id(memory)).double()
+        readout = (step >> self.id(self.cod) @ Discard(memory)).double()
+        tensor_transfer = transfer.to_tensor(dimensions)
+        projection = tensor.Diagram.tensor(*(
+            diagram.EmbeddingTensor(source.inside[0], target)
+            for source, target in zip(tensor_transfer.cod, dimensions)))
+        matrix = (tensor_transfer >> projection).eval().array.reshape(
+            memory_dimension, memory_dimension)
+        discard = Discard(memory).double().to_tensor(
+            dimensions).eval().array.reshape(memory_dimension)
+        trace_residual = np.linalg.norm(matrix @ discard - discard)
+        if trace_residual > tol:
+            raise ValueError(
+                "The truncated transfer map is not trace preserving "
+                f"(residual {trace_residual}); increase cutoff.")
+        state = stationary_vector(matrix).reshape(dimensions)
+        state = normalise_density_matrix(state, memory, tol)
+        tensor_diagram = readout.to_tensor(dimensions)
+        memory_state = tensor.Box(
+            "Stationary memory", tensor.Dim(1), tensor_diagram.dom, state)
+        density_matrix = (memory_state >> tensor_diagram).eval().array
+        density_matrix = normalise_density_matrix(
+            density_matrix, self.cod, tol)
+        return backends.EvalResult(
+            tensor.Box(
+                "Result", tensor.Dim(1), tensor_diagram.cod,
+                density_matrix),
+            output_types=self.cod, state_type=backends.StateType.DM)
 
     def needs_inflation(self) -> bool:
         """
