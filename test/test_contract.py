@@ -56,10 +56,20 @@ def test_pytorch_autodiff():
     with tensor.backend("pytorch"):
         network = experiment.get_kraus().to_tensor()
     result = contract_tensor(
-        network, backend="pytorch", optimize="greedy")
+        network.to_map(), backend="pytorch", optimize="greedy")
     probability = abs(result.array) ** 2
     probability.backward()
     assert torch.allclose(theta.grad, torch.sin(2 * theta))
+
+
+@pytest.mark.parametrize("backend", ["numpy", "quimb", "pytorch"])
+def test_combinatorial_map(backend):
+    if backend == "pytorch":
+        pytest.importorskip("torch")
+    network = (qubits.Ket(0) >> qubits.H()).get_kraus().to_tensor()
+    expected = contract_tensor(network, backend="numpy")
+    result = contract_tensor(network.to_map(), backend=backend)
+    assert np.allclose(np.asarray(result.array), expected.array)
 
 
 def test_compressed_quimb():
