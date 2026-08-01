@@ -35,20 +35,19 @@ unrolling to a tensor network.
 
 ## Sudoku learning experiment
 
-- [x] Replace the topology-only placeholder with a seeded MapRNN-style
-      learning experiment whose message routes come from the Optyx `CMap`.
-- [x] Split the complete 4x4 sudoku corpus before masking, train shared cell
-      and constraint modules, and report held-out loss, cell accuracy and
-      valid-grid accuracy.
+- [x] Replace the topology-only placeholder with a seeded quantum-channel
+      learning experiment whose recurrent tensor routes come from the Optyx
+      `CMap`.
+- [x] Enumerate the complete 4x4 sudoku corpus, split selected solutions into
+      training and held-out sets, and report conditional completion metrics.
 
 ## Quantum learning correction
 
-- [WIP] @Codex-2026-08-01-05:30 Remove the classical MapRNN interpreter and
-        parameterise actual Optyx channel tensors on the sudoku interaction
-        graph.
-- [WIP] @Codex-2026-08-01-05:30 Contract the unrolled quantum network through
-        the backend-neutral tensor routine, backpropagate the sudoku loss and
-        verify non-zero gradients and learning.
+- [x] Remove the classical MapRNN interpreter and parameterise actual Optyx
+      channel tensors on the sudoku interaction graph.
+- [x] Contract the unrolled quantum network through the backend-neutral tensor
+      routine, backpropagate the sudoku loss and verify non-zero gradients and
+      held-out learning.
 
 ## `optyx.interaction` module
 
@@ -87,7 +86,7 @@ unrolling to a tensor network.
 
 ## Differentiability and training
 
-- [ ] end-to-end gradients: parametrised box channels, unrolled diagram
+- [x] end-to-end gradients: parametrised box channels, unrolled diagram
       contracted with torch-backed quimb tensors; test that gradients flow
       through `contract` and `contract_compressed`
 - [ ] batching over classical inputs and targets as in the neural-sudoku
@@ -100,13 +99,12 @@ unrolling to a tensor network.
       boxes and 12 block boxes (4 rows, 4 columns, 4 squares); each cell has
       3 block neighbours plus 2 prediction qubits (3 ports in, 5 out), each
       block has its 4 cells as neighbours (4 in, 4 out)
-- [x] demonstrate finite message passing for `n_steps` and define the loss as
-      distance from the correct prediction on the 2 extra qubits per cell
-- [x] derive port-addressed routes from `CMap.partner`, then train and evaluate
-      shared cell and constraint updates with a notebook-local PyTorch MapRNN
-- [ ] replace the topology's identity channels with trainable ansatzes,
-      backpropagate through the Optyx tensor contraction and compare its
-      convergence against the notebook-local MapRNN
+- [x] demonstrate three-step quantum message passing and define a conditional
+      Born loss on the 2 prediction qubits per cell
+- [x] compile port-addressed recurrence from `CMap.partner` directly to a
+      combinatorial tensor map, avoiding a materialised 224-wire permutation
+- [x] replace identity channels with shared trainable unitary ansatzes and
+      backpropagate through compressed Optyx tensor contraction
 - [ ] stretch: make `n_steps` dynamic, inferred during training via
       `CMap.fix`
 
@@ -125,11 +123,10 @@ unrolling to a tensor network.
 
 ## Automatic differentiation
 
-- [WIP] @Codex-2026-08-01-05:30 Preserve accelerator arrays and gradients
-        while materialising structural tensors and contracting with a
-        Cotengra path.
-- [WIP] @Codex-2026-08-01-05:30 Test non-zero PyTorch gradients through an
-        Optyx channel tensor rather than testing constant output alone.
+- [x] Preserve accelerator arrays and gradients while materialising structural
+      tensors and contracting with a Cotengra path.
+- [x] Test non-zero PyTorch gradients through an Optyx channel tensor rather
+      than testing constant output alone.
 
 ## Tensor contraction routine
 
