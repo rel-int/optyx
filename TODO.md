@@ -543,6 +543,29 @@ They are correct as written.
 - [ ] open: `k`-step Dobrushin coefficient `eta(P^k)` for `L >= 2`, giving a certificate
       at effective rate `eta(P^k)^(1/k)`
 
+> Instead of asking if the gap grows as we grow U, let's see if at given U if we add some
+> noise to the system in the form of a photon loss channel for each feedback loop. Can we
+> then ensure that lambda_2 is far from 1 and we can estimate the lossy circuit efficiently
+
+## Loss gives a U-independent gap
+
+- [x] add a pure-loss channel of transmissivity `gamma` on each feedback mode; on the
+      population chain this is exactly binomial thinning, `P_gamma = P B`
+- [x] measure: `|lambda_2| <= gamma` in every configuration sampled (`M = 1,2,3`,
+      `L = 1,2`, `gamma = 0.95, 0.8, 0.5`), and not tight — worst draw about `0.8 gamma`
+- [x] consequence: `n* <= log(eps)/log(gamma)`, depending only on the loss rate and the
+      target accuracy, not on `U`, `M` or `L`. 270 steps at `gamma = 0.95` for `1e-6`,
+      62 at `0.8`, 20 at `0.5` — worst case over all `U` simultaneously
+- [x] consequence for the reduction: with `gamma < 1` fixed, `n*` is constant in `M` and
+      `L`, so the unrolling has `O(M log(1/eps))` modes and photons and lossy stationary
+      boson sampling reduces to one-shot boson sampling with polynomial overhead. The
+      reduction question only bites in the lossless limit
+- [ ] open: prove `|lambda_2| <= gamma` rather than sampling it. Sketch in the notebook —
+      thinning multiplies the `r`-th factorial moment by `gamma^r`, the unitary step
+      cannot raise the factorial-moment degree, so the composite is triangular in that
+      filtration with `r`-th diagonal at most `gamma^r`. The triangularity is asserted,
+      not proved
+
 ## Blocked on design
 
 - `dom != Ty()`: the process "prepare an input state at every time step, return the
