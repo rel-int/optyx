@@ -32,15 +32,14 @@ def test_array_backends(backend, module):
     assert np.allclose(np.asarray(result.array), [[1, 0], [0, 0]])
 
 
-def test_array_backend_materialises_spiders(monkeypatch):
+def test_array_backend_without_optional_dependency(monkeypatch):
     network = qubits.Ket(0).double().to_tensor()
 
     def backend_context(_backend=None):
         return nullcontext(np)
 
     monkeypatch.setattr(contract.tensor, "backend", backend_context)
-    result = contract._materialize_arrays(network, "accelerator")
-    result = result.eval()
+    result = contract_tensor(network, backend="pytorch")
     assert np.allclose(result.array, [[1, 0], [0, 0]])
 
 
@@ -79,6 +78,19 @@ def test_combinatorial_map(backend):
     expected = contract_tensor(network, backend="numpy")
     result = contract_tensor(network.to_map(), backend=backend)
     assert np.allclose(np.asarray(result.array), expected.array)
+
+
+def test_open_combinatorial_map():
+    network = tensor.Diagram.id(tensor.Dim(2)).to_map()
+    result = contract_tensor(network, backend="numpy")
+    assert np.allclose(result.array, np.eye(2))
+
+
+def test_combinatorial_loop():
+    network = tensor.CMap(
+        tensor.Dim(), tensor.Dim(), (), (), loops=(tensor.Dim(2),))
+    result = contract_tensor(network, backend="numpy")
+    assert np.allclose(result.array, 2)
 
 
 def test_compressed_quimb():
