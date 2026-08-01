@@ -285,17 +285,17 @@ it, part 2 falls back to a parameter sweep.
 Supersedes the "converge faster, to lower dimensional density matrices" framing of the
 previous round: part 2 is about the physics of the fixed point, not efficiency.
 
-- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 05:20 part 2: characterise the
+- [ ] part 2: characterise the
       fixed-point density matrix as a function of `theta` and `phi` — photon-number
       distribution, mean photon number, purity and effective Fock rank — instead of
       convergence speed
-- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 05:20 part 2: say what family of
+- [ ] part 2: say what family of
       mixed Fock states delayed feedback produces, with the analytic anchors at
       full transmission and full reflection
-- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 05:20 complexity paragraph:
+- [ ] complexity paragraph:
       compute the unroll length at which `power` reaches `eigen` within a stated
       tolerance, rather than tabulating errors at fixed depths
-- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 05:20 complexity paragraph: time
+- [ ] complexity paragraph: time
       both methods at equal accuracy as the dimension grows, to show the crossover
 
 > CI flake: test_adaptive_defaults raises "Compressed contraction returned zero or
