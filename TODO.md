@@ -115,37 +115,6 @@ power method — approximates the fixed point reached from `initial_state`.
 - [x] tests against exact power iteration on small instances: the delay line and
       a dephasing rotation loop; a doctest with a known fixed point
 
-## Methods of the ref, as tensor contractions
-
-The paper separates four pieces which should not be presented as names for the two
-`fix` strategies:
-
-1. **Interferometer unfolding** turns time bins into spatial modes. This is the
-   exact, quickly growing baseline represented by `unroll`.
-2. **Partial-density-matrix evolution** applies one step and traces the detected
-   modes at every iteration, keeping only the state in the looped modes.
-3. **Kraus operators** represent that same loop channel, including loss. The
-   paper obtains the stationary loop state as the eigenvector at eigenvalue one
-   of its vectorised superoperator.
-4. **Correlation tensors** solve stationary moment equations recursively and can
-   reconstruct either the density matrix or only its diagonal, depending on how
-   many tensor orders are retained.
-
-Optyx's `method="power"` and `method="eigen"` are therefore contraction strategies
-for the common channel, not the paper's method names. The eigen strategy matches
-the superoperator calculation when the truncated memory fits in memory; compressed
-unrolling is the scalable approximation; exact unfolding is the test baseline.
-
-- [ ] exact baseline: unrolled evaluation through permanents, reusing
-      `PermanentBackend` (tests + a small API example, little new code)
-- [ ] compare one-step partial-density-matrix iteration with the Kraus/superoperator
-      construction on a small photonic example
-- [x] `method="eigen"`: build the doubled one-step transfer tensor, eigensolve
-      for the fixed point when the memory dimension is tractable
-- [x] `method="power"` (default): the `chi`-compressed contraction above
-- [ ] correlation-tensor reconstruction in a focused follow-up to cross-check
-      both the stationary loop state and the returned output distribution
-
 ## Heuristics for the defaults
 
 - [x] `n_steps=None`: double the depth until the distance between successive
@@ -425,6 +394,9 @@ routed past every accumulated output wire. All of them disappear under the CMap 
 - [x] ordering: defer the CMap optimisation until #21 lands the contraction routine;
       `discopy.tensor.CMap` is available in the pinned revision, but changing the
       contraction representation is outside this correctness and documentation round
+- [x] the wider question — should `CMap` be the underlying data structure of optyx,
+      rather than a route bolted onto `power`? — is #23, since swaps are an artefact of
+      the sequential representation and every contraction consumer pays for them
 
 > Check that the new formulas are correct [...] Definitely the notebook should be improved
 > to check the complexity claims in the implementation. The last part on characterising the
@@ -621,6 +593,48 @@ They are correct as written.
 - [x] record the two caveats: the proof is for the exact chain on `N^L` while the
       matrices are Fock-truncated, and the same grading on the full operator algebra
       only gives `sqrt(gamma)` once coherences are included
+
+> This todo can be removed
+>
+> This requires some serious rethinking of how we build unrolling, should we switch to
+> CMap entirely for the underlying datastructure of optyx? If so write an issue about this
+>
+> Why are these methods of Ty? Let's integrate them where they are actually used
+>
+> Why does the method need to check hermiticity and positivity? Draw the composition in
+> the example
+>
+> Can't we use an existing contract method?
+>
+> These hanging functions need to be justified
+
+## Review round: contraction reuse and where the helpers live
+
+- [x] drop the "Methods of the ref, as tensor contractions" section: the four pieces it
+      separates are described in the notebook, and the open items it carried are either
+      done or tracked elsewhere
+- [x] open #23 on whether `CMap` should be optyx's underlying data structure
+- [x] `Ty.density_trace` and `Ty.normalise_density_matrix` were about stationary states,
+      not about types. Moved to `channel.Diagram` as `_discard_trace` and
+      `_validated_state`, next to `stationary_state` and `power_fix`, their only callers.
+      Fully inlining them instead trips pylint's branch and statement limits and inline
+      disables are banned here, so they stay as private methods on the calling class
+- [x] justify the Hermiticity and positivity checks: `stationary_state` accepts any
+      loop-free endomorphism, not only a channel, and trace preservation — already
+      checked diagrammatically — does not imply positivity.
+      `test_stationary_state_validates_density_matrix` exhibits a trace-preserving map
+      whose fixed point is neither Hermitian nor positive
+- [x] draw the fixed-point equation and the `Discard` trace in the `stationary_state`
+      example, saved to `docs/_static/stationary_state.svg`
+- [x] use the existing contraction path: `QuimbBackend.eval` accepted `**extra` and
+      dropped it, so `fix` had to copy the backend and mutate `contraction_params`.
+      `eval` now merges `**extra` over `contraction_params` for the call, `contract`
+      becomes `self.at_time(steps).eval(backend, max_bond=bond)`, and the `copy` import
+      goes. `RecordingBackend` in the tests records the merged parameters
+- [x] justify the three closures in `power_fix`: `contract` memoises into a cache that
+      must not outlive one call, and all three read `backend`, `compressed`, `tol`,
+      `n_steps` and `max_steps`; as methods they would take those as arguments and the
+      cache would have to live on an immutable diagram
 
 ## Blocked on design
 

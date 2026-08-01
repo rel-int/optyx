@@ -462,19 +462,24 @@ class QuimbBackend(AbstractBackend):
 
         Args:
             diagram (Diagram): The diagram to evaluate.
+            **extra: Contraction parameters overriding
+                :attr:`contraction_params` for this call only, such as
+                ``max_bond`` for a compressed hyperoptimiser.
 
         Returns:
             The result of the evaluation.
         """
 
         tensor_diagram = self._get_discopy_tensor(diagram)
+        params = {**self.contraction_params, **extra}
 
         if hasattr(tensor_diagram, 'terms'):
             results = sum(
-                self._process_term(term) for term in tensor_diagram.terms
+                self._process_term(term, params)
+                for term in tensor_diagram.terms
             )
         else:
-            results = self._process_term(tensor_diagram)
+            results = self._process_term(tensor_diagram, params)
 
         if diagram.is_pure:
             state_type = StateType.AMP
@@ -492,16 +497,21 @@ class QuimbBackend(AbstractBackend):
             state_type=state_type
         )
 
-    def _process_term(self, term: discopy_tensor.Diagram) -> np.ndarray:
+    def _process_term(
+            self, term: discopy_tensor.Diagram,
+            params: dict = None) -> np.ndarray:
         """
         Process a term in a sum of diagrams.
 
         Args:
             term (discopy.tensor.Diagram): The term to process.
+            params (dict): Contraction parameters, :attr:`contraction_params`
+                by default.
 
         Returns:
             np.ndarray: The processed term as a numpy array.
         """
+        params = self.contraction_params if params is None else params
         quimb_tn = term.to_quimb()
 
         for t in quimb_tn:
@@ -537,7 +547,7 @@ class QuimbBackend(AbstractBackend):
             result = contract(
                 optimize=self.hyperoptimiser,
                 output_inds=sorted(quimb_tn.outer_inds()),
-                **self.contraction_params
+                **params
             )
 
         if isinstance(result, TensorNetwork):

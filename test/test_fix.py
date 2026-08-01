@@ -51,7 +51,8 @@ class RecordingBackend(QuimbBackend):
 
     def eval(self, diagram, **extra):
         assert isinstance(diagram, Diagram)
-        self.calls.append((diagram.cod, self.contraction_params))
+        self.calls.append(
+            (diagram.cod, {**self.contraction_params, **extra}))
         return self.result
 
 

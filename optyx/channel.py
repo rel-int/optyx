@@ -148,7 +148,6 @@ dual-rail encoding. For example, we can create a GHZ state:
 
 from __future__ import annotations
 
-from copy import copy
 from importlib import import_module
 import warnings
 from numbers import Integral, Real
@@ -245,55 +244,6 @@ class Ty(frobenius.Ty):
         return (mode**0).tensor(
                 *(o**d if o.needs_inflation() else o for o in self)
         )
-
-    def density_trace(self, state):
-        """Return the trace by composing a state with :class:`Discard`."""
-        array = np.asarray(state)
-        discard = Discard(self).double().to_tensor(list(array.shape))
-        return (tensor.Box(
-            "State", tensor.Dim(1), discard.dom, array)
-            >> discard).eval().array
-
-    def normalise_density_matrix(self, state, tol: float):
-        """Normalise and validate a classical-quantum state.
-
-        The trace is evaluated as the diagrammatic composition with
-        :class:`Discard`. Hermiticity uses the ket/bra pairs in this type,
-        and positivity is checked independently in every classical block.
-        """
-        array = np.asarray(state)
-        trace = self.density_trace(array)
-        if not np.isfinite(trace) or abs(trace) <= tol:
-            raise ValueError(
-                "The stationary state has zero or non-finite trace.")
-        array = array / trace
-
-        classical, quantum, position = [], [], 0
-        for ob in self.inside:
-            if ob.is_classical:
-                classical.append(position)
-                position += 1
-            else:
-                quantum.append((position, position + 1))
-                position += 2
-        dagger_axes = list(range(array.ndim))
-        for row, column in quantum:
-            dagger_axes[row], dagger_axes[column] = column, row
-        if not np.allclose(
-                array, np.transpose(array.conjugate(), dagger_axes),
-                atol=tol, rtol=0):
-            raise ValueError("The stationary state is not Hermitian.")
-        array = (
-            array + np.transpose(array.conjugate(), dagger_axes)) / 2
-
-        rows, columns = map(list, zip(*quantum)) if quantum else ([], [])
-        blocks = np.transpose(array, classical + rows + columns).reshape(
-            int(np.prod([array.shape[axis] for axis in classical], dtype=int)),
-            int(np.prod([array.shape[axis] for axis in rows], dtype=int)),
-            int(np.prod([array.shape[axis] for axis in rows], dtype=int)))
-        if min(np.linalg.eigvalsh(block).min() for block in blocks) < -tol:
-            raise ValueError("The stationary state is not positive.")
-        return np.real_if_close(array)
 
 
 bit = Ty("bit")
@@ -397,6 +347,62 @@ class Diagram(frobenius.Diagram):
         return initial >> unrolled \
             >> past @ self.id(self.cod) @ Discard(memory)
 
+    def _discard_trace(self, state):
+        """Trace a density matrix over ``cod`` by composing with Discard."""
+        discard = Discard(self.cod).double().to_tensor(list(np.shape(state)))
+        return (tensor.Box(
+            "State", tensor.Dim(1), discard.dom, np.asarray(state))
+            >> discard).eval().array
+
+    def _validated_state(self, state, tol: float):
+        """Normalise a stationary state and check it is a density matrix.
+
+        The trace is the diagrammatic composition with :class:`Discard`.
+        Hermiticity uses the ket/bra pairs of ``cod``, and positivity is
+        checked independently in every classical block.
+
+        Both checks are needed because :meth:`stationary_state` accepts any
+        loop-free endomorphism, not only a channel. Trace preservation is
+        already verified diagrammatically there, but it does not imply
+        positivity: a trace-preserving map can have a fixed point that is no
+        density matrix, and then the eigenvector is meaningless rather than
+        merely inaccurate. For a genuine channel both checks pass by
+        construction and only guard against truncation error.
+        """
+        array = np.asarray(state)
+        trace = self._discard_trace(array)
+        if not np.isfinite(trace) or abs(trace) <= tol:
+            raise ValueError(
+                "The stationary state has zero or non-finite trace.")
+        array = array / trace
+
+        classical, quantum, position = [], [], 0
+        for ob in self.cod.inside:
+            if ob.is_classical:
+                classical.append(position)
+                position += 1
+            else:
+                quantum.append((position, position + 1))
+                position += 2
+        dagger_axes = list(range(array.ndim))
+        for row, column in quantum:
+            dagger_axes[row], dagger_axes[column] = column, row
+        if not np.allclose(
+                array, np.transpose(array.conjugate(), dagger_axes),
+                atol=tol, rtol=0):
+            raise ValueError("The stationary state is not Hermitian.")
+        array = (
+            array + np.transpose(array.conjugate(), dagger_axes)) / 2
+
+        rows, columns = map(list, zip(*quantum)) if quantum else ([], [])
+        blocks = np.transpose(array, classical + rows + columns).reshape(
+            int(np.prod([array.shape[axis] for axis in classical], dtype=int)),
+            int(np.prod([array.shape[axis] for axis in rows], dtype=int)),
+            int(np.prod([array.shape[axis] for axis in rows], dtype=int)))
+        if min(np.linalg.eigvalsh(block).min() for block in blocks) < -tol:
+            raise ValueError("The stationary state is not positive.")
+        return np.real_if_close(array)
+
     def stationary_state(
             self, dimensions: list[int] = None, tol: float = 1e-6):
         """Return the unique stationary state of a loop-free endomorphism.
@@ -404,7 +410,9 @@ class Diagram(frobenius.Diagram):
         The diagram denotes the transfer operator; its doubled tensor is
         projected back to ``dimensions`` before the eigenspace at eigenvalue
         one is found. The state is traced by composing it with
-        :class:`Discard`, then checked for Hermiticity and positivity.
+        :class:`Discard`, then checked for Hermiticity and positivity —
+        neither follows from trace preservation, and this method accepts any
+        loop-free endomorphism rather than only a channel.
 
         Parameters:
             dimensions : Dimensions of the doubled input wires, all two by
@@ -420,6 +428,26 @@ class Diagram(frobenius.Diagram):
         ...     bit, bit)
         >>> state = transition.stationary_state()
         >>> assert np.allclose(state, [.8, .2])
+
+        Both the fixed-point equation and the trace are compositions: the
+        state is stationary when post-composing it with the transfer operator
+        gives it back, and its trace is what post-composing it with
+        :class:`Discard` evaluates to. Drawn together, the two equations the
+        method solves and then checks:
+
+        >>> from discopy.drawing import Equation
+        >>> fixed = classical.ClassicalBox(
+        ...     r"$\\rho_\\star$",
+        ...     diagram.Box(r"$\\rho_\\star$", diagram.Ty(), diagram.bit,
+        ...                 array=state),
+        ...     Ty(), bit)
+        >>> Equation(fixed >> transition, fixed,
+        ...          fixed >> Discard(bit), symbol="$=$").draw(
+        ...     figsize=(8, 3), path="docs/_static/stationary_state.svg")
+        >>> assert np.isclose(state.sum(), 1)
+
+        .. image:: /_static/stationary_state.svg
+            :align: center
 
         A non-unique stationary state is a design choice, not an arbitrary
         eigensolver choice:
@@ -485,7 +513,7 @@ class Diagram(frobenius.Diagram):
         if residual > eigen_tolerance:
             raise ValueError(
                 f"The stationary-state residual {residual} is too large.")
-        return self.dom.normalise_density_matrix(
+        return self._validated_state(
             state.reshape(dimensions), tol)
 
     def fix(self, n_steps: int = None, chi: int = None, *,
@@ -594,6 +622,15 @@ class Diagram(frobenius.Diagram):
         :meth:`fix` is the public validated dispatcher. ``n_steps`` is refined
         independently. ``chi`` is also refined for a compressed Cotengra
         optimiser; exact backends ignore it because they truncate no bonds.
+
+        The three local functions below are closures rather than methods on
+        purpose. ``contract`` memoises evaluations in a cache that lives for
+        the duration of one call and must not be shared between calls with
+        different backends; ``normalised`` and ``refine_steps`` read
+        ``backend``, ``compressed``, ``tol``, ``n_steps`` and ``max_steps``.
+        As methods they would each take those as arguments and the cache
+        would have to be passed around or stored on the diagram, which is
+        immutable.
         """
         backends = import_module("optyx.core.backends")
 
@@ -613,19 +650,13 @@ class Diagram(frobenius.Diagram):
             max_bond = bond if compressed else None
             key = steps, max_bond
             if key not in result_cache:
-                executor = copy(backend)
-                if compressed:
-                    executor.contraction_params = {
-                        **executor.contraction_params,
-                        "max_bond": max_bond,
-                    }
-                state = self.at_time(steps)
-                result_cache[key] = state.eval(executor)
+                extra = {} if max_bond is None else {"max_bond": max_bond}
+                result_cache[key] = self.at_time(steps).eval(backend, **extra)
             return result_cache[key]
 
         def normalised(result):
             state = np.asarray(result.density_matrix)
-            trace = self.cod.density_trace(state)
+            trace = self._discard_trace(state)
             trace_tolerance = 100 * state.size * np.finfo(float).eps
             if not np.isfinite(trace) or abs(trace) <= trace_tolerance:
                 raise ValueError(
