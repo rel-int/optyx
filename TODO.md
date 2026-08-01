@@ -310,6 +310,49 @@ previous round: part 2 is about the physics of the fixed point, not efficiency.
       convergence tolerance, so `fix(tol=1e-4)` rejects any trace below `1e-4`
 - [ ] re-run the suite several times to confirm the flake is gone
 
+> I added some comments on the repo, the documentation on fixpoints should be clearer,
+> also I see you made an examples repo in the docs, what I want is for the fixpoint.rst to
+> appear in the docs' examples along with the others linked there
+>
+> Again, I don't know what you're learning, clearly theta has an important influence on the
+> state we get at the end. Are there values of theta for which the fixpoint has amplitudes
+> over all photon numbers?
+>
+> Is the state in the limit a coherent state? does it have amplitudes for all photon numbers?
+>
+> The aim at the end is to characterise the amplitudes of the fixpoint of the beam splitter +
+> photon setup analytically, so that we can check that the values we compute agree with the maths
+>
+> Spend less time showing the distances, add a paragraph comparing the complexity of the power
+> and eigen methods.
+
+## Review round: analytic fixed point, examples location
+
+- [x] move `fixpoints.rst` next to the other examples in `docs/notebooks/`, drop the
+      one-file `docs/examples/` directory and update the toctree and the `:doc:` cross
+      reference in `channel.py`
+- [ ] state the analytic characterisation and check the computed values against it:
+      `<n> = 1` exactly, and `Var(n) = 4T/(1+T)`, which is exactly **twice** the
+      binomial-thinning variance `2T/(1+T)` of distinguishable particles — HOM bunching
+      doubles the variance and leaves the mean alone
+- [ ] answer both questions in the text: the fixed point is Fock-diagonal, so it is **not**
+      a coherent state (nor a phase-averaged one — at `T = 1/3` the variance is Poissonian
+      but the distribution is not Poisson, L1 gap 0.15), and it has weight on **every**
+      photon number for every `T > 0`, only collapsing to `|1>` at the full swap `T = 0`
+- [ ] say what `theta` does: `theta = 0` is the full swap, `0.25` is 50:50, `0.5` is the
+      identity; the Mandel parameter is `Q = (3T-1)/(1+T)`, crossing zero at `T = 1/3`
+- [ ] pin down the `theta -> T` calibration: `|U00|^2 = sin^2(pi theta)` read off the
+      transfer matrix does not reproduce the measured `Q`, which implies `T ~ 2 sin^2(pi theta)`
+- [ ] replace the distance tables with the complexity paragraph (duplicate of the earlier
+      line-120 note)
+
+## Docs are not verified
+
+- [ ] nothing runs the `.. doctest::` blocks in the examples: `testpaths` covers `optyx`
+      and `test/` only, and the docs job runs the html builder, not `-b doctest`. Every
+      number in `fixpoints.rst` is unchecked. Either add `-b doctest` to the docs job or
+      add the rst to pytest with `--doctest-glob`
+
 ## Blocked on design
 
 - `dom != Ty()`: the process "prepare an input state at every time step, return the

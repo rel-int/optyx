@@ -546,7 +546,7 @@ class Diagram(frobenius.Diagram):
         >>> assert np.allclose(
         ...     fixed.density_matrix, [[1, 0], [0, 0]])
 
-        See :doc:`/examples/fixpoints` for the semantic diagram, agreement
+        See :doc:`/notebooks/fixpoints` for the semantic diagram, agreement
         map and contraction planning.
         """
         if self.dom:
