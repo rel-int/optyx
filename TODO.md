@@ -560,11 +560,8 @@ They are correct as written.
       `L`, so the unrolling has `O(M log(1/eps))` modes and photons and lossy stationary
       boson sampling reduces to one-shot boson sampling with polynomial overhead. The
       reduction question only bites in the lossless limit
-- [ ] open: prove `|lambda_2| <= gamma` rather than sampling it. Sketch in the notebook —
-      thinning multiplies the `r`-th factorial moment by `gamma^r`, the unitary step
-      cannot raise the factorial-moment degree, so the composite is triangular in that
-      filtration with `r`-th diagonal at most `gamma^r`. The triangularity is asserted,
-      not proved
+- [x] prove `|lambda_2| <= gamma` rather than sampling it — done in the section "Why
+      |lambda_2| <= gamma", see the round below
 
 > We should calculate n star in terms of gamma in the lossy case, so for each noise level we
 > determine the unroll length needed to reach a given accuracy epsilon
@@ -598,6 +595,32 @@ They are correct as written.
       `gamma = 0.99`) while the loss bound is unchanged
 - [x] state the prescription: `n* = min(n*(eta), n*(gamma))`, both being valid at once,
       with the loss term keeping the minimum finite when `eta` saturates
+
+> Prove the triangularity claim for |lambda_2| <= gamma
+
+## Proof of the loss bound
+
+- [x] Step 1, triangularity: `phi_r(n) = prod_i (n_i)_{r_i}` is the normally ordered
+      `prod_i a_i^{dag r_i} a_i^{r_i}`, a passive `U` neither raises nor lowers
+      normally ordered degree, and the Fock input kills every unbalanced term, so
+      `P phi_r` is a polynomial of degree at most `|r|`. The leading part is the
+      substitution through the loop block `D`
+- [x] Step 2: thinning has the `phi_r` as eigenvectors with eigenvalue `gamma^{|r|}`,
+      so `P_gamma = P B` preserves the same filtration with graded blocks `gamma^d A_d`
+- [x] Step 3, `rho(A_d) <= 1`: the photon budget `N_{t+1} <= N_t + M` bounds
+      `P^n phi_r` by `(|m| + nM)_d` pointwise, Newton's forward differences turn that
+      into `||A_d^n|| = O(n^d)`, hence spectral radius at most one. Also gives the
+      finite-`n` statement `||P_gamma^n|| = O(n^d gamma^{dn})` on `V_d`, so the
+      non-normal transient is only a polynomial prefactor
+- [x] verify each step numerically: `A_0 = 1` exactly, `rho(A_d)` below one and
+      decreasing in `d`, and `spec(P_gamma)` matching `max_d gamma^d rho(A_d)`
+- [x] sharpen to the exact rate: `A_1 = |D|^2` entrywise, confirmed to 1e-15, so
+      `|lambda_2| = gamma rho(|D|^2)` — an `O(L^3)` computation, polynomial in `L` and
+      `M`, and the correct replacement for the refuted `s_1^2` guess (`s_1^2 = 1`
+      whenever `M < L`, so that guess was vacuous where it mattered)
+- [x] record the two caveats: the proof is for the exact chain on `N^L` while the
+      matrices are Fock-truncated, and the same grading on the full operator algebra
+      only gives `sqrt(gamma)` once coherences are included
 
 ## Blocked on design
 
