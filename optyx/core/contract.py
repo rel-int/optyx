@@ -16,6 +16,7 @@ arrays and gradients. Quimb accepts any compatible Cotengra optimizer and
 optionally bounds intermediate bonds.
 """
 
+from itertools import count
 from typing import Any
 
 from cotengra import (
@@ -27,11 +28,24 @@ import numpy as np
 from quimb.tensor import Tensor, TensorNetwork
 
 
-def _to_quimb(diagram):
-    """Translate a tensor diagram or combinatorial map to Quimb."""
-    if not isinstance(diagram, tensor.CMap):
-        return diagram.to_quimb()
-    wires, fresh = {}, iter(range(len(diagram.ports) * 2))
+def _identity_tensor(port, inds):
+    """Make a Quimb identity tensor for one combinatorial-map port."""
+    dimension = int(np.prod(port.obj.inside))
+    return Tensor(np.eye(dimension), inds=inds)
+
+
+def _box_tensor(box, start, wires):
+    """Make a Quimb tensor for one combinatorial-map box."""
+    arity, coarity = len(box.dom), len(box.cod)
+    ports = list(range(start, start + arity)) + list(reversed(range(
+        start + arity, start + arity + coarity)))
+    inds = tuple(wires[port] for port in ports)
+    return Tensor(box.eval().array, inds=inds), start + arity + coarity
+
+
+def _cmap_to_quimb(diagram):
+    """Translate a combinatorial map to a Quimb network."""
+    wires, fresh = {}, count()
     for source, target in enumerate(diagram.edges):
         if source <= target:
             wire = next(fresh)
@@ -39,30 +53,32 @@ def _to_quimb(diagram):
     tensors, output = [], []
     for port in range(len(diagram.dom)):
         external = f"o{next(fresh)}"
-        dimension = int(np.prod(diagram.ports[port].obj.inside))
-        tensors.append(Tensor(
-            np.eye(dimension), inds=(external, wires[port])))
+        tensors.append(_identity_tensor(
+            diagram.ports[port], (external, wires[port])))
         output.append(external)
     start = len(diagram.dom)
     for box in diagram.boxes:
-        arity, coarity = len(box.dom), len(box.cod)
-        ports = list(range(start, start + arity)) + list(reversed(range(
-            start + arity, start + arity + coarity)))
-        tensors.append(Tensor(box.eval().array, inds=tuple(
-            wires[port] for port in ports)))
-        start += arity + coarity
+        quimb_tensor, start = _box_tensor(box, start, wires)
+        tensors.append(quimb_tensor)
     for port in range(
             len(diagram.ports) - len(diagram.cod), len(diagram.ports)):
         external = f"o{next(fresh)}"
-        dimension = int(np.prod(diagram.ports[port].obj.inside))
-        tensors.append(Tensor(
-            np.eye(dimension), inds=(wires[port], external)))
+        tensors.append(_identity_tensor(
+            diagram.ports[port], (wires[port], external)))
         output.append(external)
     for loop in diagram.loops:
         wire = f"i{next(fresh)}"
         dimension = int(np.prod(loop.inside))
         tensors.append(Tensor(np.eye(dimension), inds=(wire, wire)))
     return TensorNetwork(tensors), output
+
+
+def _to_quimb(diagram):
+    """Translate a tensor diagram or combinatorial map to Quimb."""
+    if isinstance(diagram, tensor.CMap):
+        return _cmap_to_quimb(diagram)
+    network = diagram.to_quimb()
+    return network, sorted(network.outer_inds())
 
 
 def _materialize_arrays(
@@ -89,38 +105,25 @@ def _materialize_arrays(
         diagram.dom, boxes=boxes, offsets=diagram.offsets, cod=diagram.cod)
 
 
-def _contract_quimb(
-        diagram: tensor.Diagram,
-        optimize=None,
-        max_bond: int = None,
-        backend: str = None,
-        tensor_backend: str = None,
-        **params: Any) -> tensor.Tensor:
-    """Contract with Quimb on one array backend."""
-    reserved = {"output_inds"} & params.keys()
-    if reserved:
-        raise ValueError(
-            "Contraction parameters cannot override "
-            + ", ".join(sorted(reserved)) + ".")
-    with tensor.backend(tensor_backend):
-        network = _to_quimb(diagram)
-    if isinstance(network, tuple):
-        network, output_inds = network
-    else:
-        output_inds = sorted(network.outer_inds())
-    if tensor_backend is not None:
-        with tensor.backend(tensor_backend) as array_module:
-            for quimb_tensor in network:
-                data = quimb_tensor.data
-                if isinstance(data, np.ndarray) and not data.flags.writeable:
-                    data = data.copy()
-                quimb_tensor.modify(data=array_module.array(
-                    data, dtype=complex))
-    else:
-        for quimb_tensor in network:
+def _set_network_backend(network, tensor_backend, dtype):
+    """Move every Quimb tensor to one array backend."""
+    if tensor_backend is None:
+        for quimb_tensor in network.tensors:
             if quimb_tensor.data.dtype.kind in {"i", "u", "b"}:
                 quimb_tensor.modify(data=quimb_tensor.data.astype(
                     np.complex128, copy=False))
+        return
+    with tensor.backend(tensor_backend) as array_module:
+        for quimb_tensor in network.tensors:
+            data = quimb_tensor.data
+            if isinstance(data, np.ndarray) and not data.flags.writeable:
+                data = data.copy()
+            quimb_tensor.modify(data=array_module.array(data, dtype=dtype))
+
+
+def _contract_network(
+        network, output_inds, optimize, max_bond, params):
+    """Contract a prepared Quimb network."""
     contract_params = {"output_inds": output_inds, **params}
     if optimize is not None:
         contract_params["optimize"] = optimize
@@ -132,8 +135,29 @@ def _contract_quimb(
     contract = network.contract_compressed if compressed else network.contract
     result = contract(**contract_params)
     if isinstance(result, TensorNetwork):
-        result = result.contract(
-            output_inds=sorted(result.outer_inds()))
+        return result.contract(output_inds=sorted(result.outer_inds()))
+    return result
+
+
+def _contract_quimb(
+        diagram: tensor.Diagram,
+        optimize=None,
+        max_bond: int = None,
+        *,
+        tensor_backend: str = None,
+        dtype: type = complex,
+        **params: Any) -> tensor.Tensor:
+    """Contract with Quimb on one array backend."""
+    reserved = {"output_inds"} & params.keys()
+    if reserved:
+        raise ValueError(
+            "Contraction parameters cannot override "
+            + ", ".join(sorted(reserved)) + ".")
+    with tensor.backend(tensor_backend):
+        network, output_inds = _to_quimb(diagram)
+    _set_network_backend(network, tensor_backend, dtype)
+    result = _contract_network(
+        network, output_inds, optimize, max_bond, params)
     array = result.data if isinstance(result, Tensor) else result
     with tensor.backend(tensor_backend):
         return tensor.Tensor(array, diagram.dom, diagram.cod)
@@ -187,16 +211,15 @@ def contract_tensor(
         dtype = params.pop("dtype", complex)
         diagram = _materialize_arrays(diagram, "numpy", dtype)
         return _contract_quimb(
-            diagram, optimize, max_bond, **params)
+            diagram, optimize, max_bond, dtype=dtype, **params)
     if backend == "quimb":
         return _contract_quimb(diagram, optimize, max_bond, **params)
     if backend in ("jax", "pytorch"):
         dtype = params.pop("dtype", complex)
         diagram = _materialize_arrays(diagram, backend, dtype)
-        array_backend = "torch" if backend == "pytorch" else backend
         return _contract_quimb(
             diagram, optimize, max_bond,
-            backend=array_backend, tensor_backend=backend, **params)
+            tensor_backend=backend, dtype=dtype, **params)
     if optimize is not None or max_bond is not None:
         raise ValueError(
             "optimize and max_bond require backend='quimb', 'jax' "

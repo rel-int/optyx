@@ -6,11 +6,10 @@
 
 ## Automatic differentiation
 
-- [WIP] @Codex-2026-08-01-05:30 Preserve accelerator arrays and gradients
-        while materialising structural tensors and contracting with a
-        Cotengra path.
-- [WIP] @Codex-2026-08-01-05:30 Test non-zero PyTorch gradients through an
-        Optyx channel tensor rather than testing constant output alone.
+- [x] Preserve accelerator arrays and gradients while materialising structural
+      tensors and contracting with a Cotengra path.
+- [x] Test non-zero PyTorch gradients through an Optyx channel tensor rather
+      than testing constant output alone.
 
 ## Tensor contraction routine
 
