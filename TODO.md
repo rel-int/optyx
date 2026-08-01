@@ -1,5 +1,7 @@
 # TODO
 
+> Check out [rel-int/optyx#16](https://github.com/rel-int/optyx/pull/16), let's stack on the fixpoint implementation, we should be able to move on with TODO.md and write the notebook
+
 > I have a proposal for a new module in optyx https://github.com/rel-int/optyx/issues/13. Make a plan for implementation.
 
 Solves #13. Blocked on #12: the module is built on `channel.Diagram.feedback`
@@ -12,6 +14,19 @@ plays the role of a delayed trace, so the result is compact closed up to
 time shifts. A `CMap` is a combinatorial map whose boxes carry channels and
 whose edges pair ports; its semantics is a recurrent protocol, evaluated by
 unrolling to a tensor network.
+
+## Fixed-point stack and notebook round
+
+- [WIP] @Codex-2026-08-01 04:39 Stack this PR on #15, merge its fixed-point
+      implementation into the branch and keep the interaction diff isolated.
+- [WIP] @Codex-2026-08-01 04:39 Define `CMap.fix` by exposing the stationary
+      semantics of the closed recurrent `protocol`, without duplicating its
+      convergence or backend logic.
+- [WIP] @Codex-2026-08-01 04:39 Write `examples/sudoku.ipynb` as an executable
+      construction of the 16 cell and 12 constraint boxes, finite message
+      passing and the closed-map fixed-point boundary.
+- [WIP] @Codex-2026-08-01 04:39 Add focused tests and run lint, coverage and
+      notebook validation.
 
 ## `optyx.interaction` module
 
