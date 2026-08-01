@@ -6,9 +6,12 @@ from cotengra import ReusableHyperCompressedOptimizer
 import numpy as np
 import pytest
 
+from discopy import tensor
 from optyx import qubits
+from optyx.channel import Channel, qubit
 from optyx.core import contract
 from optyx.core.contract import contract_tensor
+from optyx.core.diagram import Box, bit
 
 
 @pytest.mark.parametrize("backend", [None, "numpy", "quimb"])
@@ -36,8 +39,27 @@ def test_array_backend_materialises_spiders(monkeypatch):
         return nullcontext(np)
 
     monkeypatch.setattr(contract.tensor, "backend", backend_context)
-    result = contract_tensor(network, backend="accelerator")
+    result = contract._materialize_arrays(network, "accelerator")
+    result = result.eval()
     assert np.allclose(result.array, [[1, 0], [0, 0]])
+
+
+def test_pytorch_autodiff():
+    torch = pytest.importorskip("torch")
+    theta = torch.tensor(0.3, dtype=torch.float64, requires_grad=True)
+    array = torch.stack((
+        torch.stack((torch.cos(theta), -torch.sin(theta))),
+        torch.stack((torch.sin(theta), torch.cos(theta))),
+    )).to(torch.complex128)
+    gate = Channel("R", Box("R", bit, bit, array=array), qubit, qubit)
+    experiment = qubits.Ket(0) >> gate >> qubits.Ket(1).dagger()
+    with tensor.backend("pytorch"):
+        network = experiment.get_kraus().to_tensor()
+    result = contract_tensor(
+        network, backend="pytorch", optimize="greedy")
+    probability = abs(result.array) ** 2
+    probability.backward()
+    assert torch.allclose(theta.grad, torch.sin(2 * theta))
 
 
 def test_compressed_quimb():
