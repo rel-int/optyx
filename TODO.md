@@ -448,6 +448,32 @@ They are correct as written.
       bottleneck at reachable cutoffs, and power is superlinear because unrolling widens
       the diagram as it deepens — the routing overhead the CMap contraction would remove
 
+> If the complexity claims are contradicted by the measurements then we should reconsider
+> these claims, whether they are true. Let's spend less time on the gaussian comparison. We
+> need the following structure in the notebook: 1) one beam splitter, one photon per step,
+> as is, 2) Complexity of boson sampling with feedback: presents the stationary boson
+> sampling problem in terms of state psi, unitary, L and M, gives the complexity for
+> evaluating it with eigen and with power methods. Checks that this is reflected in
+> simulation time (up to constants). 3) Says in one brief paragraph what the distribution is
+> not, and ends by asking whether stationary boson sampling can be reduced to one-shot boson
+> sampling over polynomially many more modes/photons.
+
+## Restructure into three parts
+
+- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 16:55 part 1 unchanged: one beam
+      splitter, one photon per step, stationary distribution and tail
+- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 16:55 part 2: state the stationary
+      boson-sampling problem in `psi`, `U`, `L`, `M`; give eigen and power costs and check
+      them against measured time up to constants
+- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 16:55 correct the claims themselves:
+      the measured exponents contradict them, so separate the idealised algorithm from
+      this implementation and state which is being asserted
+- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 16:55 part 3: one paragraph on what
+      the distribution is not, ending with the reduction question to one-shot boson
+      sampling over polynomially many more modes and photons
+- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 16:55 cut the Gaussian section to a
+      clause and drop what the three-part plan does not need
+
 ## Blocked on design
 
 - `dom != Ty()`: the process "prepare an input state at every time step, return the
