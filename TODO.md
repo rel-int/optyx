@@ -271,6 +271,33 @@ Cross-PR note: the tuning checkbox wants gradients through a contraction, which 
 exactly the differentiable half of #21. Landing #21 first makes it a few lines; without
 it, part 2 falls back to a parameter sweep.
 
+> It is not clear what we learn from this experiment. My impression is that we want to
+> understand the density matrix fixpoint and how it is parametrized by theta and phi. Not
+> necessarily a question of efficiency. How do we characterize the mixed Fock states that
+> we get by feeding back with delay?
+>
+> The point of this paragraph should be to compute the unroll length at which the power
+> method approximates the eigen method, and to compare the time it takes for the two
+> methods to keep the same accuracy as the dimensions grow.
+
+## Review round: characterise the fixed point, measure the crossover
+
+Supersedes the "converge faster, to lower dimensional density matrices" framing of the
+previous round: part 2 is about the physics of the fixed point, not efficiency.
+
+- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 05:20 part 2: characterise the
+      fixed-point density matrix as a function of `theta` and `phi` — photon-number
+      distribution, mean photon number, purity and effective Fock rank — instead of
+      convergence speed
+- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 05:20 part 2: say what family of
+      mixed Fock states delayed feedback produces, with the analytic anchors at
+      full transmission and full reflection
+- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 05:20 complexity paragraph:
+      compute the unroll length at which `power` reaches `eigen` within a stated
+      tolerance, rather than tabulating errors at fixed depths
+- [WIP] @session_01HrEydKn7pNo7KEz28ZQyaM-2026-08-01 05:20 complexity paragraph: time
+      both methods at equal accuracy as the dimension grows, to show the crossover
+
 ## Blocked on design
 
 - `dom != Ty()`: the process "prepare an input state at every time step, return the
