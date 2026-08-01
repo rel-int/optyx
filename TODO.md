@@ -371,6 +371,30 @@ previous round: part 2 is about the physics of the fixed point, not efficiency.
 - [x] distinguish the loop state from the emitted state that `fix` returns; they differ
       except at 50:50, which is why the closed form is stated for the loop
 
+> Check out the PR https://github.com/rel-int/optyx/pull/16, they may have developed a more
+> efficient way to unroll the stateful diagram into a tensor network for their simulations
+
+## Adopt the combinatorial-map contraction for `power`
+
+PR #16 does have one, in `optyx/core/contract.py::_cmap_to_quimb`. Instead of a sequential
+`tensor.Diagram`, it builds a `discopy.tensor.CMap` — boxes plus a pairing of ports — and
+translates it straight to a Quimb network by naming **one index per edge**. Wire routing
+becomes index naming, so permutations never become tensors: open ports get an identity,
+loops get an identity on a repeated index. Measured on the beam-splitter loop, our
+`at_time(n).double().to_tensor()` route emits 33 explicit `Swap` tensors at `n = 6` out of
+212 boxes, and the swap count grows roughly quadratically in `n` because the memory wire is
+routed past every accumulated output wire. All of them disappear under the CMap route.
+
+- [ ] build the unrolling of a feedback diagram as a `tensor.CMap` — boxes plus the port
+      pairing given by the loop — instead of composing `unroll(n)` and permuting
+- [ ] route `power` through `_cmap_to_quimb`, so cotengra optimises a hypergraph with no
+      routing tensors in it; measure the contraction-time difference against the table in
+      the notebook before claiming a win
+- [ ] check how compressed contraction behaves without the swap tensors: bond truncation
+      currently sees them as ordinary tensors
+- [ ] ordering: this depends on #21 landing the contraction routine first, and on
+      `discopy.tensor.CMap`, which the pinned revision does provide
+
 ## Blocked on design
 
 - `dom != Ty()`: the process "prepare an input state at every time step, return the
