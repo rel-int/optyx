@@ -31,12 +31,11 @@ unrolling to a tensor network.
 
 ## Sudoku learning experiment
 
-- [WIP] @Codex-2026-08-01-05:15 Replace the topology-only placeholder with a
-        seeded MapRNN-style learning experiment whose message routes come from
-        the Optyx `CMap`.
-- [WIP] @Codex-2026-08-01-05:15 Split the complete 4x4 sudoku corpus before
-        masking, train shared cell and constraint modules, and report
-        held-out loss, cell accuracy and valid-grid accuracy.
+- [x] Replace the topology-only placeholder with a seeded MapRNN-style
+      learning experiment whose message routes come from the Optyx `CMap`.
+- [x] Split the complete 4x4 sudoku corpus before masking, train shared cell
+      and constraint modules, and report held-out loss, cell accuracy and
+      valid-grid accuracy.
 
 ## `optyx.interaction` module
 
@@ -90,9 +89,11 @@ unrolling to a tensor network.
       block has its 4 cells as neighbours (4 in, 4 out)
 - [x] demonstrate finite message passing for `n_steps` and define the loss as
       distance from the correct prediction on the 2 extra qubits per cell
+- [x] derive port-addressed routes from `CMap.partner`, then train and evaluate
+      shared cell and constraint updates with a notebook-local PyTorch MapRNN
 - [ ] replace the topology's identity channels with trainable ansatzes,
-      backpropagate through the tensor network and compare against the
-      classical CMap-GNN of discopy#416
+      backpropagate through the Optyx tensor contraction and compare its
+      convergence against the notebook-local MapRNN
 - [ ] stretch: make `n_steps` dynamic, inferred during training via
       `CMap.fix`
 
