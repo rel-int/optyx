@@ -566,6 +566,24 @@ They are correct as written.
       filtration with `r`-th diagonal at most `gamma^r`. The triangularity is asserted,
       not proved
 
+> We should calculate n star in terms of gamma in the lossy case, so for each noise level we
+> determine the unroll length needed to reach a given accuracy epsilon
+>
+> Squash down the explanation that L impacts the complexity more than M, the notebook
+> repeats that statement too many times
+
+## n*(gamma, eps) and one statement of the L/M asymmetry
+
+- [x] closed form `n*(gamma, eps) = ceil(log eps / log gamma)`, with the small-loss form
+      `n* ~ ln(1/eps)/delta` for `delta = 1 - gamma`: depth inverse in the loss, only
+      logarithmic in the accuracy
+- [x] table of certified against observed depth over `gamma` and `eps`, plus a figure of
+      `n*` against round-trip loss. At `gamma = 0.99` the certificate asks 1375 steps for
+      `1e-6` while Haar draws converge by 221 — the slack is in the premise, since
+      `|lambda_2| <= gamma` allows a `U` that contributes no mixing itself
+- [x] say the `L` versus `M` asymmetry once, in the cost/certificate section, and let the
+      later sections inherit it rather than restate it
+
 ## Blocked on design
 
 - `dom != Ty()`: the process "prepare an input state at every time step, return the
