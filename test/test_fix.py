@@ -56,10 +56,10 @@ class RecordingBackend(QuimbBackend):
         return self.result
 
 
-def test_one_step():
-    assert source().one_step() == (
+def test_now():
+    assert source().now() == (
         Discard(qubit) @ qubits.Ket(0) @ qubits.Ket(0))
-    assert delay().one_step() == (
+    assert delay().now() == (
         photonic.Create(1) @ qmode >> Diagram.swap(qmode, qmode))
 
 

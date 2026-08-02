@@ -58,9 +58,16 @@ def test_unroll_open_wires():
         delay().unroll(0)
 
 
-def test_diagram_has_no_stream_method():
-    assert not hasattr(delay(), "stream")
-    assert not hasattr(core.Diagram.swap(core.mode, core.mode), "stream")
+def test_stream_is_a_method_not_a_property():
+    """#12 rejected a cached ``.stream`` property, and the rename of
+    ``to_stream`` to ``stream`` must not reinstate it by the back door: the
+    name has to stay a call, since every call reinterprets the diagram.
+    ``test_stream_semantics_is_uncached_and_boundary_free`` covers the
+    rebuilding itself."""
+    for factory in (type(delay()), core.Diagram):
+        assert not isinstance(vars(factory).get("stream"), property)
+    assert callable(delay().stream)
+    assert callable(core.Diagram.swap(core.mode, core.mode).stream)
 
 
 def test_evaluation_raises_on_feedback():
@@ -137,7 +144,7 @@ def test_stream_semantics_contract_and_order():
         initial_state=photonic.Create(1),
         final_effect=photonic.Select(1))
     for diagram in (left >> right, left @ right):
-        semantics = diagram.to_stream()
+        semantics = diagram.stream()
         assert isinstance(semantics, core.Stream)
         assert semantics.stream.mem.now == qmode ** 2
         assert semantics.stream.now.dom == diagram.dom @ qmode ** 2
@@ -155,7 +162,7 @@ def test_stream_semantics_contract_and_order():
     nested = (inner @ qmode >> Diagram.swap(qmode, qmode)).feedback(
         initial_state=photonic.Create(1))
     assert tuple(boundary.initial_state
-                 for boundary in nested.to_stream().boundaries) == (
+                 for boundary in nested.stream().boundaries) == (
                      photonic.Create(1), photonic.Create(0))
 
 
@@ -163,12 +170,12 @@ def test_stream_semantics_is_uncached_and_boundary_free():
     wait = delay(
         initial_state=photonic.Create(0),
         final_effect=photonic.Select(0))
-    first, second = wait.to_stream(), wait.to_stream()
+    first, second = wait.stream(), wait.stream()
     assert first == second and first is not second
     assert first.stream is not second.stream
-    assert wait.one_step() == delay().one_step()
-    assert wait.unroll(1) != wait.one_step()
-    stateless = photonic.BS.to_stream()
+    assert wait.now() == delay().now()
+    assert wait.unroll(1) != wait.now()
+    stateless = photonic.BS.stream()
     assert stateless.stream.now == photonic.BS
     assert stateless.boundaries == ()
 
