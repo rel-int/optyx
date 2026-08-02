@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from cotengra import HyperCompressedOptimizer
 
-from optyx import classical, photonic, qubits
+from optyx import channel, classical, photonic, qubits
 from optyx.channel import (
     CQMap, Diagram, Discard, Scalar, Ty, bit, qmode, qubit,
 )
@@ -89,8 +89,8 @@ def test_fix_guards():
 
 @pytest.mark.parametrize("kwargs", [
     {"n_steps": 0}, {"n_steps": 1.5}, {"chi": -1}, {"chi": True},
-    {"cutoff": 0}, {"max_steps": 0}, {"max_chi": 0},
     {"tol": 0}, {"tol": np.inf}, {"tol": np.nan},
+    {"loss": 1}, {"loss": -.1},
 ])
 def test_fix_validates_parameters(kwargs):
     with pytest.raises(ValueError):
@@ -156,9 +156,11 @@ def test_power_normalises_the_contracted_state():
     assert len(backend.calls) == 1
 
 
-def test_power_does_not_alias_period_two():
-    with pytest.warns(UserWarning, match="n_steps"):
-        result = flip().fix(chi=4, tol=1e-6, max_steps=8)
+def test_power_does_not_alias_period_two(monkeypatch):
+    """A period-two loop never converges, so the depth cap warns."""
+    monkeypatch.setattr(channel, "MAX_UNROLL", 8)
+    with pytest.warns(UserWarning, match="did not converge"):
+        result = flip().fix(chi=4, tol=1e-6)
     expected = flip().at_time(8).eval().density_matrix
     assert np.allclose(result.density_matrix, expected)
 
@@ -170,20 +172,27 @@ def test_eigen_periodic_and_non_unique():
         identity().fix(method="eigen")
 
 
-def test_adaptive_parameters_are_independent():
+def test_chi_bounds_the_bond_and_none_contracts_exactly():
+    """chi is the truncation dimension: absent means no truncation."""
     backend = RecordingBackend()
-    source().fix(
-        n_steps=2, chi=None, backend=backend,
-        max_steps=1, max_chi=8)
+    source().fix(n_steps=2, chi=8, backend=backend)
     assert [params["max_bond"] for cod, params in backend.calls if cod] \
-        == [4, 8]
+        == [8]
 
     backend = RecordingBackend()
-    source().fix(
-        n_steps=None, chi=100, backend=backend,
-        max_steps=4, max_chi=64)
-    assert [params["max_bond"] for cod, params in backend.calls if cod] \
-        == [100, 100]
+    source().fix(n_steps=2, chi=None, backend=backend)
+    assert all(
+        "max_bond" not in params for cod, params in backend.calls)
+
+
+def test_loss_gives_a_depth_instead_of_a_search():
+    """A lossy loop knows its depth without contracting anything."""
+    assert source().unroll_depth(1e-6, loss=.5) == 20
+    with pytest.raises(ValueError, match="loss in"):
+        source().unroll_depth(1e-6, loss=0)
+    backend = RecordingBackend()
+    source().fix(chi=4, loss=.9, tol=1e-2, backend=backend)
+    assert len(backend.calls) == 1
 
 
 def test_backend_uses_existing_interface():
@@ -205,7 +214,7 @@ def test_power_supports_exact_quimb():
 
 def test_photonic_delay_line():
     """A delay line fed one photon per step stabilises on a single photon."""
-    density_matrix = delay().fix(method="eigen", cutoff=2).density_matrix
+    density_matrix = delay().fix(method="eigen", chi=2).density_matrix
     assert np.allclose(density_matrix, [[0, 0], [0, 1]], atol=1e-6)
 
 
@@ -221,7 +230,7 @@ def test_eigen_boson_sampler_truncates_memory_output():
         >> photonic.Gate(unitary, 2, 2, "U")
     ).feedback(mem=qmode, initial_state=photonic.Create(0))
     density_matrix = sampler.fix(
-        method="eigen", cutoff=5).density_matrix
+        method="eigen", chi=5).density_matrix
     assert density_matrix.shape == (6, 6)
     assert np.isclose(np.trace(density_matrix), 1)
 
@@ -272,7 +281,11 @@ def test_stationary_state_is_not_a_density_matrix(state, hermitian, positive):
 def test_causality_is_the_normalisation_of_a_state():
     assert qubits.Ket(0).is_causal()
     assert not (Scalar(.5) @ qubits.Ket(0)).is_causal()
-    assert np.isclose((Scalar(.5) @ qubits.Ket(0)).discard_trace(), .25)
+    assert np.isclose((Scalar(.5) @ qubits.Ket(0)).normalisation(), .25)
+    with pytest.raises(ValueError, match="needs a state"):
+        Diagram.id(qubit).normalisation()
+    assert np.isclose(
+        Diagram.id(qubit).normalisation([[.5, 0], [0, .5]]), 1)
     assert (bit @ qubit).double_axes() == ([0], [(1, 2)])
     assert (bit @ qubit).dagger_axes() == [0, 2, 1]
 

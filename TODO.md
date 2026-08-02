@@ -712,27 +712,57 @@ tested and reused, so the `_`-prefixed helpers of the previous round were the wr
       and Walters (2002): `mem` is a delay, so the loop unrolls rather than closing on a
       fixed point
 
-- [ ] reorganise `fix` into three modes, with `max_steps` and `max_chi` folded into whichever
-      mode owns them rather than sitting beside `n_steps` and `chi`:
-      1. **explicit** — `n_steps` and `chi` given, contract once and skip every search
-      2. **adaptive** (today's behaviour) — double each parameter until successive
-         contractions agree within `tol`, capped
-      3. **predicted** — derive `n_steps` and `chi` before contracting, and report the
-         predicted cost so the caller can refuse it
-- [ ] the predicted mode is now implementable from the notebook: the population rate is
-      `|lambda_2| = gamma rho(|D|^{circ 2})`, an `O(L^3)` Perron root of the entrywise
-      modulus-squared loop block, so `n* = ceil(log eps / log |lambda_2|)`, and with no
-      handle on `U` the loss alone gives the universal `n* = ceil(log eps / log gamma)`.
-      Both are depths, not guesses, and neither needs a contraction to compute
-- [ ] `chi` has no such formula yet — the notebook measures cost against `chi` but does not
-      predict the bond dimension needed for a given `tol`. Needed before mode 3 is honest
-      about `chi`; until then it should predict `n_steps` and adapt `chi`
-- [ ] cost prediction before contraction: the loop dimension is `h ~ (nM)^L / L!`, so the
-      predicted network size follows from `n_steps`, the cutoff and `chi`. Report it and let
-      the caller refuse rather than discovering the cost by running it
+- [x] superseded by the round below, which USER specified in full
 - [ ] normalisation in the backends rather than in `fix` (#21): the trace is a `Discard`
       composition, so a backend which evaluates the traced diagram alongside the state
       returns a normalised result with no second pass
+
+> This method is likely used to compute a normalisation scalar for a channel given a state.
+> So let's have a method `normalisation(self, state=None)` which computes the scalar
+> `state >> self >> Discard(self.cod)`, and returns an error in the case where `state is None`
+> and `self.dom is not Ty()`.
+>
+> Yes I agree to focus on n_steps, we need a separate method for the estimation of n_steps
+> given a diagram and a loss threshold, or other parameter. Similarly, for approximate
+> contraction we should have a separate method to handle chi. I would say that the inputs of
+> the method are n_steps=None, chi=None, method="power", tol=1e-6, loss=0. If method is eigen
+> then chi can be interpreted as the max dimension of the truncation and n_steps is not
+> needed. If no chi is given, then it should be inferred by a separate method. If the method
+> is power, the tensor network for n_steps with max bond dim chi is implemented and executed,
+> the exact tensor if chi is not given. If n_steps is not given, then the method should be our
+> most efficient and guaranteed way of estimating the fixpoint given tol and loss.
+>
+> Since one is dead when the other isn't, n_steps and chi can be interpreted as max_steps and
+> max_chi when needed
+>
+> I'm pretty sure you can collapse these two input params into one.
+>
+> Don't make the test suite too expensive of course
+
+## Review round: one depth, one truncation dimension
+
+- [x] `Diagram.normalisation(state=None)`: the scalar `state >> self >> Discard(cod)`,
+      raising when `state` is absent and `dom` is not `Ty()`. Replaces `discard_trace`
+- [x] `fix(n_steps=None, chi=None, *, method="power", tol=1e-6, loss=0, backend=None)`.
+      `cutoff`, `max_steps` and `max_chi` are gone: there is one truncation dimension and
+      one depth, used where they apply and serving as the caps where they are searched for
+- [x] `chi` is the truncation dimension throughout — the bond bound for `power`, the memory
+      dimension for `eigen`. `power` contracts *exactly* when it is absent
+- [x] `Diagram.unroll_depth(tol, loss)`: `n* = ceil(log tol / log(1 - loss))` from the
+      notebook's proof, a depth rather than a guess and independent of the memory size.
+      Raises for `loss = 0`, where no finite depth is guaranteed
+- [x] `Diagram.truncation_dimension(tol)`: double from two until the truncated transfer map
+      is causal, which is the condition `stationary_state` already refuses to violate.
+      Supplies `eigen`'s `chi` when it is not given
+- [x] `power_fix`: use the depth when `n_steps` or a positive `loss` is given, otherwise
+      double until successive contractions agree, capped by the public `MAX_UNROLL`. The
+      `chi` doubling is gone with `max_chi`
+- [x] keep the suite cheap: `test_power_does_not_alias_period_two` never converges by
+      construction, so at the new cap it took 153s on its own. It monkeypatches
+      `MAX_UNROLL` to 8, which is what `max_steps=8` used to do. `test_fix.py` runs in 10s,
+      down from 32s before this round
+- [ ] open: `backend` is still a parameter of `fix`, though USER's list did not name it. It
+      is orthogonal to the search knobs and three tests use it, so it stayed — confirm
 
 ## Blocked on design
 
