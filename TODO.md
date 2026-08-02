@@ -1,5 +1,21 @@
 # TODO
 
+> In the fixpoint PR notebook, we need more test of L, M and the eta, gamma bounds to understand their dependence, if we can have an analytic formula that would be great, let's at least plot the dependence. Also I can see an optyx-pr15-body.md file here, and a fixpoint-learning.png online, these should not be part of the PR but please report the current state of the PR in the md file via message
+
+## Dependence of the convergence certificates
+
+- [WIP] @Codex-pr15-2026-08-02 10:25 derive every analytic dependence available
+      for the Dobrushin coefficient `eta`, the loss parameter `gamma`, and the
+      exact asymptotic rate over `L` loop modes and `M` external modes.
+- [WIP] @Codex-pr15-2026-08-02 10:25 extend the executed notebook with a
+      systematic seeded sweep and concise plots over `L`, `M` and `gamma`,
+      comparing the `eta` and loss certificates with the exact rate.
+- [WIP] @Codex-pr15-2026-08-02 10:25 remove `fixpoint-learning.png` from the PR,
+      confirm the temporary PR-body Markdown is untracked, and report the live
+      PR state in a concise GitHub message instead of committing that report.
+- [WIP] @Codex-pr15-2026-08-02 10:25 execute the notebook, run the repository
+      checks, update the PR description, push the round and verify green CI.
+
 > The notebook should start from the single photon in a beam splitter experiment with feedback and draw the plots of the stationary distribution and its tail. Then it should present the complecity of the two estimation modes, *but* in terms of the number of looped modes L and the number of input/output modes M, let's also assume that n = M, there is one photon input per mode, the unitary is arbitrary. We want to write the complexity of estimating power and eigen in terms of L, M and U only.
 
 ## Multimode complexity and notebook order
