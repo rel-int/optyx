@@ -26,6 +26,46 @@ from instances of :class:`Channel`.
 The :code:`Diagram.double` method returns an :class:`diagram.Diagram`,
 whose tensor evaluation gives all the relevant statistics of the circuit.
 
+Stateful channels
+-----------------
+
+A channel diagram is **stateful** when :meth:`Diagram.feedback` closes some
+of its outputs back into its inputs, delayed by one time step. The type
+carried between two steps is the **memory**, and what the loop closes is the
+open **one-step** process from :code:`dom @ mem` to :code:`cod @ mem`. Every
+semantics below is built from that one process.
+
+**Stream semantics.** :meth:`Diagram.to_stream` sends a stateful diagram to
+a :class:`diagram.Stream`: a :class:`discopy.monoidal.Stream` together with
+the ordered boundaries of its loops. The memory is a *delay*, so this is the
+feedback of a monoidal stream — Di Lavore, de Felice and Román, *Monoidal
+Streams for Dataflow Programming* (LICS 2022) — rather than a trace in the
+sense of Katis, Sabadini and Walters, *Feedback, trace and fixed-point
+semantics* (2002): the loop is unrolled one step at a time by
+:meth:`Diagram.unroll` instead of being closed by a fixed point.
+:meth:`Diagram.one_step` opens every loop again, and
+:meth:`Diagram.at_time` closes them for finitely many steps and discards
+everything but the last output.
+
+**Boundaries.** Each loop carries a :class:`diagram.FeedbackBoundary`: the
+memory type, an optional :code:`initial_state` plugged into it before the
+first time step and an optional :code:`final_effect` plugged onto it after
+the last. The boundary is the memory wire only — the inputs and outputs
+occurring at every step are not boundaries, they stay open as the domain and
+codomain of the stream at each tick.
+
+**Fixpoints.** One time step induces a transfer channel on the memory, and
+the stationary state is its fixed point. :meth:`Diagram.fix` approximates it
+and reads the visible output off it, either by contracting a finite
+unrolling as a tensor network (:code:`method="power"`) or by diagonalising
+the transfer matrix of one step (:code:`method="eigen"`).
+:meth:`Diagram.stationary_state` is the solver underneath, defined for any
+loop-free endomorphism, and :meth:`Diagram.unroll_depth` turns a loss per
+round trip into a depth which is a guarantee rather than a search.
+
+See :doc:`/notebooks/fixpoints` for what each of these returns, and for
+using them to simulate feedback boson sampling.
+
 Types
 -----
 
