@@ -25,40 +25,71 @@ This module allows to build an arbitrary syntactic :class:`Diagram`
 from instances of :class:`Channel`.
 The :code:`Diagram.double` method returns an :class:`diagram.Diagram`,
 whose tensor evaluation gives all the relevant statistics of the circuit.
+A channel doubles into its Kraus map beside the conjugate, with the
+environment bent round and shared:
+
+>>> from discopy.symmetric import Equation
+>>> from optyx import photonic
+>>> Equation(photonic.PhotonLoss(.5), photonic.PhotonLoss(.5).double(),
+...          symbol="$\\mapsto$").draw(
+...     figsize=(9, 3), path="docs/_static/doubling.png")
+
+.. image:: /_static/doubling.png
+    :align: center
 
 Stateful channels
 -----------------
 
-A channel diagram is **stateful** when :meth:`Diagram.feedback` closes some
-of its outputs back into its inputs, delayed by one time step. The type
-carried between two steps is the **memory**, and what the loop closes is the
-open **one-step** process from :code:`dom @ mem` to :code:`cod @ mem`. Every
-semantics below is built from that one process.
+A channel diagram is **stateful** when :meth:`Diagram.feedback` closes its
+last outputs back into its last inputs, one time step later. The type carried
+between two steps is the **memory**:
 
-**Stream semantics.** :meth:`Diagram.to_stream` sends a stateful diagram to
-a :class:`diagram.Stream`: a :class:`discopy.monoidal.Stream` together with
-the ordered boundaries of its loops. The memory is a *delay*, so this is the
-feedback of a monoidal stream — Di Lavore, de Felice and Román, *Monoidal
-Streams for Dataflow Programming* (LICS 2022) — rather than a trace in the
-sense of Katis, Sabadini and Walters, *Feedback, trace and fixed-point
-semantics* (2002): the loop is unrolled one step at a time by
-:meth:`Diagram.unroll` instead of being closed by a fixed point.
-:meth:`Diagram.one_step` opens every loop again, and
-:meth:`Diagram.at_time` closes them for finitely many steps and discards
-everything but the last output.
+>>> loop = (photonic.Create(1) @ qmode >> photonic.MZI(.06, 0)).feedback(
+...     mem=qmode, initial_state=photonic.Create(0))
+>>> assert (loop.dom, loop.cod, loop.mem) == (Ty(), qmode, qmode)
+>>> loop.draw(figsize=(4, 3), path="docs/_static/feedback.png")
 
-**Boundaries.** Each loop carries a :class:`diagram.FeedbackBoundary`: the
-memory type, an optional :code:`initial_state` plugged into it before the
-first time step and an optional :code:`final_effect` plugged onto it after
-the last. The boundary is the memory wire only — the inputs and outputs
-occurring at every step are not boundaries, they stay open as the domain and
-codomain of the stream at each tick.
+.. image:: /_static/feedback.png
+    :align: center
 
-**Fixpoints.** One time step induces a transfer channel on the memory, and
-the stationary state is its fixed point. :meth:`Diagram.fix` approximates it
-and reads the visible output off it, either by contracting a finite
-unrolling as a tensor network (:code:`method="power"`) or by diagonalising
-the transfer matrix of one step (:code:`method="eigen"`).
+**Stream semantics.** :meth:`Diagram.stream` gives the stream and the ordered
+:class:`diagram.FeedbackBoundary` of each loop; :meth:`Diagram.now` opens the
+loops again into the one-step process from :code:`dom @ mem` to
+:code:`cod @ mem`, and :meth:`Diagram.unroll` plugs the boundaries in at the
+first and last of `n` steps. The boundary is the memory wire only — the
+inputs and outputs of each tick stay open:
+
+>>> stream, (boundary,) = loop.stream()
+>>> assert boundary.mem == qmode and boundary.final_effect is None
+>>> assert loop.now() == stream.now
+>>> Equation(loop, loop.unroll(2), symbol="$\\mapsto$").draw(
+...     figsize=(11, 4), path="docs/_static/unroll.png")
+
+.. image:: /_static/unroll.png
+    :align: center
+
+The memory is a *delay*, which makes this the feedback of a monoidal stream
+(Di Lavore, de Felice and Román, LICS 2022) rather than a trace (Katis,
+Sabadini and Walters, 2002): the loop unrolls a step at a time instead of
+being closed by a fixed point.
+
+**Fixpoints.** That fixed point is the other semantics.
+:meth:`Diagram.at_time` closes the loop for `n` steps and keeps only the last
+output; :meth:`Diagram.fix` approximates the state it settles into, by
+contracting an unrolling (:code:`method="power"`) or by diagonalising the
+transfer matrix of one step (:code:`method="eigen"`):
+
+>>> import numpy as np
+>>> measured = loop >> photonic.NumberResolvingMeasurement(1)
+>>> settled = measured.at_time(8).eval().prob_dist()
+>>> fixed = measured.fix(method="eigen", chi=8).prob_dist()
+>>> assert max(abs(settled[k] - v) for k, v in fixed.items()) < 1e-6
+>>> Equation(loop.at_time(2), symbol="").draw(
+...     figsize=(6, 3), path="docs/_static/at_time.png")
+
+.. image:: /_static/at_time.png
+    :align: center
+
 :meth:`Diagram.stationary_state` is the solver underneath, defined for any
 loop-free endomorphism, and :meth:`Diagram.unroll_depth` turns a loss per
 round trip into a depth which is a guarantee rather than a search.
@@ -334,7 +365,7 @@ class Diagram(frobenius.Diagram):
     ob = Ty
     grad = tensor.Diagram.grad
     unroll = diagram.Diagram.unroll
-    to_stream = diagram.Diagram.to_stream
+    stream = diagram.Diagram.stream
 
     def feedback(self, dom=None, cod=None, mem=None,
                  initial_state=None, final_effect=None) -> Diagram:
@@ -369,21 +400,27 @@ class Diagram(frobenius.Diagram):
             self, dom=dom, cod=cod, mem=mem,
             initial_state=initial_state, final_effect=final_effect)
 
-    def one_step(self) -> Diagram:
+    def now(self) -> Diagram:
         """
         Open every feedback loop to obtain one time step of the stateful
         diagram, from ``dom @ memory`` to ``cod @ memory``.
 
-        This reuses :meth:`to_stream`, so the memory order is exactly the
+        This reuses :meth:`stream`, so the memory order is exactly the
         order used by :meth:`unroll`. Boundary ``initial_state`` and
         ``final_effect`` values are metadata and do not change this channel.
+
+        It is a method rather than a property for the same reason
+        :meth:`stream` is: it rebuilds the stream on every call. The
+        ``now`` of a :class:`discopy.stream.Stream` is a field of a value
+        already built, and costs nothing to read.
 
         >>> from optyx.photonic import Create
         >>> wait = Diagram.swap(qmode, qmode).feedback(
         ...     initial_state=Create(0))
-        >>> assert wait.one_step() == Diagram.swap(qmode, qmode)
+        >>> assert wait.now() == Diagram.swap(qmode, qmode)
         """
-        return self.to_stream().stream.now
+        stream, _ = self.stream()
+        return stream.now
 
     def at_time(self, n_steps: int) -> Diagram:
         """
@@ -408,7 +445,7 @@ class Diagram(frobenius.Diagram):
         if not isinstance(n_steps, Integral) or isinstance(n_steps, bool) \
                 or n_steps < 1:
             raise ValueError("n_steps must be a positive integer.")
-        semantics = self.to_stream()
+        semantics = self.stream()
         if any(boundary.initial_state is None
                for boundary in semantics.boundaries):
             raise ValueError(
@@ -576,7 +613,7 @@ class Diagram(frobenius.Diagram):
         if any(isinstance(box, Feedback) for box in self.boxes):
             raise ValueError(
                 "stationary_state is defined for diagrams without feedback "
-                "loops; call one_step first.")
+                "loops; call now first.")
         if self.dom != self.cod:
             raise ValueError(
                 "stationary_state is defined for endomorphisms, got "
@@ -683,7 +720,7 @@ class Diagram(frobenius.Diagram):
         ...     mem=qubit, initial_state=Ket(1))
         >>> assert source.truncation_dimension() == 2
         """
-        step = self.one_step()
+        step = self.now()
         memory = step.cod[len(self.cod):]
         transfer = step >> Discard(self.cod) @ self.id(memory)
         dimension = 2
@@ -706,7 +743,7 @@ class Diagram(frobenius.Diagram):
         matrix over its codomain.
 
         A diagram with a feedback loop has stream semantics through
-        :meth:`to_stream` and :meth:`unroll`, and approximate fixed-point
+        :meth:`stream` and :meth:`unroll`, and approximate fixed-point
         semantics through :meth:`fix`. Both use the same open one-step
         process; the fixed-point semantics evolves an approximate stationary
         memory once, then discards the next memory and returns only the visible
@@ -880,7 +917,7 @@ class Diagram(frobenius.Diagram):
         lost trace raises. A non-unique stationary memory state raises rather
         than choosing an arbitrary eigenvector.
         """
-        step = self.one_step()
+        step = self.now()
         memory = step.cod[len(self.cod):]
         dimensions = [
             chi if ob.inside[0].name == "mode" else 2

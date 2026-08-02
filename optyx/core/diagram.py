@@ -293,7 +293,7 @@ class FeedbackBoundary(NamedTuple):
     and codomain of the stream at each tick, which stay open.
 
     The entries are ordered by the functorial traversal used by
-    :meth:`Diagram.to_stream`: left to right for composition, with an outer
+    :meth:`Diagram.stream`: left to right for composition, with an outer
     loop before any loop nested in its argument.
 
     The construction is the delayed feedback of a monoidal stream, as in
@@ -402,7 +402,7 @@ class Diagram(frobenius.Diagram):
         """
         if n_steps < 1:
             raise ValueError("n_steps must be at least 1.")
-        stream, boundaries = self.to_stream()
+        stream, boundaries = self.stream()
         unrolled = stream.unroll(n_steps - 1).now
         mem = stream.mem.now
         dom = unrolled.dom[:len(unrolled.dom) - len(mem)]
@@ -415,26 +415,35 @@ class Diagram(frobenius.Diagram):
             for _, effect, loop_mem in boundaries))
         return self.id(dom) @ initial >> unrolled >> self.id(cod) @ final
 
-    def to_stream(self) -> Stream:
+    def stream(self) -> Stream:
         """
         Convert a diagram to its stream semantics and ordered boundaries.
 
         Every box maps to the constant stream and every :class:`Feedback`
         loop moves its memory from the wires to the memory of the stream,
-        so that :attr:`Stream.stream.now` is the one-step diagram
-        from `dom @ mem` to `cod @ mem`, with no feedback boxes left.
+        so that ``stream.now`` is the one-step diagram from `dom @ mem` to
+        `cod @ mem`, with no feedback boxes left.
 
-        This is an intentional conversion rather than a cached ``.stream``
-        property. Both :meth:`unroll` and
-        :meth:`optyx.channel.Diagram.one_step`
-        reuse it so nested loops have one definition of memory order. Boundary
-        states and effects are not applied to ``stream.now``; they are returned
-        immutably, left to right with an outer loop before nested loops, for
-        :meth:`unroll` to plug at the first and last time steps.
+        **Why a method and not a property.** On a
+        :class:`discopy.stream.Stream`, ``now`` and ``mem`` are fields of a
+        value that has already been built, so reading them costs nothing and
+        attribute syntax is honest; only ``later`` is a property, and it
+        forces the tail. Here there is nothing built yet: every call
+        reinterprets the diagram functorially to find the memory of each
+        nested loop. A cached ``.stream`` property was considered in #12 and
+        rejected, so attribute syntax would promise a field and deliver a
+        rebuild. Both :meth:`unroll` and :meth:`optyx.channel.Diagram.now`
+        go through this one conversion, which is what keeps nested loops to a
+        single definition of memory order.
+
+        Boundary states and effects are not applied to ``stream.now``; they
+        are returned immutably, left to right with an outer loop before
+        nested loops, for :meth:`unroll` to plug at the first and last time
+        steps.
 
         >>> from optyx.core.zw import Create
         >>> wait = Diagram.swap(mode, mode).feedback(initial_state=Create(1))
-        >>> semantics = wait.to_stream()
+        >>> semantics = wait.stream()
         >>> assert semantics.stream.now == Diagram.swap(mode, mode)
         >>> assert semantics.boundaries == (
         ...     FeedbackBoundary(Create(1), None, mode),)
