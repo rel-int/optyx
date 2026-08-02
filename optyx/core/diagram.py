@@ -286,9 +286,23 @@ class Bit(Ty):
 class FeedbackBoundary(NamedTuple):
     """Boundary data attached to one feedback loop.
 
+    The boundary is the memory wire only: ``initial_state`` is plugged into
+    it before the first time step and ``final_effect`` onto it after the
+    last, with ``mem`` the type carried between two steps. The inputs and
+    outputs occurring at every step are not boundaries — they are the domain
+    and codomain of the stream at each tick, which stay open.
+
     The entries are ordered by the functorial traversal used by
     :meth:`Diagram.to_stream`: left to right for composition, with an outer
     loop before any loop nested in its argument.
+
+    The construction is the delayed feedback of a monoidal stream, as in
+    Di Lavore, de Felice and Román, *Monoidal Streams for Dataflow
+    Programming* (LICS 2022), which is what ``discopy.monoidal.Stream``
+    implements. The `mem` wire is the delay, so this is feedback rather than
+    a trace in the sense of Katis, Sabadini and Walters, *Feedback, trace and
+    fixed-point semantics* (2002): the loop is not closed by a fixed point,
+    it is unrolled one step at a time.
     """
     initial_state: object | None
     final_effect: object | None

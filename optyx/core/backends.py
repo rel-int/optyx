@@ -475,11 +475,11 @@ class QuimbBackend(AbstractBackend):
 
         if hasattr(tensor_diagram, 'terms'):
             results = sum(
-                self._process_term(term, params)
+                self.process_term(term, params)
                 for term in tensor_diagram.terms
             )
         else:
-            results = self._process_term(tensor_diagram, params)
+            results = self.process_term(tensor_diagram, params)
 
         if diagram.is_pure:
             state_type = StateType.AMP
@@ -497,7 +497,7 @@ class QuimbBackend(AbstractBackend):
             state_type=state_type
         )
 
-    def _process_term(
+    def process_term(
             self, term: discopy_tensor.Diagram,
             params: dict = None) -> np.ndarray:
         """
@@ -632,13 +632,13 @@ class PercevalBackend(AbstractBackend):
             array = 0
             for term in diagram.terms:
                 arr, output_types, return_type = \
-                    self._process_term(
+                    self.process_term(
                         term, extra
                     )
                 array += arr
         else:
             array, output_types, return_type = \
-                self._process_term(
+                self.process_term(
                     diagram, extra
                 )
 
@@ -953,7 +953,7 @@ class PercevalBackend(AbstractBackend):
             array[0] = result
         return array
 
-    def _process_term(
+    def process_term(
             self,
             term,
             extra

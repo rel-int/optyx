@@ -245,6 +245,37 @@ class Ty(frobenius.Ty):
                 *(o**d if o.needs_inflation() else o for o in self)
         )
 
+    def double_axes(self):
+        """
+        The positions in :meth:`double` of the classical wires and of the
+        ket/bra pairs of the quantum ones. A classical object doubles to one
+        wire, a quantum object to two.
+
+        >>> assert (bit @ qubit).double_axes() == ([0], [(1, 2)])
+        """
+        classical, quantum, position = [], [], 0
+        for ob in self.inside:
+            if ob.is_classical:
+                classical.append(position)
+                position += 1
+            else:
+                quantum.append((position, position + 1))
+                position += 2
+        return classical, quantum
+
+    def dagger_axes(self):
+        """
+        The permutation of :meth:`double` exchanging ket and bra on every
+        quantum wire. Transposing a doubled array along it is the dagger,
+        so a state is Hermitian when it is fixed by that transposition.
+
+        >>> assert (bit @ qubit).dagger_axes() == [0, 2, 1]
+        """
+        axes = list(range(len(self.double())))
+        for row, column in self.double_axes()[1]:
+            axes[row], axes[column] = column, row
+        return axes
+
 
 bit = Ty("bit")
 mode = Ty("mode")
@@ -347,61 +378,78 @@ class Diagram(frobenius.Diagram):
         return initial >> unrolled \
             >> past @ self.id(self.cod) @ Discard(memory)
 
-    def _discard_trace(self, state):
-        """Trace a density matrix over ``cod`` by composing with Discard."""
+    def discard_trace(self, state=None, dimensions=None):
+        """
+        The array of ``self >> Discard(cod)``: every output is discarded,
+        so what remains is the trace of a state and the causality witness
+        of a process.
+
+        ``state`` is the array of a state over ``cod`` to compose in front,
+        for the case where the state comes out of a linear solve rather than
+        out of a diagram; it defaults to ``self`` itself.
+
+        >>> from optyx.qubits import Ket
+        >>> assert np.isclose(Ket(0).discard_trace(), 1)
+        """
+        if state is None:
+            return (self >> Discard(self.cod)).double().to_tensor(
+                dimensions).eval().array
         discard = Discard(self.cod).double().to_tensor(list(np.shape(state)))
         return (tensor.Box(
             "State", tensor.Dim(1), discard.dom, np.asarray(state))
             >> discard).eval().array
 
-    def _validated_state(self, state, tol: float):
-        """Normalise a stationary state and check it is a density matrix.
+    def is_causal(self, dimensions=None, tol: float = 1e-6):
+        """
+        A process is causal when discarding its outputs is the same as
+        discarding its inputs, ``self >> Discard(cod) == Discard(dom)``.
+        For a state this says the trace is one, i.e. that it is normalised.
 
-        The trace is the diagrammatic composition with :class:`Discard`.
-        Hermiticity uses the ket/bra pairs of ``cod``, and positivity is
-        checked independently in every classical block.
+        Rescaling a process is tensoring it with a scalar, and that is
+        exactly what breaks causality:
 
-        Both checks are needed because :meth:`stationary_state` accepts any
-        loop-free endomorphism, not only a channel. Trace preservation is
-        already verified diagrammatically there, but it does not imply
-        positivity: a trace-preserving map can have a fixed point that is no
-        density matrix, and then the eigenvector is meaningless rather than
-        merely inaccurate. For a genuine channel both checks pass by
-        construction and only guard against truncation error.
+        >>> from optyx.qubits import Ket
+        >>> assert Ket(0).is_causal()
+        >>> assert not (Scalar(.5) @ Ket(0)).is_causal()
+        >>> assert np.isclose((Scalar(.5) @ Ket(0)).discard_trace(), .25)
+        """
+        left = self.discard_trace(dimensions=dimensions)
+        right = Discard(self.dom).double().to_tensor(
+            dimensions).eval().array
+        return bool(np.linalg.norm(left - right) <= tol)
+
+    def is_hermitian(self, state, tol: float = 1e-6):
+        """
+        A state over ``cod`` is Hermitian when transposing it along
+        :meth:`Ty.dagger_axes` gives its conjugate back.
         """
         array = np.asarray(state)
-        trace = self._discard_trace(array)
-        if not np.isfinite(trace) or abs(trace) <= tol:
-            raise ValueError(
-                "The stationary state has zero or non-finite trace.")
-        array = array / trace
+        return bool(np.allclose(
+            array, np.transpose(array.conjugate(), self.cod.dagger_axes()),
+            atol=tol, rtol=0))
 
-        classical, quantum, position = [], [], 0
-        for ob in self.cod.inside:
-            if ob.is_classical:
-                classical.append(position)
-                position += 1
-            else:
-                quantum.append((position, position + 1))
-                position += 2
-        dagger_axes = list(range(array.ndim))
-        for row, column in quantum:
-            dagger_axes[row], dagger_axes[column] = column, row
-        if not np.allclose(
-                array, np.transpose(array.conjugate(), dagger_axes),
-                atol=tol, rtol=0):
-            raise ValueError("The stationary state is not Hermitian.")
-        array = (
-            array + np.transpose(array.conjugate(), dagger_axes)) / 2
+    def is_positive(self, state, tol: float = 1e-6):
+        """
+        A state over ``cod`` is positive when every classical block of it is
+        a positive semidefinite matrix on the ket/bra pairs. Positivity is
+        only defined for a Hermitian state, so the Hermitian part is what
+        gets diagonalised; pair this with :meth:`is_hermitian`.
 
+        This diagonalises one matrix per classical outcome, so it costs as
+        much as the eigensolve which produced the state: call it to check a
+        result, not on the path of an evaluation.
+        """
+        array = np.asarray(state)
+        array = (array + np.transpose(
+            array.conjugate(), self.cod.dagger_axes())) / 2
+        classical, quantum = self.cod.double_axes()
         rows, columns = map(list, zip(*quantum)) if quantum else ([], [])
         blocks = np.transpose(array, classical + rows + columns).reshape(
             int(np.prod([array.shape[axis] for axis in classical], dtype=int)),
             int(np.prod([array.shape[axis] for axis in rows], dtype=int)),
             int(np.prod([array.shape[axis] for axis in rows], dtype=int)))
-        if min(np.linalg.eigvalsh(block).min() for block in blocks) < -tol:
-            raise ValueError("The stationary state is not positive.")
-        return np.real_if_close(array)
+        return bool(
+            min(np.linalg.eigvalsh(block).min() for block in blocks) >= -tol)
 
     def stationary_state(
             self, dimensions: list[int] = None, tol: float = 1e-6):
@@ -409,16 +457,20 @@ class Diagram(frobenius.Diagram):
 
         The diagram denotes the transfer operator; its doubled tensor is
         projected back to ``dimensions`` before the eigenspace at eigenvalue
-        one is found. The state is traced by composing it with
-        :class:`Discard`, then checked for Hermiticity and positivity —
-        neither follows from trace preservation, and this method accepts any
-        loop-free endomorphism rather than only a channel.
+        one is found, then the eigenvector is normalised by its
+        :meth:`discard_trace`.
+
+        Being a density matrix does not follow from causality, since this
+        method accepts any loop-free endomorphism rather than only a channel.
+        It is not checked here: :meth:`is_hermitian` and :meth:`is_positive`
+        cost a diagonalisation, so they are exposed for a caller to run on a
+        result rather than spent on every evaluation.
 
         Parameters:
             dimensions : Dimensions of the doubled input wires, all two by
                 default. Optical simulations typically use ``cutoff`` for
                 every mode in ``self.dom.double()``.
-            tol : Tolerance for trace preservation and state validation.
+            tol : Tolerance for causality of the truncated transfer map.
 
         >>> from optyx import classical
         >>> transition = classical.ClassicalBox(
@@ -484,19 +536,19 @@ class Diagram(frobenius.Diagram):
         operator = tensor_transfer >> tensor.Diagram.tensor(*(
             diagram.EmbeddingTensor(source.inside[0], target)
             for source, target in zip(tensor_transfer.cod, dimensions)))
-        size = int(np.prod(dimensions, dtype=int))
-        matrix = operator.eval().array.reshape(size, size)
+        matrix = operator.eval().array.reshape(
+            int(np.prod(dimensions, dtype=int)), -1)
 
         discard = Discard(self.dom).double().to_tensor(dimensions)
         trace_residual = np.linalg.norm(
             (operator >> discard).eval().array - discard.eval().array)
         if trace_residual > tol:
             raise ValueError(
-                "The truncated transfer map is not trace preserving "
+                "The truncated transfer map is not causal "
                 f"(residual {trace_residual}); increase cutoff.")
 
         eigenvalues, eigenvectors = np.linalg.eig(matrix.T)
-        eigen_tolerance = 100 * size * np.finfo(float).eps \
+        eigen_tolerance = 100 * len(matrix) * np.finfo(float).eps \
             * max(1, np.linalg.norm(matrix))
         fixed = np.flatnonzero(abs(eigenvalues - 1) <= eigen_tolerance)
         if not fixed.size:
@@ -513,8 +565,12 @@ class Diagram(frobenius.Diagram):
         if residual > eigen_tolerance:
             raise ValueError(
                 f"The stationary-state residual {residual} is too large.")
-        return self._validated_state(
-            state.reshape(dimensions), tol)
+        state = state.reshape(dimensions)
+        trace = self.discard_trace(state)
+        if not np.isfinite(trace) or abs(trace) <= tol:
+            raise ValueError(
+                "The stationary state has zero or non-finite trace.")
+        return np.real_if_close(state / trace)
 
     def fix(self, n_steps: int = None, chi: int = None, *,
             method: str = "power", tol: float = 1e-6,
@@ -656,7 +712,7 @@ class Diagram(frobenius.Diagram):
 
         def normalised(result):
             state = np.asarray(result.density_matrix)
-            trace = self._discard_trace(state)
+            trace = self.discard_trace(state)
             trace_tolerance = 100 * state.size * np.finfo(float).eps
             if not np.isfinite(trace) or abs(trace) <= trace_tolerance:
                 raise ValueError(

@@ -4,7 +4,7 @@ from cotengra import HyperCompressedOptimizer
 
 from optyx import classical, photonic, qubits
 from optyx.channel import (
-    CQMap, Diagram, Discard, Ty, bit, qmode, qubit,
+    CQMap, Diagram, Discard, Scalar, Ty, bit, qmode, qubit,
 )
 from optyx.core import diagram
 from optyx.core.backends import DiscopyBackend, QuimbBackend
@@ -248,11 +248,14 @@ def test_stationary_state_convention_and_rank():
         Diagram.id(bit).stationary_state()
 
 
-@pytest.mark.parametrize(("state", "message"), [
-    (np.array([[1, 1], [0, 0]]), "not Hermitian"),
-    (np.diag([2, -1]), "not positive"),
+@pytest.mark.parametrize(("state", "hermitian", "positive"), [
+    (np.array([[1, 1], [0, 0]]), False, False),
+    (np.diag([2, -1]), True, False),
+    (np.diag([.5, .5]), True, True),
 ])
-def test_stationary_state_validates_density_matrix(state, message):
+def test_stationary_state_is_not_a_density_matrix(state, hermitian, positive):
+    """A causal endomorphism can still have a fixed point which is no density
+    matrix, so `is_hermitian` and `is_positive` are the caller's to run."""
     trace = np.array([1, 0, 0, 1])
     replacement = CQMap(
         "Replacement",
@@ -260,8 +263,18 @@ def test_stationary_state_validates_density_matrix(state, message):
             "Replacement", diagram.bit ** 2, diagram.bit ** 2,
             array=np.outer(trace, state.reshape(-1))),
         qubit, qubit)
-    with pytest.raises(ValueError, match=message):
-        replacement.stationary_state()
+    fixed = replacement.stationary_state()
+    assert np.allclose(fixed, state / np.trace(state))
+    assert replacement.is_hermitian(fixed) == hermitian
+    assert replacement.is_positive(fixed) == positive
+
+
+def test_causality_is_the_normalisation_of_a_state():
+    assert qubits.Ket(0).is_causal()
+    assert not (Scalar(.5) @ qubits.Ket(0)).is_causal()
+    assert np.isclose((Scalar(.5) @ qubits.Ket(0)).discard_trace(), .25)
+    assert (bit @ qubit).double_axes() == ([0], [(1, 2)])
+    assert (bit @ qubit).dagger_axes() == [0, 2, 1]
 
 
 def test_stationary_state_guards():

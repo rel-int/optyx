@@ -652,6 +652,88 @@ They are correct as written.
       `n_steps` and `max_steps`; as methods they would take those as arguments and the
       cache would have to live on an immutable diagram
 
+> Why are these hidden methods? Can we make them more general methods about any diagram so
+> that "state" is not an input. For example, checking if the state is normalised corresponds
+> to checking if the process is causal, i.e. f >> Discard = Discard. A process can also be
+> rescaled by a constant simply by tensoring by the scalar. Algorithms should be expressed
+> diagrammatically
+>
+> this looks like it should be in optyx Tys
+>
+> Why do we need this check? Seems expensive
+>
+> Overall this method seems expensive to run so it shouldn't be used during evaluation
+>
+> Why is this a hidden method? Remember DisCoPy's guidelines in AGENTS.md
+>
+> Shouldn't this be handled in the backends? Consider improving #21
+>
+> That's a cool concept, is the boundary only the first input and last output memory or does
+> it also include the inputs/outputs occuring at every time step? Can you point to some
+> references where this concept can be grounded?
+>
+> We should have meaningful default values for these parameters, based also on the progress
+> shown in the notebook. n_steps and chi can be determined to match a given tol with a given
+> loss rate. We need a better organisation of this method, one mode should be doing the naive
+> approach and checking if successive contractions converge, another mode should be guessing
+> n_steps and chi with some heuristics on the size of the memory and convergence behaviour
+> (with cost prediction before contraction), when the parameters are set they are used to skip
+> some parts of the above pipelines.
+>
+> Why do we need to set these parameters? Aren't they the same as chi and n_steps?
+
+## Review round: no secrets, causality, and defaults from the notebook
+
+STYLE.md says optyx has no secrets and exposes every subprocedure as a method that can be
+tested and reused, so the `_`-prefixed helpers of the previous round were the wrong shape.
+
+- [x] `Ty.double_axes` and `Ty.dagger_axes`: the classical/ket-bra bookkeeping is type data,
+      so it lives on `Ty` with its own doctests
+- [x] `Diagram.is_causal(dimensions, tol)`: a process is causal when discarding its outputs
+      discards its inputs, `f >> Discard(cod) == Discard(dom)`. No `state` argument, general
+      over any diagram, and for a state it is exactly normalisation. Rescaling is tensoring
+      with a scalar, which is what the doctest breaks causality with
+- [x] `Diagram.discard_trace`: the array of `self >> Discard(cod)` — the trace of a state and
+      the causality witness of a process are the same composition
+- [x] `Diagram.is_hermitian` and `Diagram.is_positive` are public and are **no longer run
+      during evaluation**. They cost a diagonalisation, as much as the eigensolve which
+      produced the state, so `stationary_state` normalises and returns, and a caller checks
+      the result. `is_positive` diagonalises the Hermitian part and says so
+- [x] `backends.QuimbBackend.process_term` is no longer semiprivate
+- [x] trade-off recorded: a causal endomorphism which is not a channel now returns a fixed
+      point that is no density matrix, silently.
+      `test_stationary_state_is_not_a_density_matrix` pins that behaviour and checks both
+      predicates instead of expecting a raise
+- [x] `FeedbackBoundary`: the boundary is the memory wire only — `initial_state` before the
+      first step, `final_effect` after the last — while the per-step inputs and outputs stay
+      open as the stream's domain and codomain at each tick. Grounded in Di Lavore, de Felice
+      and Roman, *Monoidal Streams for Dataflow Programming* (LICS 2022), which is what
+      `discopy.monoidal.Stream` implements, and contrasted with the trace of Katis, Sabadini
+      and Walters (2002): `mem` is a delay, so the loop unrolls rather than closing on a
+      fixed point
+
+- [ ] reorganise `fix` into three modes, with `max_steps` and `max_chi` folded into whichever
+      mode owns them rather than sitting beside `n_steps` and `chi`:
+      1. **explicit** — `n_steps` and `chi` given, contract once and skip every search
+      2. **adaptive** (today's behaviour) — double each parameter until successive
+         contractions agree within `tol`, capped
+      3. **predicted** — derive `n_steps` and `chi` before contracting, and report the
+         predicted cost so the caller can refuse it
+- [ ] the predicted mode is now implementable from the notebook: the population rate is
+      `|lambda_2| = gamma rho(|D|^{circ 2})`, an `O(L^3)` Perron root of the entrywise
+      modulus-squared loop block, so `n* = ceil(log eps / log |lambda_2|)`, and with no
+      handle on `U` the loss alone gives the universal `n* = ceil(log eps / log gamma)`.
+      Both are depths, not guesses, and neither needs a contraction to compute
+- [ ] `chi` has no such formula yet — the notebook measures cost against `chi` but does not
+      predict the bond dimension needed for a given `tol`. Needed before mode 3 is honest
+      about `chi`; until then it should predict `n_steps` and adapt `chi`
+- [ ] cost prediction before contraction: the loop dimension is `h ~ (nM)^L / L!`, so the
+      predicted network size follows from `n_steps`, the cutoff and `chi`. Report it and let
+      the caller refuse rather than discovering the cost by running it
+- [ ] normalisation in the backends rather than in `fix` (#21): the trace is a `Discard`
+      composition, so a backend which evaluates the traced diagram alongside the state
+      returns a normalised result with no second pass
+
 ## Blocked on design
 
 - `dom != Ty()`: the process "prepare an input state at every time step, return the
