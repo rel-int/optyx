@@ -764,6 +764,46 @@ tested and reused, so the `_`-prefixed helpers of the previous round were the wr
 - [ ] open: `backend` is still a parameter of `fix`, though USER's list did not name it. It
       is orthogonal to the search knobs and three tests use it, so it stayed — confirm
 
+## Review round: two defects found writing the #25 docs notebook, reported on this PR
+
+Reported in [PR comment](https://github.com/rel-int/optyx/pull/15#issuecomment-5159329441) on
+`dac0995`, not patched there since they are implementation bugs, not docs. Recorded here as
+checkboxes now that a session can reach this branch.
+
+- [ ] `truncation_dimension(tol)` measures `transfer.is_causal(dimensions)` on the
+      **unprojected** one-step map, which only constrains its input dimensions — the output is
+      always larger because the step creates photons, so causality holds at every dimension and
+      the estimator always returns 2. `stationary_state` instead composes `EmbeddingTensor` to
+      project the output back down to `dimensions`, and it is that projection that loses trace.
+      Fix: measure the same projected `operator` that `stationary_state` builds, not the raw
+      transfer map, so `fix(method="eigen")` with no explicit `chi` stops failing on both
+      examples in `fix`'s own docstring.
+- [ ] compressed `power` returns a density matrix `prob_dist()` cannot read
+      (`_prob_dist_mixed`'s `float(np.real_if_close(amp))` on an imaginary part too large to
+      drop) and, at `chi=8` on the beam-splitter loop, a numerically wrong `p(1)` (`0.8645` vs
+      `0.7587` from `eigen`/exact `power`, which agree to `1e-16`). Needs a decision first:
+      is `chi=8` too small to be honest about (then `fix` should say so rather than return
+      silently), or is the compressed path itself wrong — worth a reviewer's eye before a fix
+      lands.
+
+Also two flaky-CI defects reported and queued but never checkboxed, both diagnosed without a
+runnable environment:
+
+- [ ] `test_warns_when_it_does_not_converge` is stale, not the code: the `f1ac4c1` convergence
+      rewrite made `rotation(0.25)` land on an exact fixed point (`frobenius_distance == 0.0`,
+      which is `< 1e-30`), so the test's premise that `tol=1e-30` is unreachable no longer
+      holds. [Diagnosis](https://github.com/rel-int/optyx/pull/15#issuecomment-5146106291).
+      Cheapest fix: drive the cap with a diagram whose consecutive-step distance stays
+      positive (`flip()` already does this in `test_power_does_not_alias_period_two`), or
+      assert the `chi`-cap path with `chi=None` instead of `n_steps`.
+- [ ] `test_adaptive_defaults` flakes because `normalised` takes its trace from a **second,
+      independently compressed** contraction (`contract(steps, bond, traced=True)`) instead of
+      tracing the density matrix already in hand, and separately because `abs(trace) <= tol`
+      reuses the convergence tolerance as a physical validity floor.
+      [Diagnosis](https://github.com/rel-int/optyx/pull/15#issuecomment-5150105154). Fix: trace
+      the already-contracted (or exactly-contracted) state instead of a fresh compressed one,
+      and give the validity floor its own constant independent of `tol`.
+
 ## Blocked on design
 
 - `dom != Ty()`: the process "prepare an input state at every time step, return the
