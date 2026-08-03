@@ -770,3 +770,143 @@ tested and reused, so the `_`-prefixed helpers of the previous round were the wr
   final output" is nonlinear in the input, so its one-shot approximation as a CPMap
   from `dom` to `cod` needs a design choice — waiting for USER / @armandld before
   filing checkboxes.
+
+> I need a proper review on https://github.com/rel-int/optyx/pull/15. My idea would be to split this PR in two. Basically, one part needs to go into the previous PR on feedback and stream semantics. Particularly the Diagram.stream and Diagram.now methods. And the treatment of feedback boundaries. The latter requires some more thought. Do you have any ideas for incorporating this concept, e.g. we could have (top, bot) instead of initial state and final effect, and have them as boundary.top, boundary.bot. We also need a different way of standardising the boundary which should make some of the code simpler. Write a plan of action in the TODO.md
+
+> Actually the proper way to do this is to have 3 prs in total: 1) Feedback and unroll, 2) Streams and boundaries, 3) Fixpoint semantics
+
+## Split into three PRs
+
+This PR carries two unrelated things: the extraction of the stream functor out of
+`unroll` — `Stream`, `FeedbackBoundary`, `Diagram.stream`, `Diagram.now` — which is a
+refactor of #12 being reviewed on the wrong PR, and the fixed-point semantics it was
+opened for. Boundaries get their own PR between them, so each PR is one concept:
+
+| PR | Scope | Base |
+| --- | --- | --- |
+| 1 — Feedback and unroll (#12) | `Feedback`, `feedback`, `unroll(n)` with open memory only | `main` |
+| 2 — Streams and boundaries (new) | `Boundary(top, bot)`, `Stream`, `stream`, `now` | PR 1 |
+| 3 — Fixpoint semantics (#15) | `at_time`, `fix`, `power`, `eigen`, `stationary_state` | PR 2 |
+
+Since PR 2 owns boundaries, PR 1 sheds `initial_state` and `final_effect` entirely:
+`unroll(n)` leaves the memory open at the end of the domain and codomain, which is
+already what `test_unroll_open_wires` pins, and PR 2 introduces the boundary as the way
+to close it. #12 gets smaller than it is today rather than merely re-scoped.
+
+- [ ] confirm this reading before any code moves: PR 1 with no boundary at all, or PR 1
+      keeping `initial_state`/`final_effect` and PR 2 only renaming them
+- [ ] order the rebases 1 → 2 → 3, rebasing each on its parent's head at every round
+
+## Standardise the feedback boundary
+
+`initial_state` and `final_effect` are two loose nullable attributes where `None` means
+"open wire". That `None` is paid for at ten sites — `unroll`, `conjugate`, `inflate`,
+`double`, `get_kraus`, both `Functor.__call__`, `is_pure`, `__str__`, `__repr__`,
+`at_time` — each spelling `None if x is None else f(x)` twice. Nothing checks that a plug
+matches `mem`: `delay(initial_state=Create(0, 0)).unroll(1)` raises a discopy
+`AxiomError` from inside `unroll`, not from `feedback`.
+
+An open memory wire *is* the identity on `mem`, so the boundary can be total:
+
+```python
+class Boundary(NamedTuple):
+    """The two ends of a feedback loop's memory wire: `top` is plugged in
+    before the first time step, `bot` after the last."""
+    top: Diagram   # cod == mem
+    bot: Diagram   # dom == mem
+
+    mem = property(lambda self: self.top.cod)
+
+    @classmethod
+    def open(cls, mem):
+        return cls(Diagram.id(mem), Diagram.id(mem))
+
+    def map(self, func):
+        return type(self)(func(self.top), func(self.bot))
+```
+
+Three things follow, and they are the whole point:
+
+- every `None` branch disappears. `unroll`'s plugging collapses to
+  `initial = self.id(Ty()).tensor(*(b.top for b in boundaries))`, and the five structural
+  transports each become one `boundary=self.boundary.map(func)`
+- `mem` becomes derived rather than stored, `mem == top.cod == bot.dom`, so `Boundary`
+  has two fields where `FeedbackBoundary` has three and `unroll` stops destructuring
+  positionally
+- the boundary types become checkable at construction, and they *are* the unrolled
+  domain: `unroll(n).dom == dom ** n @ Ty().tensor(*(b.top.dom for b in boundaries))`,
+  empty for a genuine state and `mem` for an open wire, so "open wires gathered at the end
+  of the domain in loop order" stops being prose
+
+`top`/`bot` are the two ends of the memory wire as drawn, `to_drawing().trace()`. They do
+not collide with DisCoPy, which uses `now`/`later` for stream position and `head`/`tail`
+for the endofunctor pair with the `FollowedBy` iso in `discopy.feedback` — reusing those
+names here would be misleading. `Boundary` rather than `FeedbackBoundary`: it lives beside
+`Feedback`, and STYLE.md asks for short names.
+
+Rejected: DisCoPy's own standardisation, where `feedback(mem=m @ m)` recurses into nested
+single-wire loops so every box has `len(mem) == 1`. It would make boundary order trivial
+but is unsound here, since a `top` over `qmode ** 2` need not factor as a tensor of two
+single-wire states and an entangled initial state cannot be split.
+
+- [ ] `Boundary(top, bot)` in `core.diagram` with `mem` derived, `open(mem)` and `map`
+- [ ] `Feedback.boundary` replacing `initial_state`/`final_effect`, defaulting to
+      `Boundary.open(mem)`, built from `feedback(dom, cod, mem, top=None, bot=None)`
+- [ ] validate `top.cod == mem` and `bot.dom == mem` in `Feedback.__init__`, so the two
+      plug-size tests move from "raises at `unroll`" to "raises at `feedback`"
+- [ ] `__str__`/`__repr__` print the boundary only when it is not `Boundary.open(mem)`,
+      keeping `eval(repr(x)) == x`
+
+## PR 1: feedback and unroll only
+
+- [ ] drop `initial_state`/`final_effect` from `Diagram.feedback`, both `Feedback.__init__`,
+      `__str__`/`__repr__`, `conjugate`, `inflate`, `double`, `get_kraus`, both
+      `Functor.__call__` — where the `plugs` dict comprehension goes — and `is_pure`
+- [ ] `unroll` keeps the inline stream functor and returns the unrolled diagram with the
+      memory left open at the end of the domain and codomain
+- [ ] restate the two doctests that use plugs by composing outside the loop instead:
+      `Create(1, 0, 0) >> wait.unroll(2) >> Select(0, 1, 0)` as in `test_unrolled_to_path`,
+      and the CNOT ladder composing `plus` onto the exposed memory wire; regenerate
+      `docs/_static/cnot_ladder.svg`
+- [ ] restate `test_unroll_is_a_delay_line`, `test_double_unroll_commute`,
+      `test_qubit_delay_line` and `test_bit_delay_line` over open memory
+- [ ] move to PR 2: the two plug-size `AxiomError` cases, `test_functor_maps_feedback`,
+      the `initial_state` half of `test_str_repr_equality`, the plug assertions of
+      `test_conjugate_and_inflate`; delete `test_diagram_has_no_stream_method`
+
+## PR 2: streams and boundaries
+
+- [ ] `Boundary` and `Stream` in `core.diagram` beside `EmbeddingTensor`, both in the
+      module autosummary
+- [ ] extract `Diagram.stream()` out of `unroll` and rebuild `unroll` on it, keeping
+      `mem=ty_factory(box.mem) @ inner.mem` and the append-before-recurse order — outer
+      loop before nested, left to right — which is the invariant every consumer relies on
+- [ ] keep the docstring rationale for why `stream` is a method and not the cached
+      property rejected in #12
+- [ ] `channel.Diagram.now()` and the `stream = diagram.Diagram.stream` alias
+- [ ] restore the structural transports as one-liners through `Boundary.map`, and
+      `is_pure` as `all(part.is_pure for part in (arg, boundary.top, boundary.bot))`
+- [ ] the "Stateful channels" module docstring without its "Fixpoints." paragraph, with
+      `feedback.png` and `unroll.png`, carrying the Di Lavore, de Felice and Roman (LICS
+      2022) and Katis, Sabadini and Walters (2002) grounding out of the old
+      `FeedbackBoundary` docstring
+- [ ] tests: `test_stream_is_a_method_not_a_property`,
+      `test_stream_semantics_contract_and_order`,
+      `test_stream_semantics_is_uncached_and_boundary_free`, plus `Boundary.open` round
+      trips, `Boundary.mem` derivation, the construction-time type errors, and the
+      unrolled domain read off `top.dom`
+
+## PR 3: fixpoint semantics
+
+- [ ] rebase the rest of this branch on PR 2: `at_time`, `normalisation`, `is_causal`,
+      `is_hermitian`, `is_positive`, `stationary_state`, `unroll_depth`,
+      `truncation_dimension`, `fix`, `power_fix`, `eigen_fix`, `Ty.double_axes`,
+      `Ty.dagger_axes`, `MAX_UNROLL`, `MAX_TRUNCATION`, `backends.py`, the `misc.py`
+      deletion, `test_fix.py`, the notebook and the workflow
+- [ ] rebuild `at_time` as a boundary substitution now that one exists: rebuild the loops
+      with `bot = Discard(mem)` and call `unroll`, instead of re-implementing its
+      plumbing; its guard becomes "every `top` must be a state", `any(b.top.dom for b in
+      boundaries)`
+- [ ] check at every rebase that `ladder.unroll(2).double() == ladder.double().unroll(2)`
+      still holds, and that `fix(method="eigen", chi=8)` still agrees with `at_time(8)`
+      to `1e-6` once PR 3 sits on PR 2
