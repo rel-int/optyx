@@ -972,10 +972,12 @@ it with the readout, and `normalisation` carries an array parameter for the same
 the fixed point came back as a state **diagram**, `eigen_fix`'s tail would be `state >>
 readout` and that parameter would go.
 
-It is blocked: `to_tensor` cannot build a state box above cutoff two, since an empty domain
-leaves `determine_output_dimensions` nothing to derive the output dimensions from.
+It is blocked by #28: `Box.truncation` returns early for any box carrying an explicit
+`array=`, hardcoding `Dim(2)` per wire and discarding the dimensions it was passed
+(`core/diagram.py:705-717`), so an array-backed box cannot be evaluated on a `mode` wire
+above cutoff two. Reproduced both ways — a state raises inside `to_tensor`, an endomorphism
+reports `Dim(2) -> Dim(2)` and raises one step later in `eval`. Nothing to do with empty
+domains.
 
-- [ ] open an issue for lifting `stationary_state`'s result to a state diagram, blocked on
-      `to_tensor` giving a state box its output dimensions with an empty domain; note that it
-      also removes `normalisation`'s array parameter and collapses `eigen_fix`'s tail to
-      `state >> readout`
+- [ ] once #28 lands, lift `stationary_state`'s result to a state diagram: it removes
+      `normalisation`'s array parameter and collapses `eigen_fix`'s tail to `state >> readout`
