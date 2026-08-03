@@ -786,11 +786,13 @@ tested and reused, so the `_`-prefixed helpers of the previous round were the wr
 
 > So state and effect are interpreted as open wires as default except the effect for channel.Diagrams
 
+> Explain better why you think the stream method should remain? I don't see how we would use it outside unrolling. For now I see the point of getting eacy access to the "feedback normal form". But now I'm thinking that one_step() was a better name if there's no stream anymore.
+
 ## Split into two PRs
 
 | PR | Scope | Base |
 | --- | --- | --- |
-| 1 — The feedback category (#12) | `feedback(dom, cod, mem, state, effect)`, `unroll(n, state, effect)`, `now()` | `main` |
+| 1 — The feedback category (#12) | `feedback(dom, cod, mem, state, effect)`, `unroll(n, state, effect)`, `one_step()` | `main` |
 | 2 — Fixpoint semantics (#15) | `fix`, `power`, `eigen`, `stationary_state`, backends, notebook | PR 1 |
 
 - [ ] order the rebases 1 → 2, rebasing PR 2 on PR 1's head at every round
@@ -801,14 +803,14 @@ With boundary handles on `unroll`, every consumer of the stream goes through `un
 
 | was | becomes |
 | --- | --- |
-| `now()` | `unroll(1, state=None, effect=None)` — a one-line alias |
+| `now()` | `one_step()`, a one-line alias for `unroll(0, state=None, effect=None)` |
 | `truncation_dimension`, `eigen_fix` | the same call; they then split `step.cod[len(self.cod):]` as today |
 | `at_time(n)` | deleted; `power_fix` composes on `unroll(n, effect=None)` |
 | `unroll(n)` | keeps the functor inline, exactly as #12 shipped |
 
 So `stream()`, `core.diagram.Stream` and `core.diagram.FeedbackBoundary` are all deleted, and
-PR 1's public surface is `feedback` and `unroll` — #12's shipped surface — plus `now` as
-sugar. The per-loop boundary list never leaves `unroll`, so the aggregate `(state, effect)`
+PR 1's public surface is `feedback` and `unroll` — #12's shipped surface — plus `one_step`
+as sugar. The per-loop boundary list never leaves `unroll`, so the aggregate `(state, effect)`
 is the only boundary anyone sees.
 
 Why the open call gives what `eigen` needs: with both handles open the plugs are identities,
@@ -860,7 +862,11 @@ applied.
       `None` overrides it to an open memory wire, and a diagram overrides it to that diagram.
       Document that `None` opens the input or output memory, and that an override applies to
       the aggregate memory, so the caller supplies its dimension
-- [ ] `now()` as `unroll(0, state=None, effect=None)`
+- [ ] `one_step()` as `unroll(0, state=None, effect=None)`, returning the feedback normal
+      form: every `Feedback` bubble eliminated and the memory moved to the boundary, from
+      `dom @ mem` to `cod @ mem`. Named `one_step` and not `now` because `now` is DisCoPy's
+      name for a *field of a* `Stream`, and with no stream left in optyx it would borrow from
+      a structure the reader cannot see
 - [ ] `__str__` and `__repr__` print `state` and `effect` only when they differ from the
       default for their `mem`, keeping `eval(repr(x)) == x`
 - [ ] the structural transports — `conjugate`, `inflate` twice, `double`, `get_kraus`, both
@@ -879,7 +885,7 @@ applied.
 `Diagram.unroll(n_steps)` currently means `n_steps` **time steps** and computes
 `stream.unroll(n_steps - 1).now`, refusing `n_steps < 1`. DisCoPy's `Stream.unroll` is
 `@inductive`: `n_steps` is the number of **unrollings**, and `unroll(0)` is the stream
-itself. Adopting it makes `unroll(0)` one time step, which is what lets `now` be a call
+itself. Adopting it makes `unroll(0)` one time step, which is what lets `one_step` be a call
 rather than a method with its own machinery.
 
 | call | time steps |
@@ -930,8 +936,8 @@ loss))`. They stay in time steps, and the single conversion to unrollings lives 
       `memory = step.cod[len(self.cod) * steps:]`
 - [ ] keep every public depth in time steps and convert exactly once, in `contract`; state
       the seam in `power_fix`'s docstring so the next reader does not have to derive it
-- [ ] `truncation_dimension` and `eigen_fix` replace `self.now()` with `now()` or with
-      `unroll(0, state=None, effect=None)`; neither reads anything but the open one-step map
+- [ ] `truncation_dimension` and `eigen_fix` replace `self.now()` with `self.one_step()`;
+      neither reads anything but the open one-step map
 - [ ] carry `at_time`'s three guards into `power_fix`: empty domain, positive integer depth,
       and every loop's `state` a state — now one check, `state.dom == Ty()`, on the aggregate
       rather than a scan over loops. With no vacuum default this guard genuinely bites, which
@@ -945,5 +951,5 @@ loss))`. They stay in time steps, and the single conversion to unrollings lives 
       terms; irrelevant to every diagram `fix` is called on, all of which are single-loop
 - [ ] rename `initial_state=` to `state=` in the `test_fix.py` fixtures and the notebook, and
       drop the now-redundant `final_effect=Discard(...)` where it matches the default
-- [ ] reword `stationary_state`'s guard, whose message names `now`, and its test matching
-      `"without feedback"`
+- [ ] reword `stationary_state`'s guard, whose message names `now`, to name `one_step`, and
+      its test matching `"without feedback"`
