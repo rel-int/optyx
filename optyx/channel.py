@@ -550,6 +550,26 @@ class Diagram(frobenius.Diagram):
         return bool(
             min(np.linalg.eigvalsh(block).min() for block in blocks) >= -tol)
 
+    def truncated_transfer(self, dimensions: list[int]) -> tensor.Diagram:
+        """Return this endomorphism's tensor, projected back to
+        ``dimensions``.
+
+        Truncating the input wires to ``dimensions`` is not enough: a step
+        that creates photons still enlarges the output wires, so the
+        result is composed with :class:`diagram.EmbeddingTensor` on every
+        wire to project the output back down. This is the operator whose
+        causality :meth:`stationary_state` and :meth:`truncation_dimension`
+        both need to measure, rather than the unprojected transfer map.
+
+        Parameters:
+            dimensions : Dimensions of the doubled input wires, one per
+                wire in ``self.dom.double()``.
+        """
+        tensor_transfer = self.double().to_tensor(dimensions)
+        return tensor_transfer >> tensor.Diagram.tensor(*(
+            diagram.EmbeddingTensor(source.inside[0], target)
+            for source, target in zip(tensor_transfer.cod, dimensions)))
+
     def stationary_state(
             self, dimensions: list[int] = None, tol: float = 1e-6):
         """Return the unique stationary state of a loop-free endomorphism.
@@ -631,10 +651,7 @@ class Diagram(frobenius.Diagram):
                 "dimensions must contain one positive integer per doubled "
                 "input wire.")
         dimensions = [int(value) for value in dimensions]
-        tensor_transfer = self.double().to_tensor(dimensions)
-        operator = tensor_transfer >> tensor.Diagram.tensor(*(
-            diagram.EmbeddingTensor(source.inside[0], target)
-            for source, target in zip(tensor_transfer.cod, dimensions)))
+        operator = self.truncated_transfer(dimensions)
         matrix = operator.eval().array.reshape(
             int(np.prod(dimensions, dtype=int)), -1)
 
@@ -707,13 +724,22 @@ class Diagram(frobenius.Diagram):
                              maximum: int = MAX_TRUNCATION):
         """
         The smallest memory dimension at which the transfer map of one time
-        step is still causal within ``tol``.
+        step, projected back down to that dimension, is still causal
+        within ``tol``.
 
         Truncating each memory wire to a finite dimension throws away the
         weight above it, so the truncated map discards more than it should
         and :meth:`stationary_state` refuses it. Doubling from two until
-        :meth:`is_causal` holds gives the dimension `"eigen"` needs, and
-        qubit memories stop at the first step.
+        :meth:`truncated_transfer` is causal gives the dimension `"eigen"`
+        needs, and qubit memories stop at the first step.
+
+        Checking causality of the raw, unprojected transfer map would not
+        do: a step that creates photons enlarges its output wires
+        regardless of ``dimensions``, so discarding that output is causal
+        at every dimension and the search would always stop at the first
+        guess. Measuring :meth:`truncated_transfer` instead, the same
+        projected operator :meth:`stationary_state` diagonalises, is what
+        makes the search meaningful.
 
         >>> from optyx.qubits import Ket
         >>> source = (Discard(qubit) @ Ket(0) @ Ket(0)).feedback(
@@ -728,7 +754,11 @@ class Diagram(frobenius.Diagram):
             dimensions = [
                 dimension if ob.inside[0].name == "mode" else 2
                 for ob in memory.double()]
-            if transfer.is_causal(dimensions, tol):
+            operator = transfer.truncated_transfer(dimensions)
+            discard = Discard(transfer.dom).double().to_tensor(dimensions)
+            residual = np.linalg.norm(
+                (operator >> discard).eval().array - discard.eval().array)
+            if residual <= tol:
                 return dimension
             dimension *= 2
         raise ValueError(

@@ -218,6 +218,20 @@ def test_photonic_delay_line():
     assert np.allclose(density_matrix, [[0, 0], [0, 1]], atol=1e-6)
 
 
+def test_truncation_dimension_measures_the_projected_operator():
+    """Regression for the fixed-point bug reported on PR #15: the search
+    used to check causality of the raw, unprojected transfer map, which is
+    causal at every dimension whenever the step creates photons, so it
+    always returned 2 and `fix(method="eigen")` failed with no explicit
+    `chi` on both examples in `fix`'s own docstring."""
+    loop = (photonic.Create(1) @ qmode >> photonic.MZI(.06, 0)).feedback(
+        mem=qmode, initial_state=photonic.Create(0))
+    assert loop.truncation_dimension(1e-6) > 2
+    fixed = loop.fix(method="eigen")
+    density_matrix = fixed.density_matrix
+    assert np.isclose(np.trace(density_matrix), 1)
+
+
 def test_eigen_boson_sampler_truncates_memory_output():
     """Fresh photons can increase the untruncated output dimension."""
     reflectivity = .01

@@ -770,7 +770,7 @@ Reported in [PR comment](https://github.com/rel-int/optyx/pull/15#issuecomment-5
 `dac0995`, not patched there since they are implementation bugs, not docs. Recorded here as
 checkboxes now that a session can reach this branch.
 
-- [WIP] @evening-2026-08-03 20:45 `truncation_dimension(tol)` measures `transfer.is_causal(dimensions)` on the
+- [x] `truncation_dimension(tol)` measures `transfer.is_causal(dimensions)` on the
       **unprojected** one-step map, which only constrains its input dimensions — the output is
       always larger because the step creates photons, so causality holds at every dimension and
       the estimator always returns 2. `stationary_state` instead composes `EmbeddingTensor` to
