@@ -785,7 +785,7 @@ opened for. Boundaries get their own PR between them, so each PR is one concept:
 | PR | Scope | Base |
 | --- | --- | --- |
 | 1 — Feedback and unroll (#12) | `Feedback`, `feedback`, `unroll(n)` with open memory only | `main` |
-| 2 — Streams and boundaries (new) | `Boundary(top, bot)`, `Stream`, `stream`, `now` | PR 1 |
+| 2 — Streams and boundaries (new) | `Feedback.top`/`.bot`, `Stream`, `stream`, `now` | PR 1 |
 | 3 — Fixpoint semantics (#15) | `at_time`, `fix`, `power`, `eigen`, `stationary_state` | PR 2 |
 
 Since PR 2 owns boundaries, PR 1 sheds `initial_state` and `final_effect` entirely:
@@ -806,55 +806,80 @@ to close it. #12 gets smaller than it is today rather than merely re-scoped.
 matches `mem`: `delay(initial_state=Create(0, 0)).unroll(1)` raises a discopy
 `AxiomError` from inside `unroll`, not from `feedback`.
 
-An open memory wire *is* the identity on `mem`, so the boundary can be total:
+An open memory wire *is* the identity on `mem`. So the whole change is a rename and a
+default: `top` and `bot` are two ordinary attributes of the `Feedback` bubble, diagrams
+rather than optional plugs, defaulting to `Diagram.id(mem)`.
+
+**There is no `Boundary` class.** The boundary is a property of the bubble, and every
+`None` branch goes away from the default alone:
 
 ```python
-class Boundary(NamedTuple):
-    """The two ends of a feedback loop's memory wire: `top` is plugged in
-    before the first time step, `bot` after the last."""
-    top: Diagram   # cod == mem
-    bot: Diagram   # dom == mem
-
-    mem = property(lambda self: self.top.cod)
-
-    @classmethod
-    def open(cls, mem):
-        return cls(Diagram.id(mem), Diagram.id(mem))
-
-    def map(self, func):
-        return type(self)(func(self.top), func(self.bot))
+def double(self):
+    """The feedback loop of the doubled diagram."""
+    return Diagram.double(self.arg).feedback(
+        mem=self.mem.double(),
+        top=Diagram.double(self.top), bot=Diagram.double(self.bot))
 ```
 
-Three things follow, and they are the whole point:
+against six lines and two `None if x is None else f(x)` today, in each of `double`,
+`get_kraus`, `inflate` twice and `conjugate`. A `Boundary.map(func)` would save one line
+per site and cost a class; `top=f(self.top), bot=f(self.bot)` says the same thing.
 
-- every `None` branch disappears. `unroll`'s plugging collapses to
-  `initial = self.id(Ty()).tensor(*(b.top for b in boundaries))`, and the five structural
-  transports each become one `boundary=self.boundary.map(func)`
-- `mem` becomes derived rather than stored, `mem == top.cod == bot.dom`, so `Boundary`
-  has two fields where `FeedbackBoundary` has three and `unroll` stops destructuring
-  positionally
-- the boundary types become checkable at construction, and they *are* the unrolled
-  domain: `unroll(n).dom == dom ** n @ Ty().tensor(*(b.top.dom for b in boundaries))`,
+The one place a boundary exists **detached from its box** is `Diagram.stream()`: the
+functor erases every `Feedback`, so `unroll` cannot read `top` and `bot` off the boxes
+afterwards. Even there a per-loop value is unnecessary — both consumers immediately tensor
+the whole list, so `stream()` should accumulate the tensor as it traverses and return two
+diagrams over the whole memory:
+
+```python
+class Stream(NamedTuple):
+    """A diagram's stream and the two ends of its memory wire."""
+    stream: monoidal_stream.Stream
+    top: Diagram   # cod == stream.mem.now
+    bot: Diagram   # dom == stream.mem.now
+```
+
+```python
+stream, top, bot = self.stream()
+unrolled = stream.unroll(n_steps - 1).now
+mem = stream.mem.now
+dom = unrolled.dom[:len(unrolled.dom) - len(mem)]
+cod = unrolled.cod[:len(unrolled.cod) - len(mem)]
+return self.id(dom) @ top >> unrolled >> self.id(cod) @ bot
+```
+
+Four things follow:
+
+- no `None` branch anywhere: `unroll` stops tensoring a comprehension over a list of
+  triples, and the five structural transports each become one expression
+- `mem` stops being carried alongside the plugs — it is `top.cod == bot.dom`, and
+  `stream.mem.now` for the aggregate — so the field-order fragility goes with it (today
+  `for state, _, loop_mem in boundaries` makes `FeedbackBoundary`'s order load-bearing)
+- validation lands where it belongs: per loop on the box, `top.cod == mem` and
+  `bot.dom == mem` in `Feedback.__init__` — the check that does not exist today — which
+  makes the aggregate correct by construction, so `stream()` needs no check of its own
+- the unrolled domain is read off the boundary: `unroll(n).dom == dom ** n @ top.dom`,
   empty for a genuine state and `mem` for an open wire, so "open wires gathered at the end
-  of the domain in loop order" stops being prose
+  of the domain in loop order" stops being prose. `at_time` gets it cheapest of all: its
+  guard is `top.dom == Ty()` and its substitution is `bot = Discard(stream.mem.now)`, with
+  no per-loop iteration at all
 
 `top`/`bot` are the two ends of the memory wire as drawn, `to_drawing().trace()`. They do
 not collide with DisCoPy, which uses `now`/`later` for stream position and `head`/`tail`
 for the endofunctor pair with the `FollowedBy` iso in `discopy.feedback` — reusing those
-names here would be misleading. `Boundary` rather than `FeedbackBoundary`: it lives beside
-`Feedback`, and STYLE.md asks for short names.
+names here would be misleading.
 
 Rejected: DisCoPy's own standardisation, where `feedback(mem=m @ m)` recurses into nested
 single-wire loops so every box has `len(mem) == 1`. It would make boundary order trivial
 but is unsound here, since a `top` over `qmode ** 2` need not factor as a tensor of two
 single-wire states and an entangled initial state cannot be split.
 
-- [ ] `Boundary(top, bot)` in `core.diagram` with `mem` derived, `open(mem)` and `map`
-- [ ] `Feedback.boundary` replacing `initial_state`/`final_effect`, defaulting to
-      `Boundary.open(mem)`, built from `feedback(dom, cod, mem, top=None, bot=None)`
+- [ ] `Feedback.top` and `Feedback.bot` replacing `initial_state`/`final_effect`, plain
+      attributes defaulting to `Diagram.id(mem)`, set from
+      `feedback(dom, cod, mem, top=None, bot=None)`. No `Boundary` class
 - [ ] validate `top.cod == mem` and `bot.dom == mem` in `Feedback.__init__`, so the two
       plug-size tests move from "raises at `unroll`" to "raises at `feedback`"
-- [ ] `__str__`/`__repr__` print the boundary only when it is not `Boundary.open(mem)`,
+- [ ] `__str__`/`__repr__` print `top`/`bot` only when they are not `Diagram.id(mem)`,
       keeping `eval(repr(x)) == x`
 
 ## PR 1: feedback and unroll only
@@ -876,25 +901,28 @@ single-wire states and an entangled initial state cannot be split.
 
 ## PR 2: streams and boundaries
 
-- [ ] `Boundary` and `Stream` in `core.diagram` beside `EmbeddingTensor`, both in the
-      module autosummary
+- [ ] `Stream(stream, top, bot)` in `core.diagram` beside `EmbeddingTensor`, in the module
+      autosummary. `FeedbackBoundary` is not reintroduced
 - [ ] extract `Diagram.stream()` out of `unroll` and rebuild `unroll` on it, keeping
       `mem=ty_factory(box.mem) @ inner.mem` and the append-before-recurse order — outer
       loop before nested, left to right — which is the invariant every consumer relies on
+- [ ] accumulate `top` and `bot` as diagrams in that same traversal instead of collecting
+      a list of per-loop plugs, so `stream()` returns two diagrams over `stream.mem.now`
 - [ ] keep the docstring rationale for why `stream` is a method and not the cached
       property rejected in #12
 - [ ] `channel.Diagram.now()` and the `stream = diagram.Diagram.stream` alias
-- [ ] restore the structural transports as one-liners through `Boundary.map`, and
-      `is_pure` as `all(part.is_pure for part in (arg, boundary.top, boundary.bot))`
+- [ ] restore the structural transports as single expressions,
+      `top=func(self.top), bot=func(self.bot)`, and `is_pure` as
+      `all(part.is_pure for part in (self.arg, self.top, self.bot))`
 - [ ] the "Stateful channels" module docstring without its "Fixpoints." paragraph, with
       `feedback.png` and `unroll.png`, carrying the Di Lavore, de Felice and Roman (LICS
       2022) and Katis, Sabadini and Walters (2002) grounding out of the old
       `FeedbackBoundary` docstring
 - [ ] tests: `test_stream_is_a_method_not_a_property`,
       `test_stream_semantics_contract_and_order`,
-      `test_stream_semantics_is_uncached_and_boundary_free`, plus `Boundary.open` round
-      trips, `Boundary.mem` derivation, the construction-time type errors, and the
-      unrolled domain read off `top.dom`
+      `test_stream_semantics_is_uncached_and_boundary_free` — restated over the aggregated
+      `top`/`bot`, which still pins the memory order — plus the construction-time type
+      errors, the default `top == bot == Id(mem)`, and `unroll(n).dom == dom ** n @ top.dom`
 
 ## PR 3: fixpoint semantics
 
@@ -904,9 +932,9 @@ single-wire states and an entangled initial state cannot be split.
       `Ty.dagger_axes`, `MAX_UNROLL`, `MAX_TRUNCATION`, `backends.py`, the `misc.py`
       deletion, `test_fix.py`, the notebook and the workflow
 - [ ] rebuild `at_time` as a boundary substitution now that one exists: rebuild the loops
-      with `bot = Discard(mem)` and call `unroll`, instead of re-implementing its
-      plumbing; its guard becomes "every `top` must be a state", `any(b.top.dom for b in
-      boundaries)`
+      with `bot = Discard(stream.mem.now)` and call `unroll`, instead of
+      re-implementing its plumbing; its guard becomes `top.dom == Ty()`, one check on the
+      aggregate rather than a scan over loops
 - [ ] check at every rebase that `ladder.unroll(2).double() == ladder.double().unroll(2)`
       still holds, and that `fix(method="eigen", chi=8)` still agrees with `at_time(8)`
       to `1e-6` once PR 3 sits on PR 2
