@@ -780,104 +780,117 @@ tested and reused, so the `_`-prefixed helpers of the previous round were the wr
 
 > I'm asking to rethink the plan to see if we can remove step 2 in the story, since stream is only needed to unroll and boundaries come with feedback
 
-## Split into two PRs
+> We should have handles in unroll to control the boundary. We should call the parameters state and effect, instead of top and bot. The boundary is always defined when creating feedback bubbles, but the default values should be: for photonic: empty initial state, discard at the end, for qubits: there is no natural choice of state so give the identity (open wire) by default, final effect is the discard by default. Setting any of these parameters to None is interpreted as keepin the wire open, setting state or effect =None in unroll should be interpreted as overriding the bubble boundary information and leaving it open. This way unroll remains flexible as a method, you can always decide on the initial state/final effect on the spot but you need to know yourself its dimension, or give None to keep it open. In this setting we can define now as unroll(0, state=None, effect=None). Do we then actually need stream() anywhere?
 
-The middle PR is dropped: tracing every consumer shows there is nothing to put in it.
-`at_time` is redundant with `unroll`, the `Stream` and `FeedbackBoundary` classes are
-ceremony, and what survives belongs either with `feedback` (the boundary) or with
-`eigen_fix` (`now`).
+## Split into two PRs
 
 | PR | Scope | Base |
 | --- | --- | --- |
-| 1 — The feedback category (#12) | `feedback(dom, cod, mem, top, bot)`, `unroll(n)`, `now()` | `main` |
+| 1 — The feedback category (#12) | `feedback(dom, cod, mem, state, effect)`, `unroll(n, state, effect)`, `now()` | `main` |
 | 2 — Fixpoint semantics (#15) | `fix`, `power`, `eigen`, `stationary_state`, backends, notebook | PR 1 |
-
-One correction to the premise: `stream` is needed by `unroll` **and** by `now`, whose only
-consumers are `truncation_dimension` and `eigen_fix`. Both want exactly the open one-step
-map from `dom @ mem` to `cod @ mem` with the memory trailing, and nothing else — no
-boundaries. `now()` cannot be `self.arg`: no diagram passed to `fix` has more than one
-`Feedback` box, but several put the loop *inside* a larger diagram, as
-`measured = loop >> NumberResolvingMeasurement(1)` does in the notebook and in the module
-docstring. Locating the bubble and rethreading the memory past the downstream boxes is the
-functorial job the stream does.
-
-So `stream` survives, but stops being an interface: it is the shared subprocedure of
-`unroll` and `now`, both of which live in PR 1, and its result loses two classes.
 
 - [ ] order the rebases 1 → 2, rebasing PR 2 on PR 1's head at every round
 
-## Delete Stream, FeedbackBoundary and at_time
+## `stream()` is needed nowhere
 
-`stream()` returns a plain `(stream, top, bot)` tuple: the DisCoPy stream and the two
-boundary ends already tensored into diagrams over `stream.mem.now`. Both consumers tensor
-the per-loop list on the next line anyway, so per-loop grouping buys nothing, and `mem`
-stops being carried alongside — it is `top.cod == bot.dom` — which removes
-`FeedbackBoundary`'s load-bearing field order, today `for state, _, loop_mem in boundaries`.
+With boundary handles on `unroll`, every consumer of the stream goes through `unroll`:
 
-`at_time` is `unroll` plus one composition. Both call the identical
-`stream.unroll(n - 1).now`, and with `dom == Ty()` their `initial` is the same expression,
-so with `bot == Discard(mem)`:
+| was | becomes |
+| --- | --- |
+| `now()` | `unroll(1, state=None, effect=None)` — a one-line alias |
+| `truncation_dimension`, `eigen_fix` | the same call; they then split `step.cod[len(self.cod):]` as today |
+| `at_time(n)` | deleted; `power_fix` composes on `unroll(n, effect=None)` |
+| `unroll(n)` | keeps the functor inline, exactly as #12 shipped |
 
-```
-unroll(n) >> Discard(cod ** (n - 1)) @ Id(cod)
-  = initial >> unrolled >> (Id(cod ** n) @ Discard(mem))
-             >> (Discard(cod ** (n - 1)) @ Id(cod))
-  = initial >> unrolled >> (Discard(cod ** (n - 1)) @ Id(cod) @ Discard(mem))
-  = at_time(n)
-```
+So `stream()`, `core.diagram.Stream` and `core.diagram.FeedbackBoundary` are all deleted, and
+PR 1's public surface is `feedback` and `unroll` — #12's shipped surface — plus `now` as
+sugar. The per-loop boundary list never leaves `unroll`, so the aggregate `(state, effect)`
+is the only boundary anyone sees.
 
-by interchange, the two composites acting on disjoint wires. It folds into `power_fix`,
-its only caller.
+Why the open call gives what `eigen` needs: with both handles open the plugs are identities,
+so `unroll(1, state=None, effect=None)` is `stream.now` on the nose — the one-step map from
+`dom @ mem` to `cod @ mem` with the memory trailing, which is all
+`truncation_dimension` and `eigen_fix` ever read.
 
-- [ ] delete `core.diagram.Stream` and `core.diagram.FeedbackBoundary`
-- [ ] delete `channel.Diagram.at_time`
+- [ ] delete `stream()`, `Stream` and `FeedbackBoundary`
+- [ ] delete `at_time`
 
-## PR 1: the feedback category
+## The boundary handles
 
-The boundary belongs to the bubble. `initial_state` and `final_effect` become `top` and
-`bot`, two ordinary attributes of `Feedback`, diagrams rather than optional plugs,
-defaulting to `Diagram.id(mem)`. There is no `Boundary` class — an open memory wire *is*
-the identity on `mem`, and that default alone is what removes the `None` branching, at ten
-sites each spelling `None if x is None else f(x)` twice:
+`initial_state` and `final_effect` become `state` and `effect`, ordinary attributes of the
+`Feedback` bubble and keyword parameters of both `feedback` and `unroll`.
+
+**`None` is an input spelling, not a stored value.** It resolves at construction to
+`Diagram.id(mem)` — an open memory wire *is* the identity on `mem` — so `Feedback.state` and
+`Feedback.effect` are always diagrams. That is what removes the `None` branching at ten
+sites, each currently spelling `None if x is None else f(x)` twice:
 
 ```python
 def double(self):
     """The feedback loop of the doubled diagram."""
     return Diagram.double(self.arg).feedback(
         mem=self.mem.double(),
-        top=Diagram.double(self.top), bot=Diagram.double(self.bot))
+        state=Diagram.double(self.state), effect=Diagram.double(self.effect))
 ```
 
-- [ ] `feedback(dom=None, cod=None, mem=None, top=None, bot=None)`, `top` and `bot`
-      defaulting to `Diagram.id(mem)`
-- [ ] validate `top.cod == mem` and `bot.dom == mem` in `Feedback.__init__` — the check
+**Defaults are per wire of `mem`**, tensored, on the discriminator `truncation_dimension`
+and `inflate` already use, `ob.inside[0].name == "mode"`:
+
+| wire | `state` | `effect` |
+| --- | --- | --- |
+| `qmode`, `mode` | `Create(0)`, the vacuum | `Discard` |
+| `qubit`, `bit` | `Id` — no natural choice | `Discard` |
+
+- [ ] `feedback(dom=None, cod=None, mem=None, state=None, effect=None)` on `channel.Diagram`,
+      resolving each `None` per wire to the table above and each explicit `None` to `Id`
+- [ ] validate `state.cod == mem` and `effect.dom == mem` in `Feedback.__init__` — the check
       that does not exist today, so the two plug-size cases of `test_feedback_axioms` move
       from "raises at `unroll`" to "raises at `feedback`"
-- [ ] `__str__` and `__repr__` print `top` and `bot` only when they are not
-      `Diagram.id(mem)`, keeping `eval(repr(x)) == x`
+- [ ] `unroll(n_steps=1, state=..., effect=...)` overriding the bubble's aggregate boundary,
+      `None` overriding it to open
+- [ ] `now()` as `unroll(1, state=None, effect=None)`
+- [ ] `__str__` and `__repr__` print `state` and `effect` only when they differ from the
+      defaults their `mem` would give, keeping `eval(repr(x)) == x`
 - [ ] the structural transports — `conjugate`, `inflate` twice, `double`, `get_kraus`, both
       `Functor.__call__` — become single expressions, and `is_pure` becomes
-      `all(part.is_pure for part in (self.arg, self.top, self.bot))`
-- [ ] `stream()` returns `(stream, top, bot)`, accumulating the two boundary diagrams during
-      the same traversal instead of collecting per-loop triples. Keep
-      `mem=ty_factory(box.mem) @ inner.mem` and the append-before-recurse order — outer loop
-      before nested, left to right — which is the invariant both consumers rely on
-- [ ] document `stream` as the shared subprocedure of `unroll` and `now`, keeping the
-      rationale for why it is a method and not the cached property rejected in #12
-- [ ] `unroll(n)` ends at `self.id(dom) @ top >> unrolled >> self.id(cod) @ bot`; its domain
-      becomes readable off the boundary, `unroll(n).dom == dom ** n @ top.dom`, empty for a
-      genuine state and `mem` for an open wire
-- [ ] `now()` returning `stream.now` — the loop reopened, boundaries deliberately ignored
+      `all(part.is_pure for part in (self.arg, self.state, self.effect))`
+- [ ] `unroll(n).dom == dom ** n @ state.dom`, empty for a genuine state and `mem` for an
+      open wire, so "open wires gathered at the end of the domain in loop order" stops being
+      prose
 - [ ] the "Stateful channels" module docstring without its "Fixpoints." paragraph, with
       `feedback.png` and `unroll.png`, carrying the Di Lavore, de Felice and Roman (LICS
       2022) and Katis, Sabadini and Walters (2002) grounding out of the deleted
       `FeedbackBoundary` docstring
-- [ ] tests: keep `test_stream_is_a_method_not_a_property` and
-      `test_stream_semantics_contract_and_order` and
-      `test_stream_semantics_is_uncached_and_boundary_free`, restated over the aggregated
-      `top` and `bot`, which still pin the memory order including the nested case; add the
-      construction-time type errors, the default `top == bot == Id(mem)`, and
-      `unroll(n).dom == dom ** n @ top.dom`
+- [ ] tests: restate the three stream tests over `unroll` and `now`, keeping the nested and
+      sequential memory-order cases they pin; add the construction-time type errors, each
+      default from the table, and the override reaching all three states — bubble, given,
+      open
+
+### Four things the specification does not settle
+
+- [ ] `unroll` needs a third value distinct from `None`, since `None` means "override to
+      open" and the default must mean "use the bubble's". Proposal: `...`, so
+      `unroll(n_steps=1, state=..., effect=...)` — a builtin singleton reading as "as given",
+      no new name. Confirm or name an alternative
+- [ ] the core layer has no `Discard` at all — it is not a CPM category — so
+      `core.Diagram.feedback` can only default both ends to `Id(mem)`, and the table above is
+      a `channel` notion. `double()` still transports correctly, since it maps the channel
+      `Discard` down to its doubled spider. Confirm that asymmetry is intended
+- [ ] `photonic.py` imports `channel.py`, so a `Create(0)` default inside `channel.Feedback`
+      needs a deferred `import_module("optyx.photonic")`, as `power_fix` already does for
+      `optyx.core.backends`. The alternative is a vacuum defined at channel level. Also
+      unsettled: `photonic.Create` produces `qmode`, so classical `mode` has no vacuum yet
+      and would fall back to open
+- [ ] the prompt says `now = unroll(0, ...)`, which is DisCoPy's indexing — number of
+      unrollings, `unroll(0)` being one step. optyx's parameter is `n_steps` and means time
+      steps, so today `unroll(1)` is one step and `unroll(2)` is two. Adopting `0` shifts
+      every call site and makes the name a lie. Recommend keeping time steps and
+      `now = unroll(1, state=None, effect=None)`
+
+A note rather than a checkbox: a vacuum `state` default means a forgotten initial state
+yields a plausible answer instead of a type error, where today it yields an open wire and
+fails loudly downstream. That is the price of the convenience, and worth stating in the
+docstring.
 
 ## PR 2: fixpoint semantics
 
@@ -887,12 +900,30 @@ Everything else in the current diff, unchanged in substance: `normalisation`, `i
 `MAX_TRUNCATION`, `backends.py`, the `misc.py` deletion, `test_fix.py`, the notebook,
 `docs/conf.py`, `docs/notebooks.rst`, the workflow and the "Fixpoints." paragraph.
 
-- [ ] `power_fix`'s `contract` closure becomes, after rewriting each loop's `bot` to
-      `Discard(mem)`,
-      `self.unroll(steps) >> Discard(self.cod ** (steps - 1)) @ self.id(self.cod)`
+`at_time` is `unroll` plus one composition. Both call the identical
+`stream.unroll(n - 1).now`, and with `dom == Ty()` their initial plug is the same expression,
+so with `effect == Discard(mem)`:
+
+```
+unroll(n) >> Discard(cod ** (n - 1)) @ Id(cod)
+  = initial >> unrolled >> (Id(cod ** n) @ Discard(mem))
+             >> (Discard(cod ** (n - 1)) @ Id(cod))
+  = initial >> unrolled >> (Discard(cod ** (n - 1)) @ Id(cod) @ Discard(mem))
+  = at_time(n)
+```
+
+by interchange, the two composites acting on disjoint wires. `power_fix` should not rely on
+the loop's `effect` being a discard, since a caller may have set another one, so it opens the
+memory and discards it itself.
+
+- [ ] `power_fix`'s `contract` closure becomes `self.unroll(steps, effect=None)`, then
+      `Discard(self.cod ** (steps - 1)) @ self.id(self.cod) @ Discard(memory)` with
+      `memory = step.cod[len(self.cod) * steps:]`
+- [ ] `truncation_dimension` and `eigen_fix` replace `self.now()` with the same call or with
+      `now()` itself; neither reads anything but the open one-step map
 - [ ] carry `at_time`'s three guards into `power_fix`: empty domain, positive integer
-      `n_steps`, and every `top` a state — now one check, `top.dom == Ty()`, on the
-      aggregate rather than a scan over loops
+      `n_steps`, and every loop's `state` a state — now one check, `state.dom == Ty()`, on
+      the aggregate rather than a scan over loops
 - [ ] keep the `n_steps == 1` branch: `Discard(Ty())` is a box and not an identity, and
       `power_fix` reaches `contract(depth - 1)` with `depth == 2` on the hot path
 - [ ] `test_fix.py` asserts diagram equality in `conditioned.at_time(2) ==
@@ -900,5 +931,7 @@ Everything else in the current diff, unchanged in substance: `normalisation`, `i
       restate it as an evaluation comparison or accept the new layer order
 - [ ] note where the rewrite happens that `Discard(m0 @ m1) != Discard(m0) @ Discard(m1)` as
       terms; irrelevant to every diagram `fix` is called on, all of which are single-loop
+- [ ] the fixtures in `test_fix.py` and the notebook pass `initial_state=Create(0)` on qmode
+      loops, which the new default supplies; drop the redundant argument or keep it explicit
 - [ ] reword `stationary_state`'s guard, whose message names `now`, and its test matching
       `"without feedback"`
