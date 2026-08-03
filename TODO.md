@@ -953,3 +953,29 @@ loss))`. They stay in time steps, and the single conversion to unrollings lives 
       drop the now-redundant `final_effect=Discard(...)` where it matches the default
 - [ ] reword `stationary_state`'s guard, whose message names `now`, to name `one_step`, and
       its test matching `"without feedback"`
+
+> What is the difference between eigen and stationary_state? Could they also be merged into one?
+
+## Why `eigen_fix` and `stationary_state` stay separate
+
+They are the solver and its feedback-specific wrapper, defined on disjoint classes of
+diagram: `stationary_state` refuses anything containing a `Feedback`, `eigen_fix` is
+meaningless without one. Merging them would give one method branching on whether the diagram
+has a loop and returning a different type in each branch — the shape review has rejected
+elsewhere in this PR — and `stationary_state`'s generality over any loop-free endomorphism
+was itself requested in review, with five direct tests, a doctest and a notebook section.
+
+The real simplification is in the other direction, and it is the one wart both methods pay
+for: `stationary_state` returns a **numpy array** because its eigenvector comes out of
+`np.linalg.eig`, so `eigen_fix` has to rebuild it as a `tensor.Box` by hand before composing
+it with the readout, and `normalisation` carries an array parameter for the same reason. If
+the fixed point came back as a state **diagram**, `eigen_fix`'s tail would be `state >>
+readout` and that parameter would go.
+
+It is blocked: `to_tensor` cannot build a state box above cutoff two, since an empty domain
+leaves `determine_output_dimensions` nothing to derive the output dimensions from.
+
+- [ ] open an issue for lifting `stationary_state`'s result to a state diagram, blocked on
+      `to_tensor` giving a state box its output dimensions with an empty domain; note that it
+      also removes `normalisation`'s array parameter and collapses `eigen_fix`'s tail to
+      `state >> readout`
