@@ -273,7 +273,7 @@ class Ob(frobenius.Ob):
         return diagram.Ty(name, name)
 
 
-MAX_UNROLL = 64
+DEFAULT_MAX_STEPS = 64
 MAX_TRUNCATION = 32
 DEFAULT_CHI = 8
 
@@ -583,7 +583,7 @@ class Diagram(frobenius.Diagram):
                 [2] * len(self.dom.double())).cod]
 
     def fix(self, tol: float = 1e-6, loss: float = 0,
-            chi: int = DEFAULT_CHI, max_steps: int = MAX_UNROLL, *,
+            chi: int = DEFAULT_CHI, max_steps: int = DEFAULT_MAX_STEPS, *,
             backend=None):
         """
         Approximate the stationary state of a stateful diagram as a density
@@ -621,7 +621,8 @@ class Diagram(frobenius.Diagram):
                 in seconds. `None` contracts exactly, whatever that costs.
             max_steps : The number of time steps to unroll when no loss
                 certifies a smaller one — the handle that keeps a lossless
-                loop usable in practice. `MAX_UNROLL` by default.
+                loop usable in practice. The public `DEFAULT_MAX_STEPS` of
+                sixty-four by default.
             backend : An optional
                 :class:`optyx.core.backends.AbstractBackend`. DisCoPy
                 evaluates with ``tensor.Functor``; Quimb contracts the same

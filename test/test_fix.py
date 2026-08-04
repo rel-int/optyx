@@ -180,6 +180,33 @@ def test_max_steps_is_the_depth_when_nothing_certifies_one():
     assert np.allclose(result.density_matrix, expected)
 
 
+def test_feedback_of_the_identity_is_a_closed_loop():
+    """The identity fed back to itself leaves nothing open: the memory
+    carries its state around unchanged. Every memory state is stationary,
+    so `eigen_fix` refuses to pick one, while the visible fixpoint over the
+    empty codomain is the scalar one."""
+    closed = Diagram.id(qmode).feedback(state=photonic.Create(0))
+    assert closed.dom == closed.cod == Ty()
+    assert closed.mem == qmode
+    assert closed.one_step() == Diagram.id(qmode)
+    with pytest.raises(ValueError, match="not unique"):
+        closed.eigen_fix()
+    with pytest.warns(UserWarning, match="no loss certifies"):
+        result = closed.fix(max_steps=3)
+    assert result.density_matrix.shape == ()
+    assert np.isclose(result.density_matrix, 1)
+    with pytest.raises(ValueError, match="needs a state"):
+        Diagram.id(qmode).feedback().at_time(2)
+
+
+def test_a_delay_does_not_change_the_fixpoint():
+    """Post-composing a delay line shifts the output by one tick, and the
+    fixed point is exactly what a time shift preserves."""
+    wait = Diagram.swap(qubit, qubit).feedback(state=qubits.Ket(0))
+    delayed = (rotation(0.25) >> wait).eigen_fix().density_matrix
+    assert np.allclose(delayed, rotation(0.25).eigen_fix().density_matrix)
+
+
 def test_eigen_periodic_and_non_unique():
     assert np.allclose(flip().eigen_fix().density_matrix, [.5, .5])
     with pytest.raises(ValueError, match="not unique"):
