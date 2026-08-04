@@ -32,10 +32,11 @@ package is listed in the PR body, not fixed here.
 - [x] `good-names` in `pyproject.toml`; delete the `invalid-name` disables in the two files
 - [x] Fix `bad-classmethod-argument`, `redefined-builtin` in `core/diagram.py`
 - [x] `no-else-return` in `Box.photon_number_transform` (`Spider.determine_output_dimensions` was already clean)
-- [ ] Leave the genuinely circular `import-outside-toplevel` visible; open the layering issue
+- [x] Leave the genuinely circular `import-outside-toplevel` visible; layering issue is #30
 
 ## Verify
 
 - [x] Tests for the inlined `inflate` branches
-- [ ] `pflake8 optyx`, `pylint optyx --fail-under=9`, `coverage run -m pytest`,
-      `coverage report --fail-under=95`, no `docs/_static` churn
+- [x] `pflake8 optyx`, `pylint optyx --fail-under=9`, `coverage run -m pytest`,
+      `coverage report --fail-under=95`, no `docs/_static` churn — all three CI jobs green.
+      pylint 9.54 (main) -> 9.53. Coverage 95%, 174/3229 missing -> 167/3210.
