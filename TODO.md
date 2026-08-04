@@ -990,26 +990,73 @@ caller, `truncation_dimension`, which is itself absorbed. `unroll_depth` and
 the trace of the contracted state and `eigen_fix` for the trace inside the absorbed
 `stationary_state`. No spectral decomposition — `spectrum` is not added.
 
-### Making `unroll_depth` depend on the diagram
+### `unroll_depth` reads the loop block when it can
 
-The sharpened bound exists and is proved, but it was never implemented here: it lives in the
-wiki notebook *Bounding the unroll length in approximate stationary boson sampling*, as
+Three branches, in order:
 
-    |lambda_2| = gamma * rho(|D| ** 2 entrywise)
+1. **`to_path` succeeds** — take the underlying linear-optical matrix, restrict it to the
+   memory wires to get the `L x L` loop block `D`, and use
+   `|lambda_2| = gamma * rho(|D| ** 2 entrywise)` with `gamma = 1 - loss`, `gamma = 1` when no
+   loss is given. Depth is `ceil(log tol / log |lambda_2|)`, at `O(L^3)`.
+2. **`to_path` fails and a `loss` is given** — the universal bound
+   `ceil(log tol / log(1 - loss))`, today's behaviour.
+3. **`to_path` fails and no `loss` is given** — `NotImplementedError`. There is nothing to
+   compute a gap from.
 
-the spectral radius of the entrywise modulus-squared `L x L` loop block `D` of `U`, in
-`O(L^3)`. Against the universal bound it saved 80-88% of the depth on the sampled `L = 1`
-chains at `gamma = 0.9`, and 0-7% at `L = 2`.
+`tol` defaults to `1e-6` throughout.
 
-Three ways to compute a depth, and only two of the three properties are available at once:
+Branch 1 is not just tighter, it is the difference between a guarantee and none: today
+`unroll_depth` **raises** at `loss = 0`, and `fix` falls back to doubling until successive
+contractions agree. A lossless loop still leaks — light leaves through the external port — so
+its loop block is strictly substochastic and the gap is real. Measured on the beam-splitter
+loop, all three lossless:
 
-| | cheap | uses the diagram | general |
-| --- | --- | --- | --- |
-| `ceil(log tol / log gamma)` — today | yes | **no** | yes |
-| `gamma * rho(\|D\|^2)` from the loop block | yes, `O(L^3)` | yes | **linear-optical loops only** |
-| second eigenvalue of the transfer channel | **no**, `O(h^6)` | yes | yes |
+| `theta` | `rho(\|D\|^2)` | `n*` at `tol = 1e-6` |
+| --- | --- | --- |
+| 0.06 | 0.9649 | 387 |
+| 0.25, the 50:50 splitter | 0.5000 | 20 |
+| 0.40 | 0.0955 | 6 |
 
-- [ ] decide which: reading the loop block and degrading to the universal bound when it
-      cannot be read keeps the method honest and cheap, at the cost of a fast path that only
-      some diagrams take. The alternative is to leave the arithmetic as it is and accept a
-      method that ignores its receiver
+The 50:50 row reproduces the existing doctest `unroll_depth(1e-6, loss=.5) == 20` exactly,
+now derived from the diagram rather than supplied.
+
+- [ ] implement the three branches, `tol` defaulting to `1e-6`
+- [ ] try `to_path` on the `Feedback` bubble's `arg`, not on the whole diagram: the rate is a
+      property of the loop, and `measured = loop >> NumberResolvingMeasurement(1)` fails with
+      "Diagram must be pure to convert to path" while its bubble is still reachable and
+      linear-optical. Settle what to do when several bubbles disagree; `fix` only ever sees one
+- [ ] pin which rows and columns of the path matrix are the memory block. The memory is
+      trailing in `dom` and `cod`, so it should be the trailing index, but the beam-splitter
+      `|U|^2` is symmetric and cannot distinguish the convention — check against an
+      asymmetric multi-mode loop before relying on it
+- [ ] state in the docstring that the bound is conservative: the notebook converges `loop(.06)`
+      in 12 steps where the certificate asks 387
+
+## Docstrings for every method that stays
+
+One running example, the beam splitter with a single photon injected at each step and its
+output fed back:
+
+```python
+>>> from optyx import photonic
+>>> from optyx.channel import qmode, Ty, Discard
+>>> step = photonic.Create(1) @ qmode >> photonic.MZI(.25, 0)
+>>> loop = step.feedback(mem=qmode, state=photonic.Create(0))
+```
+
+- [ ] `feedback`: `loop.dom == Ty()`, `loop.cod == loop.mem == qmode`, `loop.state` the
+      vacuum given and `loop.effect == Discard(qmode)` from the default — the one place the
+      default is visible
+- [ ] `unroll`: `loop.unroll(0)` one time step and `loop.unroll(2)` three, with the DisCoPy
+      indexing stated; `loop.unroll(1, state=None)` leaving the input memory open, which is
+      what documents the handle
+- [ ] `one_step`: `loop.one_step() == step`, the feedback normal form
+- [ ] `at_time`: `loop.at_time(3).dom == Ty()` and `.cod == qmode`, and that it is
+      `unroll` composed with the discards
+- [ ] `unroll_depth`: `loop.unroll_depth() == 20` off the loop block, with no loss given —
+      the branch that today raises
+- [ ] `fix`: both methods on this loop agreeing to `tol`
+- [ ] `power_fix` and `eigen_fix`: what each contracts, and the regime where each is cheaper
+- [ ] `normalisation`: the fixed point of this loop has trace one
+- [ ] draw the loop once for the module docstring and reuse the figure rather than
+      regenerating it per method
