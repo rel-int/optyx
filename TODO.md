@@ -956,28 +956,45 @@ loss))`. They stay in time steps, and the single conversion to unrollings lives 
 
 > What is the difference between eigen and stationary_state? Could they also be merged into one?
 
-## Why `eigen_fix` and `stationary_state` stay separate
+> This edit is becoming more and more important. If we can restrict to feedback, unroll, one_step (first PR) and at_time, eigen_fix, power_fix, fix (second PR) it would be great. At_time seemed useful to me as a shortcut, although it can be defined with discard and unroll. I want to avoid to_stream so we don't need to define our own stream class and the semantics of channel remains external to the package. I think stationary_state can be included in the eigen_fix method if we don't use it elsewhere. The only thing that would be worth keeping separate is the spectral decomposition but it would have to be generalised properly to arbitrary channels if so. I don't like these methods that work only for certain diagrams. Edit the PR description making a list of the proposed methods that remain and those that are removed by the restructuring of fix PR.
 
-They are the solver and its feedback-specific wrapper, defined on disjoint classes of
-diagram: `stationary_state` refuses anything containing a `Feedback`, `eigen_fix` is
-meaningless without one. Merging them would give one method branching on whether the diagram
-has a loop and returning a different type in each branch — the shape review has rejected
-elsewhere in this PR — and `stationary_state`'s generality over any loop-free endomorphism
-was itself requested in review, with five direct tests, a doctest and a notebook section.
+## The surface after the restructuring
 
-The real simplification is in the other direction, and it is the one wart both methods pay
-for: `stationary_state` returns a **numpy array** because its eigenvector comes out of
-`np.linalg.eig`, so `eigen_fix` has to rebuild it as a `tensor.Box` by hand before composing
-it with the readout, and `normalisation` carries an array parameter for the same reason. If
-the fixed point came back as a state **diagram**, `eigen_fix`'s tail would be `state >>
-readout` and that parameter would go.
+Seven methods survive, from sixteen public additions. PR 1 keeps `feedback`, `unroll` and
+`one_step`; PR 2 keeps `at_time`, `fix`, `power_fix` and `eigen_fix`. `at_time` stays as the
+shortcut even though `unroll` and `Discard` define it. Listed in the description of #26.
 
-It is blocked by #28: `Box.truncation` returns early for any box carrying an explicit
-`array=`, hardcoding `Dim(2)` per wire and discarding the dimensions it was passed
-(`core/diagram.py:705-717`), so an array-backed box cannot be evaluated on a `mode` wire
-above cutoff two. Reproduced both ways — a state raises inside `to_tensor`, an endomorphism
-reports `Dim(2) -> Dim(2)` and raises one step later in `eval`. Nothing to do with empty
-domains.
+Call graph checked before deciding: `is_hermitian` and `is_positive` have **zero** callers in
+the package — `stationary_state` deliberately stopped running them and nothing picked them up
+— and `Ty.double_axes` / `Ty.dagger_axes` exist only to serve those two. `is_causal` has one
+caller, `truncation_dimension`, which is itself absorbed. `unroll_depth` and
+`truncation_dimension` have one caller each. `stationary_state` has one caller in code,
+`eigen_fix`, though five tests, a doctest and a notebook section call it directly.
 
-- [ ] once #28 lands, lift `stationary_state`'s result to a state diagram: it removes
-      `normalisation`'s array parameter and collapses `eigen_fix`'s tail to `state >> readout`
+- [ ] delete `Stream`, `FeedbackBoundary` and `stream()`
+- [ ] absorb `stationary_state` and `truncation_dimension` into `eigen_fix`, and
+      `MAX_TRUNCATION` into a local cap there; fix `truncation_dimension` while absorbing it,
+      since it always returns two today — it measures the unprojected map while
+      `stationary_state` refuses the projected one
+- [ ] absorb `unroll_depth` into `power_fix`; it is arithmetic in `tol` and `loss` that never
+      touches the diagram
+- [ ] delete `is_causal`, `is_hermitian`, `is_positive`, `Ty.double_axes` and
+      `Ty.dagger_axes`, with the tests that only covered them
+- [ ] keep `at_time`, defined as `unroll(n - 1, effect=None)` composed with the discards
+      rather than re-implementing the plumbing
+
+### Two open points
+
+- [ ] `normalisation(state=None, dimensions=None)` is not among the seven and I would keep
+      it: general over any diagram, specified in review thread `r3698759394`, and with two
+      surviving callers — the trace in `power_fix` and in the absorbed `stationary_state`.
+      Inlining duplicates a diagrammatic contraction that is not a plain trace on mixed
+      classical and quantum types. Its `state=` array parameter is the wart, and #28 removes
+      it. Confirm or strike
+- [ ] if the spectral decomposition is kept, it should be `spectrum(dimensions)` — the
+      eigenvalues and eigenvectors of the doubled operator and nothing else. It passes the
+      generality test: `dom == cod` is the definition of an eigenvalue problem, not a
+      restriction on which diagrams work. It also gives `|lambda_2|` directly, which the
+      notebook currently only derives analytically. The causality residual, the
+      no-fixed-point and non-uniqueness guards and the normalisation are fixed-point
+      concerns and move to `eigen_fix`
