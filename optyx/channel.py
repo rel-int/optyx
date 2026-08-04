@@ -275,6 +275,7 @@ class Ob(frobenius.Ob):
 
 MAX_UNROLL = 64
 MAX_TRUNCATION = 32
+DEFAULT_CHI = 8
 
 
 def _trace(ty, state):
@@ -292,26 +293,6 @@ def _trace(ty, state):
     return (tensor.Box(
         "State", tensor.Dim(1), discarded.dom, np.asarray(state))
         >> discarded).eval().array
-
-
-def _distance(left, right):
-    """
-    The norm of the difference of two arrays, the smaller zero-padded to the
-    shape of the larger.
-
-    Two depths of the same loop settle on the same state but not on the same
-    shape: a loop which accumulates photons has a larger photon budget at
-    the deeper unrolling, so its state carries more occupations — all of
-    them near zero once the loop has converged, which is what padding says.
-    """
-    shape = tuple(
-        max(*sizes) for sizes in zip(np.shape(left), np.shape(right)))
-    padded_left, padded_right = (
-        np.pad(array, [
-            (0, target - size)
-            for size, target in zip(np.shape(array), shape)])
-        for array in (left, right))
-    return np.linalg.norm(padded_left - padded_right)
 
 
 def _validate(stateful, tol, loss, chi):
@@ -601,12 +582,12 @@ class Diagram(frobenius.Diagram):
             int(dimension.inside[0]) for dimension in self.double().to_tensor(
                 [2] * len(self.dom.double())).cod]
 
-    def fix(self, tol: float = 1e-6, loss: float = 0, chi: int = None, *,
+    def fix(self, tol: float = 1e-6, loss: float = 0,
+            chi: int = DEFAULT_CHI, max_steps: int = MAX_UNROLL, *,
             backend=None):
         """
         Approximate the stationary state of a stateful diagram as a density
-        matrix over its codomain, by contracting an unrolling as a tensor
-        network.
+        matrix over its codomain, with a single tensor-network contraction.
 
         A diagram with a feedback loop has stream semantics through
         :meth:`unroll`, and approximate fixed-point semantics here. Both use
@@ -619,48 +600,51 @@ class Diagram(frobenius.Diagram):
         limit of :meth:`at_time` only when iteration converges; periodic
         channels can have a fixed state while their iterates cycle.
 
-        This is the power iteration, and the depth is not a parameter: a
-        lossy loop gets one from :meth:`unroll_depth` without contracting
-        anything, and a lossless loop is searched for by doubling until two
-        successive depths agree within `tol`, capped by `MAX_UNROLL` and by
-        the depths whose photon budget `chi` can hold exactly. Where
-        the transfer matrix is small enough to diagonalise, :meth:`eigen_fix`
-        is exact and cheaper; it is public and called directly.
+        The depth is the most efficient available: the certificate
+        :meth:`unroll_depth` gives when there is a `loss`, or `max_steps`
+        when there is none or when the certificate is deeper. Each situation
+        where the result is not the fixed point within `tol` has its own
+        warning: a depth no loss certifies, and a `chi` below the dimensions
+        the network needs — read off by :meth:`truncation_dimensions` — which
+        truncates the contraction to an approximation. Where the transfer
+        matrix fits in memory, :meth:`eigen_fix` is exact with no depth at
+        all; it is public and called directly.
 
         Parameters:
-            tol : The error to approximate the fixed point within.
+            tol : The error the certified depth approximates the fixed point
+                within.
             loss : The fraction of the memory lost per round trip. A positive
-                loss makes the depth a guarantee rather than a search, see
+                loss is what makes the depth a guarantee, see
                 :meth:`unroll_depth`.
-            chi : The largest bond dimension the contraction may use, which
-                is lossless while the bonds the network needs stay within
-                it. When the *photon budget* of the network outgrows `chi`
-                the state itself no longer fits: the search stops at the
-                deepest depth whose budget `chi` holds, warns, and the
-                result is the approximation truncated at dimension `chi`.
-                `None` never compresses nor truncates.
+            chi : The bond dimension of the contraction. The public
+                `DEFAULT_CHI` of eight by default — what a laptop contracts
+                in seconds. `None` contracts exactly, whatever that costs.
+            max_steps : The number of time steps to unroll when no loss
+                certifies a smaller one — the handle that keeps a lossless
+                loop usable in practice. `MAX_UNROLL` by default.
             backend : An optional
                 :class:`optyx.core.backends.AbstractBackend`. DisCoPy
-                evaluates with ``tensor.Functor``; Quimb can contract exactly
-                or use Cotengra compression bounded by `chi`.
+                evaluates with ``tensor.Functor``; Quimb contracts the same
+                doubled network with an optimised path, compressed to `chi`.
 
         A loop which reprepares its memory at every time step forgets its
-        initial state, so it is its own stationary state:
+        initial state, so it is its own stationary state; five steps of a
+        half-lossy memory are certified within one percent:
 
         >>> from optyx.qubits import Ket
         >>> source = (Discard(qubit) @ Ket(0) @ Ket(0)).feedback(
         ...     mem=qubit, state=Ket(1))
-        >>> fixed = source.fix(tol=1e-4)
+        >>> assert source.unroll_depth(1e-2, loss=.5) == 7
+        >>> fixed = source.fix(tol=1e-2, loss=.5)
         >>> assert np.allclose(fixed.density_matrix, [[1, 0], [0, 0]])
-
-        The dimensions a depth needs are the photon budget
-        :meth:`truncation_dimensions` reads off the contracted network, so
-        `chi` is compared against a reading rather than against a guess.
 
         See :doc:`/notebooks/fixpoints` for the semantic diagram, agreement
         map and contraction planning.
         """
         _validate(self, tol, loss, chi)
+        if not isinstance(max_steps, Integral) \
+                or isinstance(max_steps, bool) or max_steps <= 0:
+            raise ValueError("max_steps must be a positive integer.")
         backends = import_module("optyx.core.backends")
         if backend is None:
             backend = backends.QuimbBackend(
@@ -670,81 +654,42 @@ class Diagram(frobenius.Diagram):
             raise ValueError(
                 "backend must implement the AbstractBackend interface.")
 
+        certified = self.unroll_depth(tol, loss) if loss else None
+        depth = max_steps if certified is None \
+            else min(certified, max_steps)
+        if certified is None:
+            warnings.warn(
+                f"no loss certifies {depth} time steps within tol={tol}: "
+                "the result is the finite-time state, exact but not a "
+                "guaranteed fixed point.", UserWarning, stacklevel=2)
+        elif certified > max_steps:
+            warnings.warn(
+                f"max_steps={max_steps} stops short of the certified depth "
+                f"{certified}: the result is not guaranteed within "
+                f"tol={tol}.", UserWarning, stacklevel=2)
+
+        network = self.at_time(depth - 1)
+        needed = max(network.truncation_dimensions(), default=1)
+        if chi is not None and needed > chi:
+            warnings.warn(
+                f"the contraction needs dimension {needed} but chi={chi}: "
+                "the result is an approximation truncated at chi.",
+                UserWarning, stacklevel=2)
         compressible = chi is not None and isinstance(
             getattr(backend, "hyperoptimiser", None),
             (ReusableHyperCompressedOptimizer, HyperCompressedOptimizer))
-        result_cache, warned = {}, []
+        result = network.eval(
+            backend, **({"max_bond": chi} if compressible else {}))
 
-        def contract(steps):
-            """The state after `steps` ticks, compressed to `chi` only where
-            the network needs more than `chi`, and warning once when it does.
-
-            The two local functions here are closures rather than methods on
-            purpose. `contract` memoises evaluations in a cache that lives
-            for the duration of one call and must not be shared between
-            calls with different backends, and both read `backend`, `chi`
-            and `tol`. As methods they would take those as arguments and the
-            cache would have to live on the diagram, which is immutable.
-            """
-            if steps not in result_cache:
-                network = self.at_time(steps - 1)
-                needed = max(network.truncation_dimensions(), default=1)
-                if chi is not None and needed > chi and not warned:
-                    warned.append(needed)
-                    warnings.warn(
-                        f"the contraction needs dimension {needed} but "
-                        f"chi is {chi}, so the fixed point is truncated "
-                        "and the result is an approximation.",
-                        UserWarning, stacklevel=3)
-                extra = {"max_bond": chi} if compressible else {}
-                result_cache[steps] = network.eval(backend, **extra)
-            return result_cache[steps]
-
-        def normalised(result):
-            state = np.asarray(result.density_matrix)
-            trace = _trace(self.cod, state)
-            trace_tolerance = 100 * state.size * np.finfo(float).eps
-            if not np.isfinite(trace) or abs(trace) <= trace_tolerance:
-                raise ValueError(
-                    "Contraction returned zero or non-finite trace.")
-            return state / trace
-
-        def budget(steps):
-            return max(
-                self.at_time(steps - 1).truncation_dimensions(), default=1)
-
-        if loss:
-            result = contract(self.unroll_depth(tol, loss))
-        else:
-            depth, result = 2, contract(2)
-            while _distance(
-                    normalised(result),
-                    normalised(contract(depth - 1))) >= tol:
-                if depth >= MAX_UNROLL:
-                    warnings.warn(
-                        f"fix did not converge to tol={tol} within "
-                        f"{MAX_UNROLL} steps; give a positive loss.",
-                        UserWarning, stacklevel=3)
-                    break
-                if chi is not None \
-                        and budget(min(2 * depth, MAX_UNROLL)) > chi:
-                    while depth < MAX_UNROLL and budget(depth + 1) <= chi:
-                        depth += 1
-                    result = contract(depth)
-                    warnings.warn(
-                        f"fix did not converge to tol={tol} within the "
-                        f"depths chi={chi} affords: the photon budget "
-                        f"outgrows chi past depth {depth}, so the state is "
-                        "an approximation truncated at dimension chi — "
-                        "give a positive loss for a certified depth.",
-                        UserWarning, stacklevel=3)
-                    break
-                depth = min(2 * depth, MAX_UNROLL)
-                result = contract(depth)
+        state = np.asarray(result.density_matrix)
+        trace = _trace(self.cod, state)
+        if not np.isfinite(trace) \
+                or abs(trace) <= 100 * state.size * np.finfo(float).eps:
+            raise ValueError(
+                "Contraction returned zero or non-finite trace.")
         return backends.EvalResult(
             tensor.Box(
-                "Result", tensor.Dim(1), result.tensor.cod,
-                normalised(result)),
+                "Result", tensor.Dim(1), result.tensor.cod, state / trace),
             output_types=self.cod, state_type=backends.StateType.DM)
 
     def eigen_fix(self, chi: int = None, loss: float = 0,

@@ -109,12 +109,18 @@ def test_fix_validates_parameters(solver, kwargs):
         getattr(source(), solver)(**kwargs)
 
 
+@pytest.mark.parametrize("max_steps", [0, -1, 1.5, True])
+def test_fix_validates_max_steps(max_steps):
+    with pytest.raises(ValueError, match="max_steps"):
+        source().fix(max_steps=max_steps)
+
+
 def test_source_forgets_its_initial_state():
     expected = np.array([[1, 0], [0, 0]])
     assert np.allclose(
         source(photons=1).eigen_fix().density_matrix, expected, atol=1e-6)
     assert np.allclose(
-        source(photons=1).fix(tol=1e-4, chi=8).density_matrix,
+        source(photons=1).fix(tol=1e-2, loss=.5).density_matrix,
         expected, atol=1e-6)
 
 
@@ -122,7 +128,7 @@ def test_the_effect_does_not_change_the_stationary_state():
     conditioned, plain = source(effect=qubits.Bra(1)), source()
     assert conditioned.at_time(2) == plain.at_time(2)
     for solve in (lambda loop: loop.eigen_fix(),
-                  lambda loop: loop.fix(tol=1e-4, chi=4)):
+                  lambda loop: loop.fix(tol=1e-2, loss=.5)):
         assert np.allclose(
             solve(conditioned).density_matrix, solve(plain).density_matrix)
 
@@ -134,12 +140,17 @@ def test_eigen_against_at_time():
     assert np.linalg.norm(stationary - late) < 1e-2
 
 
-def test_power_converges_to_eigen():
-    """Doubling the depth reaches the state the eigensolve computes."""
+def test_fix_converges_to_eigen():
+    """The contracted state at a certified depth agrees with the
+    eigensolve; without a loss the same depth warns that nothing
+    guarantees it."""
     diagram_ = rotation(0.25)
+    certified = diagram_.fix(tol=1e-3, loss=.1).density_matrix
     assert np.linalg.norm(
-        diagram_.fix(tol=1e-4).density_matrix
-        - diagram_.eigen_fix().density_matrix) < 1e-2
+        certified - diagram_.eigen_fix().density_matrix) < 1e-2
+    with pytest.warns(UserWarning, match="no loss certifies"):
+        finite = diagram_.fix(max_steps=diagram_.unroll_depth(1e-3, .1))
+    assert np.allclose(finite.density_matrix, certified, atol=1e-2)
 
 
 def test_fix_is_a_state():
@@ -150,18 +161,21 @@ def test_fix_is_a_state():
     assert min(np.linalg.eigvalsh(density_matrix)) > -1e-6
 
 
-def test_power_normalises_the_contracted_state():
+def test_fix_normalises_the_contracted_state():
     backend = RecordingBackend()
     backend.result.tensor.array *= 1e-4
-    result = source().fix(tol=1e-4, chi=4, backend=backend)
+    with pytest.warns(UserWarning, match="no loss certifies"):
+        result = source().fix(max_steps=3, backend=backend)
     assert np.allclose(result.density_matrix, [[1, 0], [0, 0]])
+    assert len(backend.calls) == 1
 
 
-def test_power_does_not_alias_period_two(monkeypatch):
-    """A period-two loop never converges, so the depth cap warns."""
-    monkeypatch.setattr(channel, "MAX_UNROLL", 8)
-    with pytest.warns(UserWarning, match="did not converge"):
-        result = flip().fix(chi=4, tol=1e-6)
+def test_max_steps_is_the_depth_when_nothing_certifies_one():
+    """A period-two loop has a stationary state its iterates never reach:
+    `fix` returns the finite-time state at `max_steps` and the warning is
+    what says no tolerance is guaranteed."""
+    with pytest.warns(UserWarning, match="no loss certifies"):
+        result = flip().fix(chi=4, max_steps=8)
     expected = flip().at_time(7).eval().density_matrix
     assert np.allclose(result.density_matrix, expected)
 
@@ -173,54 +187,65 @@ def test_eigen_periodic_and_non_unique():
 
 
 def test_chi_bounds_the_bond_and_warns_past_the_budget():
-    """`chi` bounds the bonds whenever it is given — lossless while the
-    bonds fit — and warns only when the photon budget outgrows it, which is
-    when the state itself no longer fits."""
+    """`chi` is the bond dimension of the one contraction — lossless while
+    the bonds fit — and warns only when the photon budget outgrows it,
+    which is when the state itself no longer fits."""
     backend = RecordingBackend()
-    source().fix(tol=1e-4, chi=8, backend=backend)
-    assert all(params["max_bond"] == 8 for _, params in backend.calls)
+    source().fix(loss=.5, tol=1e-2, chi=8, backend=backend)
+    assert [params["max_bond"] for _, params in backend.calls] == [8]
 
     backend = RecordingBackend()
-    source().fix(tol=1e-4, chi=None, backend=backend)
+    source().fix(loss=.5, tol=1e-2, chi=None, backend=backend)
     assert all("max_bond" not in params for _, params in backend.calls)
 
     backend = RecordingBackend()
-    with pytest.warns(UserWarning, match="needs dimension 2 but chi is 1"):
-        source().fix(tol=1e-4, chi=1, backend=backend)
-    assert [params["max_bond"] for _, params in backend.calls] == [1, 1]
+    with pytest.warns(UserWarning, match="needs dimension 2 but chi=1"):
+        source().fix(loss=.5, tol=1e-2, chi=1, backend=backend)
+    assert [params["max_bond"] for _, params in backend.calls] == [1]
 
 
 def test_fix_truncates_a_growing_photon_budget():
     """A loop which accumulates photons outgrows a small `chi`: at the
-    depth a loss of a half buys, this one needs eight dimensions, so
-    `chi=6` warns that the state is truncated while `chi=8` holds the
-    budget and stays silent."""
+    certified depth of a ninety-percent loss this one needs four
+    dimensions, so `chi=2` warns that the result is truncated while
+    `chi=4` holds the budget and stays silent."""
     assert [sampler().at_time(n).truncation_dimensions()[0]
             for n in range(4)] == [2, 3, 4, 5]
-    with pytest.warns(UserWarning, match="needs dimension 8 but chi is 6"):
-        truncated = sampler().fix(chi=6, loss=.5, tol=1e-2)
+    with pytest.warns(UserWarning, match="truncated at chi"):
+        truncated = sampler().fix(chi=2, loss=.9, tol=1e-2)
     assert np.isclose(np.trace(truncated.density_matrix), 1)
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        sampler().fix(chi=8, loss=.5, tol=1e-2)
+        sampler().fix(chi=4, loss=.9, tol=1e-2)
 
 
-def test_the_search_stops_where_the_budget_outgrows_chi():
-    """On a lossless loop that accumulates photons the search cannot double
-    forever — the boxes of the network grow with the budget, not just its
-    bonds. The search stops at the deepest depth `chi` holds exactly and
-    returns that state as the truncated approximation."""
-    with pytest.warns(UserWarning, match="outgrows chi past depth 4"):
-        truncated = sampler().fix(chi=5, tol=1e-6)
-    expected = sampler().at_time(3).eval().density_matrix
-    trace = np.trace(expected)
-    assert np.allclose(
-        truncated.density_matrix, expected / trace, atol=1e-6)
+def test_chi_defaults_to_a_laptop_sized_budget():
+    """`fix` compresses to `DEFAULT_CHI` unless told otherwise, so a deep
+    unrolling cannot exhaust memory by default; `None` is the explicit
+    exact mode."""
+    assert channel.DEFAULT_CHI == 8
+    backend = RecordingBackend()
+    with pytest.warns(UserWarning, match="no loss certifies"):
+        source().fix(max_steps=3, backend=backend)
+    assert [params["max_bond"] for _, params in backend.calls] == [8]
 
 
-def test_loss_gives_a_depth_instead_of_a_search():
-    """A lossy loop knows its depth without contracting anything."""
+def test_certification_and_truncation_warn_separately():
+    """Stopping short of the certified depth and truncating below the
+    budget are different failures with different fixes, so each has its
+    own warning and both can fire on one call."""
+    with pytest.warns(UserWarning) as caught:
+        sampler().fix(chi=2, loss=.9, tol=1e-4, max_steps=2)
+    messages = sorted(str(warning.message)[:20] for warning in caught)
+    assert len(messages) == 2
+    assert messages[0].startswith("max_steps=2 stops sh")
+    assert messages[1].startswith("the contraction need")
+
+
+def test_loss_certifies_the_depth():
+    """A lossy loop knows its depth without contracting anything, and one
+    contraction is all `fix` ever runs."""
     assert source().unroll_depth(1e-6, loss=.5) == 20
     with pytest.raises(ValueError, match="loss in"):
         source().unroll_depth(1e-6, loss=0)
@@ -234,13 +259,14 @@ def test_backend_uses_existing_interface():
         source().fix(chi=4, backend=object())
 
 
-def test_power_supports_numpy_tensor_functor():
-    result = source().fix(tol=1e-4, chi=4, backend=DiscopyBackend())
+def test_fix_supports_numpy_tensor_functor():
+    result = source().fix(loss=.5, tol=1e-2, backend=DiscopyBackend())
     assert np.allclose(result.density_matrix, [[1, 0], [0, 0]])
 
 
-def test_power_supports_exact_quimb():
-    result = source().fix(tol=1e-4, chi=4, backend=QuimbBackend())
+def test_fix_supports_exact_quimb():
+    result = source().fix(loss=.5, tol=1e-2, chi=None,
+                          backend=QuimbBackend())
     assert np.allclose(result.density_matrix, [[1, 0], [0, 0]])
 
 
