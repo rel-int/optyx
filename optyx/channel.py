@@ -375,8 +375,11 @@ class Diagram(frobenius.Diagram):
 
     def at_time(self, n_steps: int) -> Diagram:
         """
-        The process iterated `n_steps` times with its output discarded; for
-        a state, the output distribution after `n_steps`.
+        The process iterated with its output discarded; for a state, the
+        output distribution after `n_steps + 1` ticks.
+
+        `n_steps` counts iterations the way :meth:`unroll` counts
+        unrollings, so `at_time(0)` is one tick.
 
         Every tick but the last is discarded *as it runs*, by unrolling
         `self >> Discard(cod)` rather than unrolling `self` and discarding
@@ -395,25 +398,25 @@ class Diagram(frobenius.Diagram):
         >>> from optyx.qubits import Ket
         >>> source = (Discard(qubit) @ Ket(0) @ Ket(0)).feedback(
         ...     mem=qubit, state=Ket(1))
-        >>> assert source.at_time(3).dom == Ty()
-        >>> assert source.at_time(3).cod == qubit
+        >>> assert source.at_time(2).dom == Ty()
+        >>> assert source.at_time(2).cod == qubit
         """
         if self.dom:
             raise ValueError(
                 "at_time builds a state, so the diagram must have an empty "
                 f"domain, got dom={self.dom}.")
         if not isinstance(n_steps, Integral) or isinstance(n_steps, bool) \
-                or n_steps < 1:
-            raise ValueError("n_steps must be a positive integer.")
+                or n_steps < 0:
+            raise ValueError("n_steps must be a non-negative integer.")
         step = self.one_step()
         memory = step.cod[len(self.cod):]
         readout = step >> self.id(self.cod) @ Discard(memory)
-        if n_steps == 1:
+        if n_steps == 0:
             iterated = self.unroll(0, effect=None) \
                 >> self.id(self.cod) @ Discard(memory)
         else:
             iterated = (self >> Discard(self.cod)).unroll(
-                n_steps - 2, effect=readout)
+                n_steps - 1, effect=readout)
         if iterated.dom:
             raise ValueError(
                 "Every feedback loop needs a state, got an open memory of "
@@ -461,9 +464,9 @@ class Diagram(frobenius.Diagram):
     def unroll_depth(self, tol: float = 1e-6, loss: float = 0):
         """
         The number of time steps at which unrolling approximates the fixed
-        point within ``tol``.
+        point within `tol`.
 
-        A memory which loses a fraction ``loss`` of itself per round trip
+        A memory which loses a fraction `loss` of itself per round trip
         forgets at least that much whatever the rest of the loop does, which
         bounds the second eigenvalue modulus of the transfer channel by the
         transmissivity :math:`\\gamma = 1 - loss` uniformly over diagrams —
@@ -476,7 +479,8 @@ class Diagram(frobenius.Diagram):
         is a depth rather than a guess, and it does not grow with the memory.
         Without loss no finite depth is guaranteed: the gap depends on the
         diagram and can be arbitrarily close to one, so :meth:`fix` searches
-        instead.
+        instead. Reading the gap off a linear-optical loop instead of
+        bounding it by the loss is issue #32.
 
         >>> loop = Diagram.swap(qmode, qmode).feedback()
         >>> assert loop.unroll_depth(1e-6, loss=.5) == 20
@@ -654,7 +658,7 @@ class Diagram(frobenius.Diagram):
         def contract(steps):
             if steps not in result_cache:
                 extra = {"max_bond": chi} if compressed else {}
-                result_cache[steps] = self.at_time(steps).eval(
+                result_cache[steps] = self.at_time(steps - 1).eval(
                     backend, **extra)
             return result_cache[steps]
 

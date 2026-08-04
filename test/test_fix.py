@@ -63,7 +63,7 @@ def test_one_step():
 
 
 def test_at_time_types():
-    for n_steps in range(1, 4):
+    for n_steps in range(4):
         assert source().at_time(n_steps).dom == Ty()
         assert source().at_time(n_steps).cod == qubit
 
@@ -160,7 +160,7 @@ def test_power_does_not_alias_period_two(monkeypatch):
     monkeypatch.setattr(channel, "MAX_UNROLL", 8)
     with pytest.warns(UserWarning, match="did not converge"):
         result = flip().fix(chi=4, tol=1e-6)
-    expected = flip().at_time(8).eval().density_matrix
+    expected = flip().at_time(7).eval().density_matrix
     assert np.allclose(result.density_matrix, expected)
 
 
