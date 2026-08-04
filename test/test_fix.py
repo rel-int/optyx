@@ -248,8 +248,7 @@ def test_truncation_dimensions_are_the_photon_budget():
     budget differs per wire even when every wire is beam-split."""
     chain = photonic.Create(1) @ photonic.Create(0) >> photonic.BS
     for _ in range(3):
-        tail = Diagram.id(qmode) @ photonic.Create(1) >> photonic.BS
-        chain = chain >> Diagram.id(qmode ** (len(chain.cod) - 1)) @ tail
+        tail = photonic.Id(1) @ photonic.Create(1) >> photonic.BS
+        chain = chain >> photonic.Id(len(chain.cod) - 1) @ tail
     assert chain.truncation_dimensions() == [2, 2, 3, 3, 4, 4, 5, 5, 5, 5]
-    assert chain.truncation_dimensions(chi=3) == [2, 2] + [3] * 8
     assert qubits.Z(1, 2).truncation_dimensions() == [2, 2, 2, 2]

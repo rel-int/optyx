@@ -375,13 +375,18 @@ class Diagram(frobenius.Diagram):
 
     def at_time(self, n_steps: int) -> Diagram:
         """
-        The state of a stateful diagram after `n_steps` time steps: every
-        output before the last one and the final memory are discarded.
+        The process iterated `n_steps` times with its output discarded; for
+        a state, the output distribution after `n_steps`.
 
-        It is :meth:`unroll` composed with those discards, so it inherits
-        the memory order rather than repeating it. The loops' own effects
-        are overridden away: conditioning on the memory is a different
-        computation, and a stationary state traces it out instead.
+        Every tick but the last is discarded *as it runs*, by unrolling
+        `self >> Discard(cod)` rather than unrolling `self` and discarding
+        afterwards. The network stays one memory wire wide instead of
+        accumulating `n_steps` outputs to throw away, which is what
+        :meth:`power_fix` contracts.
+
+        The last tick is the `effect` of that unrolling: :meth:`one_step`
+        with the memory discarded instead of the output, so it reads out
+        rather than continuing.
 
         The diagram must be a state and so must every loop, i.e. each
         :attr:`Feedback.state` needs an empty domain rather than the open
@@ -392,12 +397,6 @@ class Diagram(frobenius.Diagram):
         ...     mem=qubit, state=Ket(1))
         >>> assert source.at_time(3).dom == Ty()
         >>> assert source.at_time(3).cod == qubit
-
-        At one time step there is nothing earlier to discard, so it is the
-        open unrolling with its memory traced out:
-
-        >>> assert source.at_time(1) == (source.unroll(0, effect=None)
-        ...     >> Diagram.id(qubit) @ Discard(qubit))
         """
         if self.dom:
             raise ValueError(
@@ -406,15 +405,20 @@ class Diagram(frobenius.Diagram):
         if not isinstance(n_steps, Integral) or isinstance(n_steps, bool) \
                 or n_steps < 1:
             raise ValueError("n_steps must be a positive integer.")
-        unrolled = self.unroll(n_steps - 1, effect=None)
-        if unrolled.dom:
+        step = self.one_step()
+        memory = step.cod[len(self.cod):]
+        readout = step >> self.id(self.cod) @ Discard(memory)
+        if n_steps == 1:
+            iterated = self.unroll(0, effect=None) \
+                >> self.id(self.cod) @ Discard(memory)
+        else:
+            iterated = (self >> Discard(self.cod)).unroll(
+                n_steps - 2, effect=readout)
+        if iterated.dom:
             raise ValueError(
                 "Every feedback loop needs a state, got an open memory of "
-                f"type {unrolled.dom}.")
-        memory = unrolled.cod[len(self.cod) * n_steps:]
-        past = Discard(self.cod ** (n_steps - 1)) \
-            if n_steps > 1 else self.id(Ty())
-        return unrolled >> past @ self.id(self.cod) @ Discard(memory)
+                f"type {iterated.dom}.")
+        return iterated
 
     def normalisation(self, state=None, dimensions=None):
         """
@@ -485,11 +489,11 @@ class Diagram(frobenius.Diagram):
                 f"loss={loss}.")
         return int(np.ceil(np.log(tol) / np.log(1 - loss)))
 
-    def truncation_dimensions(self, chi: int = None) -> list[int]:
+    def truncation_dimensions(self) -> list[int]:
         """
         The dimension of every wire of the doubled codomain: how many
         occupations each output can carry, given the photon budget of the
-        diagram. `chi` caps them all when given.
+        diagram.
 
         It is a property of the types and the light cone, not a search: the
         dimensions come from the propagation :meth:`to_tensor` already runs,
@@ -502,24 +506,20 @@ class Diagram(frobenius.Diagram):
         >>> from optyx import photonic
         >>> chain = photonic.Create(1) @ photonic.Create(0) >> photonic.BS
         >>> for _ in range(3):
-        ...     tail = Diagram.id(qmode) @ photonic.Create(1) >> photonic.BS
-        ...     chain = chain >> Diagram.id(
-        ...         qmode ** (len(chain.cod) - 1)) @ tail
+        ...     tail = photonic.Id(1) @ photonic.Create(1) >> photonic.BS
+        ...     chain = chain >> photonic.Id(len(chain.cod) - 1) @ tail
         >>> assert chain.truncation_dimensions() == [
         ...     2, 2, 3, 3, 4, 4, 5, 5, 5, 5]
-        >>> assert chain.truncation_dimensions(chi=3) == [2, 2] + [3] * 8
 
         Every wire of that chain is beam-split to its neighbour, and still
         the last output holds four photons where the first holds one: each
         photon appears after the splitter before it, so it never reaches
-        back. One `chi` for all of them over-allocates, and the eigensolve
+        back. One cutoff for all of them over-allocates, and the eigensolve
         of :meth:`eigen_fix` is cubic in their product.
         """
-        dimensions = [
+        return [
             int(dimension.inside[0]) for dimension in self.double().to_tensor(
                 [2] * len(self.dom.double())).cod]
-        return dimensions if chi is None else [
-            min(dimension, chi) for dimension in dimensions]
 
     def fix(self, n_steps: int = None, chi: int = None, *,
             method: str = "power", tol: float = 1e-6, loss: float = 0,
