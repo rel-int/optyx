@@ -976,25 +976,40 @@ caller, `truncation_dimension`, which is itself absorbed. `unroll_depth` and
       `MAX_TRUNCATION` into a local cap there; fix `truncation_dimension` while absorbing it,
       since it always returns two today — it measures the unprojected map while
       `stationary_state` refuses the projected one
-- [ ] absorb `unroll_depth` into `power_fix`; it is arithmetic in `tol` and `loss` that never
-      touches the diagram
+- [ ] keep `unroll_depth`, but make it depend on the diagram. As implemented it never
+      touches `self`: the body is `ceil(log(tol) / log(1 - loss))`, and the notebook says so
+      outright — "That depth depends on gamma and the target accuracy alone — not on U, M or
+      L". So today it is a module function wearing a method's clothes, the pattern review
+      rejected elsewhere in this PR
 - [ ] delete `is_causal`, `is_hermitian`, `is_positive`, `Ty.double_axes` and
       `Ty.dagger_axes`, with the tests that only covered them
 - [ ] keep `at_time`, defined as `unroll(n - 1, effect=None)` composed with the discards
       rather than re-implementing the plumbing
 
-### Two open points
+`normalisation` stays: after the absorptions it is called by two methods, `power_fix` for
+the trace of the contracted state and `eigen_fix` for the trace inside the absorbed
+`stationary_state`. No spectral decomposition — `spectrum` is not added.
 
-- [ ] `normalisation(state=None, dimensions=None)` is not among the seven and I would keep
-      it: general over any diagram, specified in review thread `r3698759394`, and with two
-      surviving callers — the trace in `power_fix` and in the absorbed `stationary_state`.
-      Inlining duplicates a diagrammatic contraction that is not a plain trace on mixed
-      classical and quantum types. Its `state=` array parameter is the wart, and #28 removes
-      it. Confirm or strike
-- [ ] if the spectral decomposition is kept, it should be `spectrum(dimensions)` — the
-      eigenvalues and eigenvectors of the doubled operator and nothing else. It passes the
-      generality test: `dom == cod` is the definition of an eigenvalue problem, not a
-      restriction on which diagrams work. It also gives `|lambda_2|` directly, which the
-      notebook currently only derives analytically. The causality residual, the
-      no-fixed-point and non-uniqueness guards and the normalisation are fixed-point
-      concerns and move to `eigen_fix`
+### Making `unroll_depth` depend on the diagram
+
+The sharpened bound exists and is proved, but it was never implemented here: it lives in the
+wiki notebook *Bounding the unroll length in approximate stationary boson sampling*, as
+
+    |lambda_2| = gamma * rho(|D| ** 2 entrywise)
+
+the spectral radius of the entrywise modulus-squared `L x L` loop block `D` of `U`, in
+`O(L^3)`. Against the universal bound it saved 80-88% of the depth on the sampled `L = 1`
+chains at `gamma = 0.9`, and 0-7% at `L = 2`.
+
+Three ways to compute a depth, and only two of the three properties are available at once:
+
+| | cheap | uses the diagram | general |
+| --- | --- | --- | --- |
+| `ceil(log tol / log gamma)` — today | yes | **no** | yes |
+| `gamma * rho(\|D\|^2)` from the loop block | yes, `O(L^3)` | yes | **linear-optical loops only** |
+| second eigenvalue of the transfer channel | **no**, `O(h^6)` | yes | yes |
+
+- [ ] decide which: reading the loop block and degrading to the universal bound when it
+      cannot be read keeps the method honest and cheap, at the cost of a fast path that only
+      some diagrams take. The alternative is to leave the arithmetic as it is and accept a
+      method that ignores its receiver
