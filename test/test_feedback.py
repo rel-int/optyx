@@ -83,12 +83,16 @@ def test_unroll_is_a_delay_line():
 
 
 def test_unroll_overrides_the_boundary():
-    """`None` opens a memory the loop closes, and a diagram replaces it."""
+    """`None` opens a memory the loop closes, and a diagram replaces it.
+
+    The overrides live on their own method: `unroll` takes the number of
+    steps and nothing else, because the boundaries belong to `feedback`.
+    """
     wait = delay(state=photonic.Create(1))
     assert wait.unroll(1).dom == qmode ** 2
-    assert wait.unroll(1, state=None).dom == qmode ** 3
-    assert wait.unroll(1, effect=None).cod == qmode ** 3
-    replaced = wait.unroll(1, state=photonic.Create(0))
+    assert wait.unroll_with_boundaries(1, state=None).dom == qmode ** 3
+    assert wait.unroll_with_boundaries(1, effect=None).cod == qmode ** 3
+    replaced = wait.unroll_with_boundaries(1, state=photonic.Create(0))
     assert replaced.dom == qmode ** 2
     assert replaced != wait.unroll(1)
 
@@ -293,7 +297,7 @@ def parity(theta=.15):
 
 def readout(loop, n_steps):
     """The last tick of `loop.unroll(n_steps)`, everything else discarded."""
-    unrolled = loop.unroll(n_steps, effect=None)
+    unrolled = loop.unroll_with_boundaries(n_steps, effect=None)
     memory = unrolled.cod[len(loop.cod) * (n_steps + 1):]
     return unrolled >> Discard(loop.cod ** n_steps) \
         @ Diagram.id(loop.cod) @ Discard(memory)

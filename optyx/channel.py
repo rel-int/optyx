@@ -73,14 +73,14 @@ being closed by a fixed point.
 
 **Fixpoints.** That fixed point is the other semantics.
 :meth:`Diagram.at_time` closes the loop for `n` steps and keeps only the last
-output; :meth:`Diagram.fix` approximates the state it settles into, by
-contracting an unrolling (:code:`method="power"`) or by diagonalising the
-transfer matrix of one step (:code:`method="eigen"`):
+output; :meth:`Diagram.fix` approximates the state it settles into by
+contracting an unrolling, and :meth:`Diagram.eigen_fix` computes it by
+diagonalising the transfer matrix of one step:
 
 >>> import numpy as np
 >>> measured = loop >> photonic.NumberResolvingMeasurement(1)
 >>> settled = measured.at_time(8).eval().prob_dist()
->>> fixed = measured.fix(method="eigen", chi=8).prob_dist()
+>>> fixed = measured.eigen_fix(chi=8).prob_dist()
 >>> assert max(abs(settled[k] - v) for k, v in fixed.items()) < 1e-6
 >>> Equation(loop.at_time(2), symbol="").draw(
 ...     figsize=(6, 3), path="docs/_static/at_time.png")
@@ -91,7 +91,7 @@ transfer matrix of one step (:code:`method="eigen"`):
 :meth:`Diagram.unroll_depth` turns a loss per round trip into a depth which
 is a guarantee rather than a search, and :meth:`Diagram.truncation_dimensions`
 reads each memory wire's photon budget off the diagram, which is the cutoff
-`"eigen"` diagonalises at.
+:meth:`Diagram.eigen_fix` diagonalises at.
 
 See :doc:`/notebooks/fixpoints` for what each of these returns, and for
 using them to simulate feedback boson sampling.
@@ -277,6 +277,84 @@ MAX_UNROLL = 64
 MAX_TRUNCATION = 32
 
 
+def _trace(ty, state):
+    """
+    The trace of `state`, the array of a density matrix over `ty`: feed it
+    into `Discard(ty)` and read off the scalar.
+
+    :meth:`Diagram.normalisation` is this same scalar for a diagram. The
+    array case stays private because it is not a thing a user has: it is
+    what the solvers below hold between a linear algebra step and a diagram,
+    and it exists only because :class:`Box` discards the dimensions it is
+    passed for an array-backed box, which is issue #28.
+    """
+    discarded = Discard(ty).double().to_tensor(list(np.shape(state)))
+    return (tensor.Box(
+        "State", tensor.Dim(1), discarded.dom, np.asarray(state))
+        >> discarded).eval().array
+
+
+def _distance(left, right):
+    """
+    The norm of the difference of two arrays, the smaller zero-padded to the
+    shape of the larger.
+
+    Two depths of the same loop settle on the same state but not on the same
+    shape: a loop which accumulates photons has a larger photon budget at
+    the deeper unrolling, so its state carries more occupations — all of
+    them near zero once the loop has converged, which is what padding says.
+    """
+    shape = tuple(
+        max(*sizes) for sizes in zip(np.shape(left), np.shape(right)))
+    padded_left, padded_right = (
+        np.pad(array, [
+            (0, target - size)
+            for size, target in zip(np.shape(array), shape)])
+        for array in (left, right))
+    return np.linalg.norm(padded_left - padded_right)
+
+
+def _validate(stateful, tol, loss, chi):
+    """
+    The guards :meth:`Diagram.fix` and :meth:`Diagram.eigen_fix` share.
+
+    Both are public entry points taking the same user input, and neither has
+    the statements to spare under the style guide's limit.
+    """
+    if stateful.dom:
+        raise ValueError(
+            "The stationary state of a diagram with a domain is not "
+            f"defined, got dom={stateful.dom}.")
+    if not any(isinstance(box, Feedback) for box in stateful.boxes):
+        raise ValueError(
+            "The diagram has no feedback loop, so it is already its own "
+            "stationary state.")
+    if chi is not None and (not isinstance(chi, Integral)
+                            or isinstance(chi, bool) or chi <= 0):
+        raise ValueError("chi must be a positive integer.")
+    if not isinstance(tol, Real) or isinstance(tol, bool) \
+            or not np.isfinite(tol) or tol <= 0:
+        raise ValueError("tol must be a positive finite real number.")
+    if not isinstance(loss, Real) or isinstance(loss, bool) \
+            or not 0 <= loss < 1:
+        raise ValueError("loss must be a real number in [0, 1).")
+
+
+def _lossy(memory, loss):
+    """
+    A :class:`optyx.photonic.PhotonLoss` of survival `1 - loss` on every
+    optical wire of `memory`, the identity on the classical ones.
+
+    Losing a fraction of the memory each round trip is what bounds the
+    second eigenvalue of the transfer channel, so this is what turns
+    :meth:`Diagram.unroll_depth`'s assumed gap into a real one.
+    """
+    photonic = import_module("optyx.photonic")
+    return Diagram.id(Ty()).tensor(*(
+        photonic.PhotonLoss(1 - loss) if ob.name == "qmode"
+        else Diagram.id(Ty(ob.name)) for ob in memory.inside))
+
+
 @factory
 class Ty(frobenius.Ty):
     """Classical and quantum types."""
@@ -333,6 +411,7 @@ class Diagram(frobenius.Diagram):
     ob = Ty
     grad = tensor.Diagram.grad
     unroll = diagram.Diagram.unroll
+    unroll_with_boundaries = diagram.Diagram.unroll_with_boundaries
     one_step = diagram.Diagram.one_step
 
     def feedback(self, dom=None, cod=None, mem=None,
@@ -386,7 +465,7 @@ class Diagram(frobenius.Diagram):
         `self >> Discard(cod)` rather than unrolling `self` and discarding
         afterwards. The network stays one memory wire wide instead of
         accumulating `n_steps` outputs to throw away, which is what
-        :meth:`power_fix` contracts.
+        :meth:`fix` contracts.
 
         The last tick is the `effect` of that unrolling: :meth:`one_step`
         with the memory discarded instead of the output, so it reads out
@@ -413,10 +492,10 @@ class Diagram(frobenius.Diagram):
         memory = step.cod[len(self.cod):]
         readout = step >> self.id(self.cod) @ Discard(memory)
         if n_steps == 0:
-            iterated = self.unroll(0, effect=None) \
+            iterated = self.unroll_with_boundaries(0, effect=None) \
                 >> self.id(self.cod) @ Discard(memory)
         else:
-            iterated = (self >> Discard(self.cod)).unroll(
+            iterated = (self >> Discard(self.cod)).unroll_with_boundaries(
                 n_steps - 1, effect=readout)
         if iterated.dom:
             raise ValueError(
@@ -424,43 +503,39 @@ class Diagram(frobenius.Diagram):
                 f"type {iterated.dom}.")
         return iterated
 
-    def normalisation(self, state=None, dimensions=None):
+    def normalisation(self):
         """
-        The scalar ``state >> self >> Discard(cod)``: feed ``self`` with
-        ``state`` and discard every output. For a state this is its trace,
-        and it is the factor which rescales ``self`` to a causal process.
-
-        ``state`` is the array of a state over ``dom``, for the case where
-        it comes out of a linear solve rather than out of a diagram. It is
-        only optional when ``self`` is already a state.
+        The scalar ``self >> Discard(cod)``: run ``self`` and discard every
+        output. For a state this is its trace, and it is the factor which
+        rescales it to a causal one.
 
         >>> from optyx.qubits import Ket
         >>> assert np.isclose(Ket(0).normalisation(), 1)
         >>> assert np.isclose((Scalar(.5) @ Ket(0)).normalisation(), .25)
 
-        A process needs a state, since without one there is no scalar:
+        There is no scalar to read off a process, only off a state, so a
+        non-trivial domain is an error rather than a partial answer — plug
+        it and the composite is a state again:
 
         >>> try:
         ...     Diagram.id(qubit).normalisation()
         ... except ValueError as error:
         ...     assert str(error) == (
-        ...         "normalisation is a scalar, so it needs a state over "
-        ...         "dom=qubit.")
-        >>> assert np.isclose(
-        ...     Diagram.id(qubit).normalisation([[.5, 0], [0, .5]]), 1)
+        ...         "normalisation is the trace of a state, but dom=qubit; "
+        ...         "provide a state over it and take "
+        ...         "(state >> self).normalisation().")
+        >>> assert np.isclose((Ket(0) >> Diagram.id(qubit)).normalisation(), 1)
+
+        The dimensions are read off the diagram rather than passed in: every
+        wire carries the photon budget :meth:`truncation_dimensions` already
+        computes.
         """
-        if state is None:
-            if self.dom != Ty():
-                raise ValueError(
-                    "normalisation is a scalar, so it needs a state over "
-                    f"dom={self.dom}.")
-            return (self >> Discard(self.cod)).double().to_tensor(
-                dimensions).eval().array
-        discarded = (self >> Discard(self.cod)).double().to_tensor(
-            list(np.shape(state)))
-        return (tensor.Box(
-            "State", tensor.Dim(1), discarded.dom, np.asarray(state))
-            >> discarded).eval().array
+        if self.dom != Ty():
+            raise ValueError(
+                f"normalisation is the trace of a state, but dom={self.dom};"
+                " provide a state over it and take "
+                "(state >> self).normalisation().")
+        return (self >> Discard(self.cod)).double().to_tensor().eval().array
 
     def unroll_depth(self, tol: float = 1e-6, loss: float = 0):
         """
@@ -526,56 +601,48 @@ class Diagram(frobenius.Diagram):
             int(dimension.inside[0]) for dimension in self.double().to_tensor(
                 [2] * len(self.dom.double())).cod]
 
-    def fix(self, n_steps: int = None, chi: int = None, *,
-            method: str = "power", tol: float = 1e-6, loss: float = 0,
+    def fix(self, tol: float = 1e-6, loss: float = 0, chi: int = None, *,
             backend=None):
         """
-        Approximate a stationary state of a stateful diagram as a density
-        matrix over its codomain.
+        Approximate the stationary state of a stateful diagram as a density
+        matrix over its codomain, by contracting an unrolling as a tensor
+        network.
 
         A diagram with a feedback loop has stream semantics through
-        :meth:`stream` and :meth:`unroll`, and approximate fixed-point
-        semantics through :meth:`fix`. Both use the same open one-step
-        process; the fixed-point semantics evolves an approximate stationary
-        memory once, then discards the next memory and returns only the visible
-        output.
+        :meth:`unroll`, and approximate fixed-point semantics here. Both use
+        the same open one-step process; the fixed-point semantics evolves an
+        approximate stationary memory once, then discards the next memory and
+        returns only the visible output.
 
-        The stationary state is the fixed point of the transfer channel
-        which one time step induces on the memory of the feedback loops.
-        It is the limit of :meth:`at_time` only when iteration converges;
-        periodic channels can have a fixed state while their iterates cycle.
+        The stationary state is the fixed point of the transfer channel which
+        one time step induces on the memory of the feedback loops. It is the
+        limit of :meth:`at_time` only when iteration converges; periodic
+        channels can have a fixed state while their iterates cycle.
+
+        This is the power iteration, and the depth is not a parameter: a
+        lossy loop gets one from :meth:`unroll_depth` without contracting
+        anything, and a lossless loop is searched for by doubling until two
+        successive depths agree within `tol`, capped by `MAX_UNROLL` and by
+        the depths whose photon budget `chi` can hold exactly. Where
+        the transfer matrix is small enough to diagonalise, :meth:`eigen_fix`
+        is exact and cheaper; it is public and called directly.
 
         Parameters:
-            n_steps : The number of time steps to unroll, `"power"` only.
-                Given by :meth:`unroll_depth` when `None`.
-            chi : The dimension at which the approximation is truncated:
-                the bond dimension of a compressed contraction for
-                `"power"`, the dimension of each memory wire for `"eigen"`.
-                `"power"` contracts exactly when it is `None`, `"eigen"`
-                capping :meth:`truncation_dimensions` for `"eigen"`.
-            method : Either `"power"`, contracting the unrolling as a tensor
-                network, or `"eigen"`, diagonalising the transfer matrix,
-                see below.
             tol : The error to approximate the fixed point within.
-            loss : The fraction of the memory lost per round trip. A
-                positive loss makes the depth a guarantee rather than a
-                search, see :meth:`unroll_depth`.
+            loss : The fraction of the memory lost per round trip. A positive
+                loss makes the depth a guarantee rather than a search, see
+                :meth:`unroll_depth`.
+            chi : The largest bond dimension the contraction may use, which
+                is lossless while the bonds the network needs stay within
+                it. When the *photon budget* of the network outgrows `chi`
+                the state itself no longer fits: the search stops at the
+                deepest depth whose budget `chi` holds, warns, and the
+                result is the approximation truncated at dimension `chi`.
+                `None` never compresses nor truncates.
             backend : An optional
-                :class:`optyx.core.backends.AbstractBackend` used by the
-                `"power"` method. DisCoPy evaluates with ``tensor.Functor``;
-                Quimb can contract exactly or use Cotengra compression
-                bounded by `chi`.
-
-        The `"power"` method unrolls the diagram and contracts the doubled
-        tensor network, exactly or with bonds bounded by `chi`: this is the
-        power iteration on the transfer channel. The `"eigen"` method builds
-        the transfer matrix of one time step and diagonalises it, exact and
-        cheaper whenever `chi ** len(memory)` is small, with no `n_steps` at
-        all.
-
-        There is one truncation dimension and one depth, so `chi` and
-        `n_steps` are the values to use where they apply and the caps where
-        they are searched for; there are no separate maxima.
+                :class:`optyx.core.backends.AbstractBackend`. DisCoPy
+                evaluates with ``tensor.Functor``; Quimb can contract exactly
+                or use Cotengra compression bounded by `chi`.
 
         A loop which reprepares its memory at every time step forgets its
         initial state, so it is its own stationary state:
@@ -583,66 +650,18 @@ class Diagram(frobenius.Diagram):
         >>> from optyx.qubits import Ket
         >>> source = (Discard(qubit) @ Ket(0) @ Ket(0)).feedback(
         ...     mem=qubit, state=Ket(1))
-        >>> fixed = source.fix(method="eigen")
-        >>> assert np.allclose(
-        ...     fixed.density_matrix, [[1, 0], [0, 0]])
+        >>> fixed = source.fix(tol=1e-4)
+        >>> assert np.allclose(fixed.density_matrix, [[1, 0], [0, 0]])
+
+        The dimensions a depth needs are the photon budget
+        :meth:`truncation_dimensions` reads off the contracted network, so
+        `chi` is compared against a reading rather than against a guess.
 
         See :doc:`/notebooks/fixpoints` for the semantic diagram, agreement
         map and contraction planning.
         """
-        if self.dom:
-            raise ValueError(
-                "The stationary state of a diagram with a domain is not "
-                f"defined, got dom={self.dom}.")
-        if not any(isinstance(box, Feedback) for box in self.boxes):
-            raise ValueError(
-                "The diagram has no feedback loop, so it is already its "
-                "own stationary state.")
-        if method not in ("power", "eigen"):
-            raise ValueError(
-                f"Unknown method {method}, use 'power' or 'eigen'.")
-        for name, value in {"n_steps": n_steps, "chi": chi}.items():
-            if value is None:
-                continue
-            if not isinstance(value, Integral) or isinstance(value, bool) \
-                    or value <= 0:
-                raise ValueError(f"{name} must be a positive integer.")
-        if not isinstance(tol, Real) or isinstance(tol, bool) \
-                or not np.isfinite(tol) or tol <= 0:
-            raise ValueError("tol must be a positive finite real number.")
-        if not isinstance(loss, Real) or isinstance(loss, bool) \
-                or not 0 <= loss < 1:
-            raise ValueError("loss must be a real number in [0, 1).")
-        if method == "eigen":
-            if backend is not None:
-                raise ValueError("backend is only used by method='power'.")
-            return self.eigen_fix(chi, tol)
-        return self.power_fix(n_steps, chi, tol, loss, backend)
-
-    def power_fix(self, n_steps, chi, tol, loss, backend):
-        """Approximate the stationary output by contracting an unrolling.
-
-        Each finite-time channel is evaluated through the existing backend
-        interface. DisCoPy uses :class:`tensor.Functor`; Quimb converts the
-        same doubled channel to a tensor network and may ask Cotengra for
-        exact or compressed contraction. The loop depends only on
-        :meth:`optyx.core.backends.AbstractBackend.eval`.
-
-        :meth:`fix` is the public validated dispatcher. ``chi`` bounds the
-        bond dimensions when given and the contraction is exact when it is
-        not. ``n_steps`` is taken from :meth:`unroll_depth` when the loop is
-        lossy, and searched for by doubling otherwise, since without loss no
-        depth is guaranteed.
-
-        The two local functions below are closures rather than methods on
-        purpose. ``contract`` memoises evaluations in a cache that lives for
-        the duration of one call and must not be shared between calls with
-        different backends, and both read ``backend``, ``chi`` and ``tol``.
-        As methods they would take those as arguments and the cache would
-        have to live on the diagram, which is immutable.
-        """
+        _validate(self, tol, loss, chi)
         backends = import_module("optyx.core.backends")
-
         if backend is None:
             backend = backends.QuimbBackend(
                 hyperoptimiser=None if chi is None
@@ -651,41 +670,74 @@ class Diagram(frobenius.Diagram):
             raise ValueError(
                 "backend must implement the AbstractBackend interface.")
 
-        compressed = chi is not None and isinstance(
+        compressible = chi is not None and isinstance(
             getattr(backend, "hyperoptimiser", None),
             (ReusableHyperCompressedOptimizer, HyperCompressedOptimizer))
-        result_cache = {}
+        result_cache, warned = {}, []
 
         def contract(steps):
+            """The state after `steps` ticks, compressed to `chi` only where
+            the network needs more than `chi`, and warning once when it does.
+
+            The two local functions here are closures rather than methods on
+            purpose. `contract` memoises evaluations in a cache that lives
+            for the duration of one call and must not be shared between
+            calls with different backends, and both read `backend`, `chi`
+            and `tol`. As methods they would take those as arguments and the
+            cache would have to live on the diagram, which is immutable.
+            """
             if steps not in result_cache:
-                extra = {"max_bond": chi} if compressed else {}
-                result_cache[steps] = self.at_time(steps - 1).eval(
-                    backend, **extra)
+                network = self.at_time(steps - 1)
+                needed = max(network.truncation_dimensions(), default=1)
+                if chi is not None and needed > chi and not warned:
+                    warned.append(needed)
+                    warnings.warn(
+                        f"the contraction needs dimension {needed} but "
+                        f"chi is {chi}, so the fixed point is truncated "
+                        "and the result is an approximation.",
+                        UserWarning, stacklevel=3)
+                extra = {"max_bond": chi} if compressible else {}
+                result_cache[steps] = network.eval(backend, **extra)
             return result_cache[steps]
 
         def normalised(result):
             state = np.asarray(result.density_matrix)
-            trace = self.id(self.cod).normalisation(state)
+            trace = _trace(self.cod, state)
             trace_tolerance = 100 * state.size * np.finfo(float).eps
             if not np.isfinite(trace) or abs(trace) <= trace_tolerance:
                 raise ValueError(
                     "Contraction returned zero or non-finite trace.")
             return state / trace
 
-        depth = n_steps if n_steps is not None else (
-            self.unroll_depth(tol, loss) if loss else None)
-        if depth is not None:
-            result = contract(depth)
+        def budget(steps):
+            return max(
+                self.at_time(steps - 1).truncation_dimensions(), default=1)
+
+        if loss:
+            result = contract(self.unroll_depth(tol, loss))
         else:
             depth, result = 2, contract(2)
-            while np.linalg.norm(
-                    normalised(result)
-                    - normalised(contract(depth - 1))) >= tol:
+            while _distance(
+                    normalised(result),
+                    normalised(contract(depth - 1))) >= tol:
                 if depth >= MAX_UNROLL:
                     warnings.warn(
                         f"fix did not converge to tol={tol} within "
-                        f"{MAX_UNROLL} steps; give n_steps or a positive "
-                        "loss.", UserWarning, stacklevel=3)
+                        f"{MAX_UNROLL} steps; give a positive loss.",
+                        UserWarning, stacklevel=3)
+                    break
+                if chi is not None \
+                        and budget(min(2 * depth, MAX_UNROLL)) > chi:
+                    while depth < MAX_UNROLL and budget(depth + 1) <= chi:
+                        depth += 1
+                    result = contract(depth)
+                    warnings.warn(
+                        f"fix did not converge to tol={tol} within the "
+                        f"depths chi={chi} affords: the photon budget "
+                        f"outgrows chi past depth {depth}, so the state is "
+                        "an approximation truncated at dimension chi — "
+                        "give a positive loss for a certified depth.",
+                        UserWarning, stacklevel=3)
                     break
                 depth = min(2 * depth, MAX_UNROLL)
                 result = contract(depth)
@@ -695,10 +747,17 @@ class Diagram(frobenius.Diagram):
                 normalised(result)),
             output_types=self.cod, state_type=backends.StateType.DM)
 
-    def eigen_fix(self, chi: int = None, tol: float = 1e-6):
+    def eigen_fix(self, chi: int = None, loss: float = 0,
+                  tol: float = 1e-6):
         """
         The stationary state obtained by diagonalising the transfer matrix
         which one time step induces on the memory.
+
+        This implements the method of Yu. A. Biriukov and I. V. Dyakonov,
+        `Simulation of boson sampling with optical feedback
+        <https://doi.org/10.48550/arXiv.2602.05566>`_, arXiv:2602.05566
+        (2026): rather than iterating the loop, take the eigenvector of its
+        one-step transfer channel at eigenvalue one.
 
         :meth:`one_step` opens the loop into a map from `memory` to
         `cod @ memory`; discarding one side or the other splits it into the
@@ -706,31 +765,46 @@ class Diagram(frobenius.Diagram):
         eigenvector of the transfer map at eigenvalue one is the stationary
         memory, and feeding it through the readout gives the density matrix.
 
-        `chi` is the cutoff of each optical memory wire, qubit and bit wires
-        staying at two. Without it the search starts at
-        :meth:`truncation_dimensions`, the budget of a single step, and
-        doubles until the truncation stops losing trace, capped by the
-        public `MAX_TRUNCATION` — the budget is a *lower* bound for a loop,
-        since every step can add another photon, but it is a much better
-        place to start than two.
+        Parameters:
+            chi : The cutoff of each optical memory wire, qubit and bit wires
+                staying at two. Without it the search starts at
+                :meth:`truncation_dimensions`, the budget of a single step,
+                and doubles until the truncation stops losing trace, capped
+                by the public `MAX_TRUNCATION` — the budget is a *lower*
+                bound for a loop, since every step can add another photon,
+                but it is a much better place to start than two.
+            loss : The fraction lost per round trip. A positive loss runs the
+                same program on the same diagram with an
+                :class:`optyx.photonic.PhotonLoss` of survival `1 - loss`
+                composed onto every optical memory wire, which is the lossy
+                cavity of the paper above and makes the spectral gap
+                :meth:`unroll_depth` assumes real rather than assumed.
+            tol : The trace a truncation may lose before it is rejected.
 
         Fresh photons enlarge the output memory, so it is projected back to
         the cutoff before diagonalising. Measuring the causality of that
-        *projected* operator is the whole point: the unprojected transfer
-        map only constrains its inputs, so it is causal at every cutoff and
-        a search against it would always stop at the first guess.
+        *projected* operator is the whole point: the unprojected transfer map
+        only constrains its inputs, so it is causal at every cutoff and a
+        search against it would always stop at the first guess.
 
         A truncation that still loses trace raises rather than returning a
         state it cannot justify, and so does a non-unique stationary memory
         rather than an arbitrary eigenvector.
 
-        Nothing here validates its input, because none of it is user input:
-        :meth:`one_step` has already removed the feedback boxes, the transfer
-        map is an endomorphism by construction, and :meth:`fix` has checked
-        `tol` and the empty domain.
+        >>> from optyx import photonic
+        >>> from optyx.channel import qmode
+        >>> delay = (photonic.Create(1) @ qmode
+        ...     >> Diagram.swap(qmode, qmode)).feedback(
+        ...         mem=qmode, state=photonic.Create(0))
+        >>> assert np.allclose(
+        ...     delay.eigen_fix(chi=2).density_matrix, [[0, 0], [0, 1]],
+        ...     atol=1e-6)
         """
+        _validate(self, tol, loss, chi)
         step = self.one_step()
         memory = step.cod[len(self.cod):]
+        if loss:
+            step = step >> self.id(self.cod) @ _lossy(memory, loss)
         transfer = step >> Discard(self.cod) @ self.id(memory)
         readout = step >> self.id(self.cod) @ Discard(memory)
 
@@ -776,7 +850,7 @@ class Diagram(frobenius.Diagram):
                 "The stationary state is not unique "
                 f"(fixed-space dimension {len(fixed)}).")
         state = eigenvectors[:, fixed[0]].reshape(dimensions)
-        trace = self.id(transfer.cod).normalisation(state)
+        trace = _trace(transfer.cod, state)
         if not np.isfinite(trace) or abs(trace) <= tol:
             raise ValueError(
                 "The stationary state has zero or non-finite trace.")

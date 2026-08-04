@@ -345,7 +345,7 @@ class Diagram(frobenius.Diagram):
         return self.feedback_factory(
             self, dom=dom, cod=cod, mem=mem, state=state, effect=effect)
 
-    def unroll(self, n_steps: int = 1, state=..., effect=...) -> Diagram:
+    def unroll(self, n_steps: int = 1) -> Diagram:
         """
         Unroll the feedback loops of a diagram `n_steps` times, by
         interpreting it as a :class:`discopy.stream.Stream`: every box maps
@@ -358,17 +358,13 @@ class Diagram(frobenius.Diagram):
 
         Each loop's :attr:`Feedback.state` is plugged in its input memory
         before the first time step and its :attr:`Feedback.effect` in its
-        output memory after the last one.
+        output memory after the last one. The boundaries belong to the loop,
+        so the only parameter here is the number of steps; overriding them
+        for one call is :meth:`unroll_with_boundaries`.
 
         Parameters:
             n_steps : The number of unrollings, one fewer than the number of
                 time steps.
-            state : Overrides the boundary plugged in the input memory, over
-                the whole memory rather than one loop at a time. `None`
-                leaves that memory open, at the end of the domain; the
-                default uses each loop's own :attr:`Feedback.state`.
-            effect : Overrides the boundary plugged in the output memory the
-                same way. `None` leaves it open, at the end of the codomain.
 
         A feedback loop over a swap acts as a delay line: it outputs its
         `state` at the first time step, then its previous input.
@@ -381,12 +377,39 @@ class Diagram(frobenius.Diagram):
         >>> amplitude = (Create(0, 0) >> wait.unroll(1) >> Select(1, 0)\\
         ...     ).to_tensor().eval().array
         >>> assert np.isclose(amplitude, 1)
+        """
+        return self.unroll_with_boundaries(n_steps)
+
+    def unroll_with_boundaries(
+            self, n_steps: int = 1, state=..., effect=...) -> Diagram:
+        """
+        :meth:`unroll` with the loop boundaries overridden, over the whole
+        memory rather than one loop at a time.
+
+        Parameters:
+            n_steps : The number of unrollings, as in :meth:`unroll`.
+            state : Overrides the boundary plugged in the input memory.
+                `None` leaves that memory open, at the end of the domain;
+                the default uses each loop's own :attr:`Feedback.state`.
+            effect : Overrides the boundary plugged in the output memory the
+                same way. `None` leaves it open, at the end of the codomain.
 
         Overriding with `None` opens the memory again, so the domain and
         codomain each grow by the memory of the loop:
 
-        >>> open_wires = wait.unroll(1, state=None, effect=None)
+        >>> from optyx.core.zw import Create, Select
+        >>> wait = Diagram.swap(mode, mode).feedback(
+        ...     state=Create(1), effect=Select(0))
+        >>> open_wires = wait.unroll_with_boundaries(
+        ...     1, state=None, effect=None)
         >>> assert open_wires.dom == open_wires.cod == mode ** 3
+
+        It is a method of its own rather than two more parameters of
+        :meth:`unroll` because the boundaries are a property of each loop:
+        :meth:`feedback` is where a caller sets them, and overriding them is
+        what :meth:`one_step` does to expose the memory and what
+        :meth:`optyx.channel.Diagram.at_time` does to plug a read-out effect
+        into the last time step.
         """
         if n_steps < 0:
             raise ValueError("n_steps must be at least 0.")
@@ -425,9 +448,9 @@ class Diagram(frobenius.Diagram):
         `dom @ mem` to `cod @ mem`, with no :class:`Feedback` box left and
         the memory at the boundary.
 
-        It is `unroll(0, state=None, effect=None)`: zero unrollings is one
-        time step, and opening both boundaries leaves the memory on the
-        wires rather than plugging it.
+        It is `unroll_with_boundaries(0, state=None, effect=None)`: zero
+        unrollings is one time step, and opening both boundaries leaves the
+        memory on the wires rather than plugging it.
 
         >>> step = Diagram.swap(mode, mode)
         >>> wait = step.feedback()
@@ -436,7 +459,7 @@ class Diagram(frobenius.Diagram):
         >>> assert wait.feedback_factory(step, state=Create(1)).one_step()\\
         ...     == step
         """
-        return self.unroll(0, state=None, effect=None)
+        return self.unroll_with_boundaries(0, state=None, effect=None)
 
     # pylint: disable=too-many-locals
     def to_tensor(
