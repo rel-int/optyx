@@ -217,6 +217,24 @@ def test_photonic_delay_line():
     assert np.allclose(density_matrix, [[0, 0], [0, 1]], atol=1e-6)
 
 
+def test_eigen_finds_its_own_cutoff():
+    """Regression for the bug reported on PR #15: the cutoff search checked
+    causality of the raw, unprojected transfer map, which is causal at every
+    dimension whenever the step creates photons, so it always returned two
+    and `fix(method="eigen")` failed with no explicit `chi`. The search now
+    measures the projected operator, and starts from the photon budget
+    rather than from two."""
+    loop = (photonic.Create(1) @ qmode >> photonic.MZI(.06, 0)).feedback(
+        mem=qmode, state=photonic.Create(0))
+    step = loop.one_step()
+    transfer = step >> Discard(loop.cod) @ Diagram.id(
+        step.cod[len(loop.cod):])
+    assert transfer.truncation_dimensions() == [3, 3]
+    density_matrix = loop.fix(method="eigen").density_matrix
+    assert density_matrix.shape[0] > 3
+    assert np.isclose(np.trace(density_matrix), 1)
+
+
 def test_eigen_boson_sampler_truncates_memory_output():
     """Fresh photons can increase the untruncated output dimension."""
     reflectivity = .01

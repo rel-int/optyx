@@ -274,6 +274,7 @@ class Ob(frobenius.Ob):
 
 
 MAX_UNROLL = 64
+MAX_TRUNCATION = 32
 
 
 @factory
@@ -706,16 +707,22 @@ class Diagram(frobenius.Diagram):
         memory, and feeding it through the readout gives the density matrix.
 
         `chi` is the cutoff of each optical memory wire, qubit and bit wires
-        staying at two. Without it the wires fall back to
-        :meth:`truncation_dimensions`, the budget of a single step — which
-        is a *lower* bound for a loop, since every step can add a photon, so
-        a loop that accumulates needs `chi` given explicitly.
+        staying at two. Without it the search starts at
+        :meth:`truncation_dimensions`, the budget of a single step, and
+        doubles until the truncation stops losing trace, capped by the
+        public `MAX_TRUNCATION` — the budget is a *lower* bound for a loop,
+        since every step can add another photon, but it is a much better
+        place to start than two.
 
-        Fresh photons enlarge the output memory, which is projected back to
-        the cutoff before diagonalising — that projection is what can lose
-        trace, and it raises rather than returning a state it cannot
-        justify. A non-unique stationary memory raises too, instead of
-        choosing an arbitrary eigenvector.
+        Fresh photons enlarge the output memory, so it is projected back to
+        the cutoff before diagonalising. Measuring the causality of that
+        *projected* operator is the whole point: the unprojected transfer
+        map only constrains its inputs, so it is causal at every cutoff and
+        a search against it would always stop at the first guess.
+
+        A truncation that still loses trace raises rather than returning a
+        state it cannot justify, and so does a non-unique stationary memory
+        rather than an arbitrary eigenvector.
 
         Nothing here validates its input, because none of it is user input:
         :meth:`one_step` has already removed the feedback boxes, the transfer
@@ -726,24 +733,34 @@ class Diagram(frobenius.Diagram):
         memory = step.cod[len(self.cod):]
         transfer = step >> Discard(self.cod) @ self.id(memory)
         readout = step >> self.id(self.cod) @ Discard(memory)
-        dimensions = transfer.truncation_dimensions() if chi is None else [
-            chi if ob.inside[0].name == "mode" else 2
-            for ob in memory.double()]
 
-        tensor_transfer = transfer.double().to_tensor(dimensions)
-        operator = tensor_transfer >> tensor.Diagram.tensor(*(
-            diagram.EmbeddingTensor(source.inside[0], target)
-            for source, target in zip(tensor_transfer.cod, dimensions)))
-        matrix = operator.eval().array.reshape(
-            int(np.prod(dimensions, dtype=int)), -1)
+        def projected(cutoff):
+            """The transfer tensor at `cutoff`, projected back down to it,
+            and how much trace that projection loses."""
+            dimensions = [
+                cutoff if ob.inside[0].name == "mode" else 2
+                for ob in memory.double()]
+            truncated = transfer.double().to_tensor(dimensions)
+            operator = truncated >> tensor.Diagram.tensor(*(
+                diagram.EmbeddingTensor(source.inside[0], target)
+                for source, target in zip(truncated.cod, dimensions)))
+            discard = Discard(transfer.dom).double().to_tensor(dimensions)
+            return dimensions, operator, np.linalg.norm(
+                (operator >> discard).eval().array - discard.eval().array)
 
-        discard = Discard(transfer.dom).double().to_tensor(dimensions)
-        residual = np.linalg.norm(
-            (operator >> discard).eval().array - discard.eval().array)
+        cutoff = max(transfer.truncation_dimensions()) \
+            if chi is None else chi
+        dimensions, operator, residual = projected(cutoff)
+        while chi is None and residual > tol and cutoff < MAX_TRUNCATION:
+            cutoff = min(2 * cutoff, MAX_TRUNCATION)
+            dimensions, operator, residual = projected(cutoff)
         if residual > tol:
             raise ValueError(
-                "The truncated transfer map is not causal "
-                f"(residual {residual}); increase chi.")
+                f"No cutoff below {MAX_TRUNCATION} truncates the transfer "
+                f"map without losing trace (residual {residual} at "
+                f"{cutoff}); the tail is too long for this method.")
+        matrix = operator.eval().array.reshape(
+            int(np.prod(dimensions, dtype=int)), -1)
 
         eigenvalues, eigenvectors = np.linalg.eig(matrix.T)
         precision = 100 * len(matrix) * np.finfo(float).eps \
