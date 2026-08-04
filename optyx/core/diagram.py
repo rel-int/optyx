@@ -410,26 +410,14 @@ class Diagram(frobenius.Diagram):
         mem = stream.mem.now
         dom = unrolled.dom[:len(unrolled.dom) - len(mem)]
         cod = unrolled.cod[:len(unrolled.cod) - len(mem)]
-        initial = self.boundary(state, mem, [loop.state for loop in loops])
-        final = self.boundary(effect, mem, [loop.effect for loop in loops])
+        initial, final = (self.id(type(mem)()).tensor(*(
+            getattr(loop, attr) for loop in loops))
+            for attr in ("state", "effect"))
+        if state is not ...:
+            initial = self.id(mem) if state is None else state
+        if effect is not ...:
+            final = self.id(mem) if effect is None else effect
         return self.id(dom) @ initial >> unrolled >> self.id(cod) @ final
-
-    def boundary(self, override, mem, plugs) -> Diagram:
-        """
-        Resolve one of :meth:`unroll`'s boundary arguments into a diagram on
-        the whole memory `mem`: the tensor of the loops' own `plugs` by
-        default, the identity on `mem` when `override` is `None`, and
-        `override` itself otherwise.
-
-        >>> wait = Diagram.swap(mode, mode).feedback()
-        >>> assert wait.boundary(..., mode, [Diagram.id(mode)])\\
-        ...     == wait.boundary(None, mode, []) == Diagram.id(mode)
-        """
-        if override is None:
-            return self.id(mem)
-        if override is ...:
-            return self.id(type(mem)()).tensor(*plugs)
-        return override
 
     def one_step(self) -> Diagram:
         """
