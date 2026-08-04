@@ -855,7 +855,6 @@ step and `unroll(n)` is `n + 1`.
 | --- | --- |
 | `stationary_state()` | `eigen_fix`, its only caller in the package |
 | `truncation_dimension()` | `eigen_fix`, its only caller |
-| `is_causal()` | nothing — one caller, `truncation_dimension`, so zero once absorbed |
 | `is_hermitian()`, `is_positive()` | nothing — **zero callers**; `stationary_state` stopped running them and nothing picked them up |
 | `Ty.double_axes()`, `Ty.dagger_axes()` | nothing — they exist only to serve those two |
 | `MAX_TRUNCATION` | a local cap in `eigen_fix` |
@@ -866,8 +865,8 @@ No spectral decomposition is added. `normalisation` stays: two callers survive, 
 - [ ] absorb `stationary_state`, `truncation_dimension` and `MAX_TRUNCATION` into `eigen_fix`
 - [ ] fix `truncation_dimension` while absorbing it: it always returns two today, measuring
       the unprojected map while `stationary_state` refuses the projected one
-- [ ] delete `is_causal`, `is_hermitian`, `is_positive`, `Ty.double_axes`, `Ty.dagger_axes`
-      and the tests that only covered them
+- [ ] delete `is_hermitian`, `is_positive`, `Ty.double_axes`, `Ty.dagger_axes` and the tests
+      that only covered them. `is_causal` stays — see below
 - [ ] rebuild `at_time` as `unroll(n - 1, effect=None)` composed with the discards, instead
       of re-implementing the plumbing; keep its three guards — empty domain, positive integer
       depth, every `state` a state — as `state.dom == Ty()` on the aggregate
@@ -916,6 +915,55 @@ derived from the diagram rather than supplied.
       distinguish the convention
 - [ ] say in the docstring that the bound is conservative: the notebook converges `loop(.06)`
       in 12 steps where the certificate asks 387
+
+### Keeping `eigen_fix` under the limit
+
+Measured before planning the absorption: `eigen_fix` would be **55 statements and 12
+branches**, against pylint's `max-statements=50` and `max-branches=12`, and inline disables
+are banned here. `power_fix` is fine at 30 and 7, and does not grow — `unroll_depth` stays a
+method rather than being absorbed.
+
+`stationary_state`'s 34 statements break down as:
+
+| region | statements | branches |
+| --- | --- | --- |
+| guards on user input | 11 | 5 |
+| build the truncated operator | 3 | 0 |
+| causality residual | 4 | 1 |
+| eigensolve and select | 11 | 3 |
+| normalise and check the trace | 5 | 1 |
+
+Three separations, all of them general:
+
+**The guards evaporate — 11 statements and 5 branches, for free.** They exist because
+`stationary_state` is public and takes arbitrary input. Once it is internal to `eigen_fix`
+every one of its inputs is constructed rather than supplied: `one_step()` has already removed
+the bubbles, the transfer map `step >> Discard(cod) @ Id(memory)` is an endomorphism by
+construction, `fix` has already validated `tol`, and `dimensions` is derived from `chi`. This
+is the largest saving and it is a consequence of absorbing, not extra work.
+
+**`to_matrix(dimensions)` — 3 statements.** The doubled diagram projected back to
+`dimensions` and reshaped to a square matrix. It belongs to the `to_path` / `to_tensor`
+family, is general over any diagram, and is the object `truncation_dimension` should have
+been measuring all along: sharing it makes the always-returns-two bug impossible rather than
+merely fixed.
+
+**Keep `is_causal` — 4 statements, 1 branch.** Reversing the earlier plan to delete it. That
+was right while `truncation_dimension` was a separate method with a single caller; it is
+wrong once both checks land inside `eigen_fix`, which needs the test twice — to search for
+the dimension and to validate the one it settles on. Unifying those two *is* the bug fix.
+
+Result: about **34 statements and 5 branches**, comfortably inside both limits. The cost is
+that the surface goes from nine methods to eleven — `is_causal` stays rather than going, and
+`to_matrix` is new. Both are general and neither is invented for this: `is_causal` exists
+today and the projection is already inline in `stationary_state`.
+
+- [ ] extract `to_matrix(dimensions)` and route both the eigensolve and the dimension search
+      through it
+- [ ] keep `is_causal`, measuring the projected operator rather than the unprojected one
+- [ ] drop `stationary_state`'s guards on absorption rather than carrying them across, and
+      say in `eigen_fix`'s docstring why its inputs need no validation
+- [ ] re-measure statements and branches after the absorption, before pushing
 
 ## Docstrings
 
