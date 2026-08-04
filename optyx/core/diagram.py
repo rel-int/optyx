@@ -545,6 +545,43 @@ class Box(frobenius.Box, Diagram):
             f"{self.__class__.__name__} does not support dagger"
         )
 
+    @staticmethod
+    def array_wire_dims(ty: Ty, dims: list[int] = None) -> list[int]:
+        """Per-wire dimensions of `ty` for an array-backed box: `bit`
+        wires are always 2, `mode` wires take the requested dimension
+        in `dims` (defaulting to 2, the only dimension a `mode` wire
+        can have without one)."""
+        if dims is None:
+            dims = [2] * len(ty)
+        return [
+            2 if ob.name == "bit" else int(d)
+            for ob, d in zip(ty.inside, dims)
+        ]
+
+    def array_truncation(
+        self, input_dims: list[int], output_dims: list[int]
+    ) -> tensor.Box:
+        """`truncation` for a box defined by its `array`."""
+        if output_dims is None:
+            output_dims = self.determine_output_dimensions(input_dims or [])
+        dom_dims = self.array_wire_dims(self.dom, input_dims)
+        cod_dims = self.array_wire_dims(self.cod, output_dims)
+        expected_size = (
+            int(np.prod(dom_dims, dtype=int))
+            * int(np.prod(cod_dims, dtype=int))
+        )
+        if np.asarray(self._array).size != expected_size:
+            raise ValueError(
+                f"{self.name}: array of size {np.asarray(self._array).size}"
+                f" does not match dom={Dim(*dom_dims)}, cod={Dim(*cod_dims)}."
+            )
+        return tensor.Box(
+            self.name,
+            dom=Dim(*dom_dims),
+            cod=Dim(*cod_dims),
+            data=self._array,
+        )
+
     def truncation(
         self, input_dims: list[int] = None, output_dims: list[int] = None
     ) -> tensor.Box:
@@ -552,12 +589,7 @@ class Box(frobenius.Box, Diagram):
         Inheriting boxes should implement this method.
         Otherwise it is defined by the array."""
         if self._array is not None:
-            return tensor.Box(
-                self.name,
-                dom=tensor.Dim(2) ** len(self.dom),
-                cod=tensor.Dim(2) ** len(self.cod),
-                data=self._array,
-            )
+            return self.array_truncation(input_dims, output_dims)
 
         if input_dims is None:
             raise ValueError("Input dimensions must be provided.")
@@ -608,7 +640,21 @@ class Box(frobenius.Box, Diagram):
         Inheriting boxes should implement this method.
         Otherwise it is defined by the array."""
         if self._array is not None:
-            return input_dims
+            if len(self.dom) == len(self.cod):
+                return input_dims
+            if len(self.dom) == 0:
+                array = np.asarray(self._array)
+                if array.ndim == len(self.cod):
+                    return [
+                        2 if ob.name == "bit" else int(d)
+                        for ob, d in zip(self.cod.inside, array.shape)
+                    ]
+            raise NotImplementedError(
+                f"{self.__class__.__name__} cannot infer output "
+                "dimensions for this array-backed box from its input "
+                "dimensions alone; call truncation(output_dims=...) "
+                "explicitly."
+            )
         str = "does not support determine_output_dimensions"
         raise NotImplementedError(
             f"{self.__class__.__name__} {str}"
