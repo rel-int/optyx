@@ -10,35 +10,34 @@ from optyx.core import diagram
 from optyx.core.backends import DiscopyBackend, QuimbBackend
 
 
-def source(initial_state=1, final_effect=None):
+def source(photons=1, effect=None):
     """Reprepares the zero state at every time step, forgetting the memory."""
     return (Discard(qubit) @ qubits.Ket(0) @ qubits.Ket(0)).feedback(
-        mem=qubit, initial_state=qubits.Ket(initial_state),
-        final_effect=final_effect)
+        mem=qubit, state=qubits.Ket(photons), effect=effect)
 
 
-def rotation(phase, initial_state=0):
+def rotation(phase, photons=0):
     """Rotates the memory then copies it, one copy out and one back in."""
     return (qubits.X(1, 1, phase) >> qubits.Z(1, 2)).feedback(
-        mem=qubit, initial_state=qubits.Ket(initial_state))
+        mem=qubit, state=qubits.Ket(photons))
 
 
 def delay():
     """Outputs the previous memory and stores a fresh photon."""
     return (photonic.Create(1) @ qmode >> Diagram.swap(qmode, qmode)).feedback(
-        mem=qmode, initial_state=photonic.Create(0))
+        mem=qmode, state=photonic.Create(0))
 
 
 def identity():
     """Copy the memory out without changing the memory."""
     return classical.CopyBit(2).feedback(
-        mem=bit, initial_state=classical.Bit(0))
+        mem=bit, state=classical.Bit(0))
 
 
 def flip():
     """Flip the memory, copy it out, and feed one copy back."""
     return (classical.Not() >> classical.CopyBit(2)).feedback(
-        mem=bit, initial_state=classical.Bit(0))
+        mem=bit, state=classical.Bit(0))
 
 
 class RecordingBackend(QuimbBackend):
@@ -56,10 +55,10 @@ class RecordingBackend(QuimbBackend):
         return self.result
 
 
-def test_now():
-    assert source().now() == (
+def test_one_step():
+    assert source().one_step() == (
         Discard(qubit) @ qubits.Ket(0) @ qubits.Ket(0))
-    assert delay().now() == (
+    assert delay().one_step() == (
         photonic.Create(1) @ qmode >> Diagram.swap(qmode, qmode))
 
 
@@ -69,10 +68,10 @@ def test_at_time_types():
         assert source().at_time(n_steps).cod == qubit
 
 
-def test_at_time_needs_initial_state():
+def test_at_time_needs_a_state():
     loop = (Discard(qubit) @ qubits.Ket(0) @ qubits.Ket(0)).feedback(
         mem=qubit)
-    with pytest.raises(ValueError, match="initial_state"):
+    with pytest.raises(ValueError, match="needs a state"):
         loop.at_time(2)
 
 
@@ -99,14 +98,14 @@ def test_fix_validates_parameters(kwargs):
 
 def test_source_forgets_its_initial_state():
     expected = np.array([[1, 0], [0, 0]])
-    eigen = source(initial_state=1).fix(method="eigen")
-    power = source(initial_state=1).fix(n_steps=4, chi=8)
+    eigen = source(photons=1).fix(method="eigen")
+    power = source(photons=1).fix(n_steps=4, chi=8)
     assert np.allclose(eigen.density_matrix, expected, atol=1e-6)
     assert np.allclose(power.density_matrix, expected, atol=1e-6)
 
 
-def test_final_effect_does_not_change_stationary_state():
-    conditioned = source(final_effect=qubits.Bra(1))
+def test_the_effect_does_not_change_the_stationary_state():
+    conditioned = source(effect=qubits.Bra(1))
     plain = source()
     assert conditioned.at_time(2) == plain.at_time(2)
     for method, kwargs in (("eigen", {}),
@@ -228,80 +227,29 @@ def test_eigen_boson_sampler_truncates_memory_output():
     sampler = (
         photonic.Create(1) @ qmode
         >> photonic.Gate(unitary, 2, 2, "U")
-    ).feedback(mem=qmode, initial_state=photonic.Create(0))
+    ).feedback(mem=qmode, state=photonic.Create(0))
     density_matrix = sampler.fix(
         method="eigen", chi=5).density_matrix
     assert density_matrix.shape == (6, 6)
     assert np.isclose(np.trace(density_matrix), 1)
 
 
-def test_stationary_state_convention_and_rank():
-    transition = CQMap(
-        "Transition",
-        diagram.Box(
-            "Transition", diagram.bit, diagram.bit,
-            array=np.array([[.9, .1], [.4, .6]])),
-        bit, bit)
-    state = transition.stationary_state()
-    assert np.allclose(state, [.8, .2])
-    almost_identity = CQMap(
-        "Almost identity",
-        diagram.Box(
-            "Almost identity", diagram.bit, diagram.bit,
-            array=np.array([[1 - 1e-9, 1e-9],
-                            [1e-9, 1 - 1e-9]])),
-        bit, bit)
-    assert np.allclose(
-        almost_identity.stationary_state(), [.5, .5])
-    with pytest.raises(ValueError, match="not unique"):
-        Diagram.id(bit).stationary_state()
-
-
-@pytest.mark.parametrize(("state", "hermitian", "positive"), [
-    (np.array([[1, 1], [0, 0]]), False, False),
-    (np.diag([2, -1]), True, False),
-    (np.diag([.5, .5]), True, True),
-])
-def test_stationary_state_is_not_a_density_matrix(state, hermitian, positive):
-    """A causal endomorphism can still have a fixed point which is no density
-    matrix, so `is_hermitian` and `is_positive` are the caller's to run."""
-    trace = np.array([1, 0, 0, 1])
-    replacement = CQMap(
-        "Replacement",
-        diagram.Box(
-            "Replacement", diagram.bit ** 2, diagram.bit ** 2,
-            array=np.outer(trace, state.reshape(-1))),
-        qubit, qubit)
-    fixed = replacement.stationary_state()
-    assert np.allclose(fixed, state / np.trace(state))
-    assert replacement.is_hermitian(fixed) == hermitian
-    assert replacement.is_positive(fixed) == positive
-
-
-def test_causality_is_the_normalisation_of_a_state():
-    assert qubits.Ket(0).is_causal()
-    assert not (Scalar(.5) @ qubits.Ket(0)).is_causal()
+def test_normalisation_is_the_trace_of_a_state():
+    assert np.isclose(qubits.Ket(0).normalisation(), 1)
     assert np.isclose((Scalar(.5) @ qubits.Ket(0)).normalisation(), .25)
     with pytest.raises(ValueError, match="needs a state"):
         Diagram.id(qubit).normalisation()
     assert np.isclose(
         Diagram.id(qubit).normalisation([[.5, 0], [0, .5]]), 1)
-    assert (bit @ qubit).double_axes() == ([0], [(1, 2)])
-    assert (bit @ qubit).dagger_axes() == [0, 2, 1]
 
 
-def test_stationary_state_guards():
-    with pytest.raises(ValueError, match="without feedback"):
-        identity().stationary_state()
-    with pytest.raises(ValueError, match="endomorphisms"):
-        qubits.Ket(0).stationary_state()
-    with pytest.raises(ValueError, match="dimensions"):
-        qubits.Id(1).stationary_state([2])
-    with pytest.raises(ValueError, match="tol"):
-        qubits.Id(1).stationary_state(tol=0)
-
-
-def test_ty_double_exposes_cutoff_dimensions():
-    doubled = (qubit @ qmode).double()
-    assert [3 if ob.inside[0].name == "mode" else 2 for ob in doubled] \
-        == [2, 2, 3, 3]
+def test_truncation_dimensions_are_the_photon_budget():
+    """A photon only reaches the wires downstream of where it enters, so the
+    budget differs per wire even when every wire is beam-split."""
+    chain = photonic.Create(1) @ photonic.Create(0) >> photonic.BS
+    for _ in range(3):
+        tail = Diagram.id(qmode) @ photonic.Create(1) >> photonic.BS
+        chain = chain >> Diagram.id(qmode ** (len(chain.cod) - 1)) @ tail
+    assert chain.truncation_dimensions() == [2, 2, 3, 3, 4, 4, 5, 5, 5, 5]
+    assert chain.truncation_dimensions(chi=3) == [2, 2] + [3] * 8
+    assert qubits.Z(1, 2).truncation_dimensions() == [2, 2, 2, 2]
