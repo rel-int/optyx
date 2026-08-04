@@ -11,9 +11,12 @@ from optyx.channel import (
 from optyx.core import diagram as core, path, zw
 
 
-def delay(initial_state=None, final_effect=None):
-    return Diagram.swap(qmode, qmode).feedback(
-        initial_state=initial_state, final_effect=final_effect)
+def delay(state=None, effect=None):
+    return Diagram.swap(qmode, qmode).feedback(state=state, effect=effect)
+
+
+def open_delay(state=None):
+    return delay(state=state, effect=Diagram.id(qmode))
 
 
 def test_feedback_types():
@@ -28,22 +31,48 @@ def test_feedback_axioms():
         photonic.BS.feedback(dom=qmode ** 2, cod=qmode, mem=qmode)
     with pytest.raises(AxiomError):
         photonic.BS.feedback(dom=qmode, cod=qmode ** 2, mem=qmode)
-    with pytest.raises(AxiomError):
-        delay(initial_state=photonic.Create(0, 0)).unroll(1)
-    with pytest.raises(AxiomError):
-        delay(final_effect=Discard(qmode ** 2)).unroll(1)
 
 
-def test_single_step_unrolling():
-    wait, box = delay(), photonic.BS
-    assert box.unroll(1) == box
-    assert wait.unroll(1) == Diagram.swap(qmode, qmode)
+def test_boundary_axioms_are_checked_at_construction():
+    """A mistyped boundary raises where it is given, not later in unroll."""
+    with pytest.raises(AxiomError):
+        delay(state=photonic.Create(0, 0))
+    with pytest.raises(AxiomError):
+        delay(effect=Discard(qmode ** 2))
+
+
+def test_boundary_defaults():
+    """`None` is an input spelling: the boundaries are always diagrams.
+    A channel discards its memory, the pure layer leaves it open."""
+    wait = delay()
+    assert wait.state == Diagram.id(qmode)
+    assert wait.effect == Discard(qmode)
+    core_wait = core.Diagram.swap(core.mode, core.mode).feedback()
+    assert core_wait.state == core_wait.effect == core.Diagram.id(core.mode)
+
+
+def test_one_step_opens_the_loop():
+    step = Diagram.swap(qmode, qmode)
+    assert delay().one_step() == step
+    assert delay(state=photonic.Create(0)).one_step() == step
+    assert photonic.BS.one_step() == photonic.BS
+    core_step = core.Diagram.swap(core.mode, core.mode)
+    assert core_step.feedback(state=zw.Create(1)).one_step() == core_step
+
+
+def test_unroll_counts_unrollings_not_time_steps():
+    """As in `discopy.stream`, `unroll(0)` is one time step."""
+    wait = open_delay()
+    for n_steps in range(3):
+        assert wait.unroll(n_steps).cod == qmode ** (n_steps + 2)
+    assert photonic.BS.unroll(0) == photonic.BS
+    with pytest.raises(ValueError):
+        wait.unroll(-1)
 
 
 def test_unroll_is_a_delay_line():
-    wait = delay(
-        initial_state=photonic.Create(1), final_effect=Discard(qmode))
-    unrolled = wait.unroll(2)
+    wait = delay(state=photonic.Create(1))
+    unrolled = wait.unroll(1)
     assert unrolled.dom == unrolled.cod == qmode ** 2
     probability = (
         photonic.Create(0, 0) >> unrolled >> photonic.Select(1, 0)
@@ -51,16 +80,15 @@ def test_unroll_is_a_delay_line():
     assert np.isclose(probability, 1)
 
 
-def test_unroll_open_wires():
-    unrolled = delay().unroll(2)
-    assert unrolled.dom == unrolled.cod == qmode ** 3
-    with pytest.raises(ValueError):
-        delay().unroll(0)
-
-
-def test_diagram_has_no_stream_method():
-    assert not hasattr(delay(), "stream")
-    assert not hasattr(core.Diagram.swap(core.mode, core.mode), "stream")
+def test_unroll_overrides_the_boundary():
+    """`None` opens a memory the loop closes, and a diagram replaces it."""
+    wait = delay(state=photonic.Create(1))
+    assert wait.unroll(1).dom == qmode ** 2
+    assert wait.unroll(1, state=None).dom == qmode ** 3
+    assert wait.unroll(1, effect=None).cod == qmode ** 3
+    replaced = wait.unroll(1, state=photonic.Create(0))
+    assert replaced.dom == qmode ** 2
+    assert replaced != wait.unroll(1)
 
 
 def test_evaluation_raises_on_feedback():
@@ -73,24 +101,26 @@ def test_evaluation_raises_on_feedback():
 
 
 def test_double_unroll_commute():
-    wait = delay(
-        initial_state=photonic.Create(0), final_effect=Discard(qmode))
-    assert wait.unroll(2).double() == wait.double().unroll(2)
-    lhs = wait.unroll(2).double().to_tensor().eval().array
-    rhs = wait.double().unroll(2).to_tensor().eval().array
+    wait = delay(state=photonic.Create(0))
+    assert wait.unroll(1).double() == wait.double().unroll(1)
+    lhs = wait.unroll(1).double().to_tensor().eval().array
+    rhs = wait.double().unroll(1).to_tensor().eval().array
     assert np.allclose(lhs, rhs)
 
 
 def composite_loops():
-    fb = photonic.BS.feedback()
-    inner = photonic.BS.feedback()
+    """Loops with an open memory: the default `Discard` effect would make
+    them impure, and `to_path` would refuse them for that reason rather
+    than for the feedback the guard is about."""
+    def loop(arg, **boundary):
+        return arg.feedback(effect=Diagram.id(qmode), **boundary)
+    fb, inner = loop(photonic.BS), loop(photonic.BS)
     return {
         "single": fb,
         "composite": photonic.Phase(0.3) >> fb >> photonic.Phase(0.2),
-        "sequence": fb >> photonic.BS.feedback(),
+        "sequence": fb >> loop(photonic.BS),
         "tensor": fb @ photonic.Phase(0.1),
-        "nested": (
-            inner @ qmode >> Diagram.swap(qmode, qmode)).feedback(),
+        "nested": loop(inner @ qmode >> Diagram.swap(qmode, qmode)),
     }
 
 
@@ -100,8 +130,14 @@ def test_to_path_raises_on_feedback(name):
         composite_loops()[name].to_path()
 
 
+def test_to_path_refuses_a_discarded_memory():
+    """The default effect is a discard, so the loop is not pure either."""
+    with pytest.raises(AssertionError):
+        photonic.BS.feedback().to_path()
+
+
 def test_unrolled_to_path():
-    unrolled = delay().unroll(2)
+    unrolled = open_delay().unroll(1)
     amplitude = (
         photonic.Create(1, 0, 0) >> unrolled >> photonic.Select(0, 1, 0)
     ).to_path().eval().array
@@ -117,16 +153,16 @@ def test_core_feedback_axioms():
     with pytest.raises(AxiomError):
         swap.feedback(dom=core.mode, cod=core.mode ** 2, mem=core.mode)
     with pytest.raises(AxiomError):
-        swap.feedback(initial_state=zw.Create(0, 0)).unroll(1)
+        swap.feedback(state=zw.Create(0, 0))
     with pytest.raises(AxiomError):
-        swap.feedback(final_effect=zw.Select(0, 0)).unroll(1)
+        swap.feedback(effect=zw.Select(0, 0))
 
 
 def test_memory_order():
     loops = composite_loops()
     sequence, nested = loops["sequence"], loops["nested"]
-    assert sequence.unroll(1).dom == sequence.dom @ qmode ** 2
-    assert nested.unroll(1).dom == nested.dom @ qmode ** 2
+    assert sequence.unroll(0).dom == sequence.dom @ qmode ** 2
+    assert nested.unroll(0).dom == nested.dom @ qmode ** 2
 
 
 def test_matrix_has_no_feedback():
@@ -136,21 +172,24 @@ def test_matrix_has_no_feedback():
 
 def test_functor_maps_feedback():
     functor = Functor(ob_map=lambda x: x, ar_map=lambda f: f, cod=Diagram)
-    wait = delay(initial_state=photonic.Create(0))
+    wait = delay(state=photonic.Create(0))
     image = functor(photonic.Phase(0.3) >> wait)
     image_loops = [b for b in image.boxes if isinstance(b, Feedback)]
-    assert image_loops[0].initial_state == photonic.Create(0)
+    assert image_loops[0].state == photonic.Create(0)
+    assert image_loops[0].effect == Discard(qmode)
     core_functor = core.Functor(
         ob_map=lambda x: x, ar_map=lambda f: f, cod=core.Diagram)
     core_wait = core.Diagram.swap(core.mode, core.mode).feedback(
-        initial_state=zw.Create(1), final_effect=zw.Select(0))
+        state=zw.Create(1), effect=zw.Select(0))
     core_image = core_functor(core_wait)
-    assert core_image.initial_state == zw.Create(1)
-    assert core_image.final_effect == zw.Select(0)
+    assert core_image.state == zw.Create(1)
+    assert core_image.effect == zw.Select(0)
 
 
 def test_get_kraus_and_purity():
-    fb = photonic.BS.feedback()
+    """Discarding the memory is not pure, so the default effect makes a
+    channel loop impure until the memory is left open."""
+    fb = photonic.BS.feedback(effect=Diagram.id(qmode))
     kraus = fb.get_kraus()
     assert isinstance(kraus, core.Feedback)
     assert kraus.mem == core.mode
@@ -158,31 +197,32 @@ def test_get_kraus_and_purity():
     assert any(isinstance(box, core.Feedback)
                for box in composite.get_kraus().boxes)
     assert fb.is_pure
-    assert not photonic.BS.feedback(final_effect=Discard(qmode)).is_pure
+    assert not photonic.BS.feedback().is_pure
 
 
 def test_conjugate_and_inflate():
     core_wait = core.Diagram.swap(core.mode, core.mode).feedback(
-        initial_state=zw.Create(1), final_effect=zw.Select(0))
+        state=zw.Create(1), effect=zw.Select(0))
     conjugated = core_wait.conjugate()
-    assert conjugated.initial_state == zw.Create(1).conjugate()
-    assert conjugated.final_effect == zw.Select(0).conjugate()
+    assert conjugated.state == zw.Create(1).conjugate()
+    assert conjugated.effect == zw.Select(0).conjugate()
     inflated = core.Diagram.swap(core.mode, core.mode).feedback(
-        initial_state=zw.Create(0)).inflate(2)
+        state=zw.Create(0)).inflate(2)
     assert inflated.mem == core.mode ** 2
-    wait = delay(initial_state=photonic.Create(0))
+    wait = delay(state=photonic.Create(0))
     assert wait.inflate(2).mem == qmode ** 2
 
 
 def test_str_repr_equality():
+    """Only a boundary that differs from the default is printed."""
     fb = photonic.BS.feedback()
     assert str(fb) == "(BBS(0)).feedback()"
     assert "Feedback" in repr(fb)
     assert fb == photonic.BS.feedback()
-    assert fb != photonic.BS.feedback(final_effect=Discard(qmode))
-    with_state = delay(initial_state=photonic.Create(0))
-    assert "initial_state" in str(with_state)
-    assert "initial_state" in repr(with_state)
+    assert fb != photonic.BS.feedback(effect=Diagram.id(qmode))
+    with_state = delay(state=photonic.Create(0))
+    assert "state" in str(with_state)
+    assert "state" in repr(with_state)
 
 
 def test_dagger_raises():
@@ -199,22 +239,20 @@ def test_to_drawing():
 
 
 def test_qubit_delay_line():
-    wait = Diagram.swap(qubit, qubit).feedback(
-        initial_state=qubits.Ket(0), final_effect=Discard(qubit))
-    unrolled = wait.unroll(2)
+    wait = Diagram.swap(qubit, qubit).feedback(state=qubits.Ket(0))
+    unrolled = wait.unroll(1)
     assert unrolled.dom == unrolled.cod == qubit ** 2
     probability = (
         qubits.Ket(1) @ qubits.Ket(1) >> unrolled
         >> qubits.Bra(0) @ qubits.Bra(1)
     ).double().to_tensor().eval().array
     assert np.isclose(probability, 1)
-    assert wait.unroll(2).double() == wait.double().unroll(2)
+    assert wait.unroll(1).double() == wait.double().unroll(1)
 
 
 def test_bit_delay_line():
-    wait = Diagram.swap(bit, bit).feedback(
-        initial_state=classical.Bit(1), final_effect=Discard(bit))
-    unrolled = wait.unroll(2)
+    wait = Diagram.swap(bit, bit).feedback(state=classical.Bit(1))
+    unrolled = wait.unroll(1)
     assert unrolled.dom == unrolled.cod == bit ** 2
     probability = (
         classical.Bit(0, 0) >> unrolled >> classical.PostselectBit(1, 0)
