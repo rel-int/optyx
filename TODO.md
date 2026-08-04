@@ -799,12 +799,12 @@ tested and reused, so the `_`-prefixed helpers of the previous round were the wr
 
 ## Split #15 in two
 
-Sixteen public additions become nine documented methods.
+Sixteen public additions become ten documented methods.
 
 | PR | Base | Surface |
 | --- | --- | --- |
 | 1 — the feedback category (#12) | `main` | `feedback`, `unroll`, `one_step` |
-| 2 — fixpoint semantics (#15) | PR 1 | `at_time`, `fix`, `power_fix`, `eigen_fix`, `unroll_depth`, `normalisation` |
+| 2 — fixpoint semantics (#15) | PR 1 | `at_time`, `fix`, `power_fix`, `eigen_fix`, `unroll_depth`, `truncation_dimension`, `normalisation` |
 
 Only `one_step` moves into PR 1; everything else either stays in PR 2, is absorbed into the
 method that used it, or goes.
@@ -862,11 +862,9 @@ step and `unroll(n)` is `n + 1`.
 No spectral decomposition is added. `normalisation` stays: two callers survive, the trace in
 `power_fix` and the trace inside the absorbed `stationary_state`.
 
-- [ ] absorb `stationary_state`, `truncation_dimension` and `MAX_TRUNCATION` into `eigen_fix`
-- [ ] fix `truncation_dimension` while absorbing it: it always returns two today, measuring
-      the unprojected map while `stationary_state` refuses the projected one
-- [ ] delete `is_hermitian`, `is_positive`, `Ty.double_axes`, `Ty.dagger_axes` and the tests
-      that only covered them. `is_causal` stays — see below
+- [ ] absorb `stationary_state` and `MAX_TRUNCATION` into `eigen_fix`
+- [ ] delete `is_causal`, `is_hermitian`, `is_positive`, `Ty.double_axes`,
+      `Ty.dagger_axes` and the tests that only covered them
 - [ ] rebuild `at_time` as `unroll(n - 1, effect=None)` composed with the discards, instead
       of re-implementing the plumbing; keep its three guards — empty domain, positive integer
       depth, every `state` a state — as `state.dom == Ty()` on the aggregate
@@ -916,12 +914,52 @@ derived from the diagram rather than supplied.
 - [ ] say in the docstring that the bound is conservative: the notebook converges `loop(.06)`
       in 12 steps where the certificate asks 387
 
+### Two estimators, one for each parameter
+
+`fix` has two knobs and each gets a method, both cheap, both diagram-dependent, both
+answering before any contraction runs:
+
+| estimates | method | for |
+| --- | --- | --- |
+| `n_steps` | `unroll_depth(tol, loss)` | `power` |
+| `chi` | `truncation_dimension()` | `eigen` |
+
+`truncation_dimension` is redefined as **the maximal dimension of the codomain**, not the
+causality search it runs today. That makes it general over any optyx diagram, and it is
+already computable — `determine_output_dimensions`, `get_max_dim_for_box` and `MAX_DIM` do
+the propagation, so the method reads the codomain off it rather than contracting anything.
+Measured on the running example:
+
+| diagram | input dimensions | codomain |
+| --- | --- | --- |
+| the beam-splitter step | `[2, 2]` | `Dim(3, 3, 3, 3)` |
+| the same, at `[5, 5]` | | `Dim(6, 6, 6, 6)` |
+| `qubits.Z(1, 2)` | `[2, 2]` | `Dim(2, 2, 2, 2)` |
+
+The memory grows by exactly one per step, which is the injected photon, and qubit wires sit
+at two with nothing to compute — "only does some computation for photonic diagrams".
+
+This also replaces the broken search rather than repairing it. Today `truncation_dimension`
+doubles until `is_causal` holds and always returns two, because it measures the unprojected
+map while `stationary_state` refuses the projected one. A dimension read off the diagram has
+no search to get wrong.
+
+- [ ] redefine `truncation_dimension()` as the maximal codomain dimension, over the existing
+      propagation; keep it a method in PR 2
+- [ ] open question: for a loop the codomain grows by one photon per step, so the dimension
+      never converges — the method sizes one step's inflation, and `eigen_fix` must still
+      *choose* a cutoff and accept truncation error. Decide whether `truncation_dimension`
+      takes a `tol` and returns the cutoff whose tail is below it, or stays a pure photon
+      budget and `eigen_fix` owns the choice
+
 ### Keeping `eigen_fix` under the limit
 
-Measured before planning the absorption: `eigen_fix` would be **55 statements and 12
-branches**, against pylint's `max-statements=50` and `max-branches=12`, and inline disables
-are banned here. `power_fix` is fine at 30 and 7, and does not grow — `unroll_depth` stays a
-method rather than being absorbed.
+Measured before planning the absorption: absorbing both `stationary_state` and
+`truncation_dimension` would make `eigen_fix` **55 statements and 12 branches**, against
+pylint's `max-statements=50` and `max-branches=12`, with inline disables banned here.
+`power_fix` is fine at 30 and 7 and does not grow, since `unroll_depth` stays a method.
+
+Two things fix that, and `truncation_dimension` staying separate is one of them.
 
 `stationary_state`'s 34 statements break down as:
 
@@ -933,36 +971,21 @@ method rather than being absorbed.
 | eigensolve and select | 11 | 3 |
 | normalise and check the trace | 5 | 1 |
 
-Three separations, all of them general:
-
 **The guards evaporate — 11 statements and 5 branches, for free.** They exist because
 `stationary_state` is public and takes arbitrary input. Once it is internal to `eigen_fix`
-every one of its inputs is constructed rather than supplied: `one_step()` has already removed
-the bubbles, the transfer map `step >> Discard(cod) @ Id(memory)` is an endomorphism by
-construction, `fix` has already validated `tol`, and `dimensions` is derived from `chi`. This
-is the largest saving and it is a consequence of absorbing, not extra work.
+every input is constructed rather than supplied: `one_step()` has already removed the
+bubbles, the transfer map `step >> Discard(cod) @ Id(memory)` is an endomorphism by
+construction, `fix` has already validated `tol`, and `dimensions` comes from `chi`.
 
-**`to_matrix(dimensions)` — 3 statements.** The doubled diagram projected back to
-`dimensions` and reshaped to a square matrix. It belongs to the `to_path` / `to_tensor`
-family, is general over any diagram, and is the object `truncation_dimension` should have
-been measuring all along: sharing it makes the always-returns-two bug impossible rather than
-merely fixed.
+That leaves `eigen_fix` at about **34 statements and 5 branches**, inside both limits, and
+the surface at ten methods rather than the twelve the earlier plan reached: with the
+dimension search gone, `is_causal` has a single use inside `eigen_fix` and is inlined, and so
+is the three-statement projection that would have become `to_matrix`.
 
-**Keep `is_causal` — 4 statements, 1 branch.** Reversing the earlier plan to delete it. That
-was right while `truncation_dimension` was a separate method with a single caller; it is
-wrong once both checks land inside `eigen_fix`, which needs the test twice — to search for
-the dimension and to validate the one it settles on. Unifying those two *is* the bug fix.
-
-Result: about **34 statements and 5 branches**, comfortably inside both limits. The cost is
-that the surface goes from nine methods to eleven — `is_causal` stays rather than going, and
-`to_matrix` is new. Both are general and neither is invented for this: `is_causal` exists
-today and the projection is already inline in `stationary_state`.
-
-- [ ] extract `to_matrix(dimensions)` and route both the eigensolve and the dimension search
-      through it
-- [ ] keep `is_causal`, measuring the projected operator rather than the unprojected one
 - [ ] drop `stationary_state`'s guards on absorption rather than carrying them across, and
       say in `eigen_fix`'s docstring why its inputs need no validation
+- [ ] delete `is_causal` after all, along with `is_hermitian`, `is_positive`,
+      `Ty.double_axes` and `Ty.dagger_axes`
 - [ ] re-measure statements and branches after the absorption, before pushing
 
 ## Docstrings
