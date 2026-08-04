@@ -16,25 +16,26 @@ package is listed in the PR body, not fixed here.
 
 ## No secrets
 
-- [ ] Inline `Measure._measure_wire` into `Measure.inflate`
-- [ ] Inline `Encode._encode_wire` into `Encode.inflate`
-- [ ] `Channel._decomp` -> `decomp` (shadows `Diagram.decomp`, a plain functor)
-- [ ] `Channel._to_dual_rail` -> `dual_rail` (`Diagram.to_dual_rail` is `functor . decomp`, so the
+- [x] Inline `Measure._measure_wire` into `Measure.inflate`
+- [x] Inline `Encode._encode_wire` into `Encode.inflate`
+- [x] `Channel._decomp` -> `decomp` (shadows `Diagram.decomp`, a plain functor)
+- [x] `Channel._to_dual_rail` -> `dual_rail` (`Diagram.to_dual_rail` is `functor . decomp`, so the
       box hook is a different map and needs its own name — sharing it breaks `channel.py:139`)
-- [ ] `Ob._classical` / `Ob._quantum` -> `Ob.classical` / `Ob.quantum`
-- [ ] `core/diagram.py`: drop `Box._array` and its pass-through property
+- [x] `Ob._classical` / `Ob._quantum` -> `Ob.classical` / `Ob.quantum`
+- [x] `core/diagram.py`: drop `Box._array` and its pass-through property
 
 ## Pylint
 
-- [ ] Hoist the deferred imports in `channel.py` that were never circular (`core.path`, `core.zw`)
-- [ ] Hoist the deferred imports in `core/diagram.py` that were never circular (`core.path`,
+- [x] Hoist the deferred imports in `channel.py` that were never circular (`core.path`, `core.zw`)
+- [x] Hoist the deferred imports in `core/diagram.py` that were never circular (`core.path`,
       `utils.misc`, `sympy`, `copy`) and fix the import order
-- [ ] `good-names` in `pyproject.toml`; delete the `invalid-name` disables in the two files
-- [ ] Fix `bad-classmethod-argument`, `redefined-builtin`, `no-else-return` in `core/diagram.py`
+- [x] `good-names` in `pyproject.toml`; delete the `invalid-name` disables in the two files
+- [x] Fix `bad-classmethod-argument`, `redefined-builtin` in `core/diagram.py`
+- [ ] `no-else-return` in `Box.photon_number_transform` and `Spider.determine_output_dimensions`
 - [ ] Leave the genuinely circular `import-outside-toplevel` visible; open the layering issue
 
 ## Verify
 
-- [ ] Tests for the inlined `inflate` branches
+- [x] Tests for the inlined `inflate` branches
 - [ ] `pflake8 optyx`, `pylint optyx --fail-under=9`, `coverage run -m pytest`,
       `coverage report --fail-under=95`, no `docs/_static` churn

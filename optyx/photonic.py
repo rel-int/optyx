@@ -701,7 +701,8 @@ class TBS(AbstractGate):
             is_conj=self.is_conj
         )
 
-    def _decomp(self):
+    def decomp(self):
+        """Decompose into beam splitters and phase shifters."""
         d = BS >> qmode @ Phase(self.theta) >> BS
         return d.dagger() if self.is_gate_dagger else d
 
@@ -709,7 +710,7 @@ class TBS(AbstractGate):
         """Gradient with respect to :code:`var`."""
         if var not in self.free_symbols:
             return self.sum_factory((), self.dom, self.cod)
-        return self._decomp().grad(var)
+        return self.decomp().grad(var)
 
     def conjugate(self):
         """
@@ -807,7 +808,8 @@ class MZI(AbstractGate):
             is_conj=self.is_conj
         )
 
-    def _decomp(self):
+    def decomp(self):
+        """Decompose into beam splitters and phase shifters."""
         x, y = self.theta, self.phi
         d = BS >> qmode @ Phase(x) >> BS >> Phase(y) @ qmode
         return d.dagger() if self.is_gate_dagger else d
@@ -816,7 +818,7 @@ class MZI(AbstractGate):
         """Gradient with respect to :code:`var`."""
         if var not in self.free_symbols:
             return self.sum_factory((), self.dom, self.cod)
-        return self._decomp().grad(var)
+        return self.decomp().grad(var)
 
     def dagger(self):
         return MZI(self.theta, self.phi,

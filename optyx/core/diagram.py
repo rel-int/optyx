@@ -198,7 +198,12 @@ preprint arXiv:2409.13541.
 
 from __future__ import annotations
 
+from copy import deepcopy
+from enum import Enum
+from typing import List, Tuple, Iterable
+
 import numpy as np
+from sympy import lambdify
 from sympy.core import Symbol, Mul
 from discopy import (
     symmetric, frobenius, tensor, hypergraph
@@ -206,13 +211,13 @@ from discopy import (
 from discopy.cat import factory, rsubs
 from discopy.frobenius import Dim
 from discopy.quantum.gates import format_number
-from enum import Enum
+from optyx.core import path
 from optyx.utils.misc import (
     BasisTransition,
     calculate_right_offset,
-    get_max_dim_for_box
+    get_max_dim_for_box,
+    is_identity
 )
-from typing import List, Tuple, Iterable
 
 MAX_DIM = 10
 
@@ -263,7 +268,6 @@ class Ty(frobenius.Ty):
 class Mode(Ty):
     """Optical mode interpreted as the infinite space with countable basis"""
 
-    # pylint: disable=invalid-name
     def __init__(self, n=0):
         self.n = n
         super().__init__(*["mode" for _ in range(n)])
@@ -272,7 +276,6 @@ class Mode(Ty):
 class Bit(Ty):
     """Qubit type interpreted as the two dimensional complext vector space"""
 
-    # pylint: disable=invalid-name
     def __init__(self, n=0):
         self.n = n
         super().__init__(*["bit" for _ in range(n)])
@@ -300,9 +303,6 @@ class Diagram(frobenius.Diagram):
         of a :class:`Diagram`.
         In other words, it is the underlying matrix
         representation of a :class:`path` and :class:`lo` diagrams."""
-        # pylint: disable=import-outside-toplevel
-        from optyx.core import path
-
         return symmetric.Functor(
             ob_map=len,
             ar_map=lambda f: f.to_path(dtype),
@@ -315,7 +315,6 @@ class Diagram(frobenius.Diagram):
     ) -> tensor.Diagram:
         """Returns a :class:`tensor.Diagram` for evaluation"""
         from optyx.core import zw
-        from optyx.utils.misc import is_identity
 
         if input_dims is None:
             input_dims = [2 for _ in range(len(self.dom))]
@@ -378,7 +377,6 @@ class Diagram(frobenius.Diagram):
 
         zboxes = tensor.Id(Dim(1))
 
-        # pylint: disable=invalid-name
         for c in diagram.cod:
             zboxes @= zw.ZBox(1, 1, lambda i: 1).truncation(
                 input_dims=[int(c.inside[0])], output_dims=[int(c.inside[0])]
@@ -394,10 +392,8 @@ class Diagram(frobenius.Diagram):
         scalar=1
     ):  # pragma: no cover
         """Create a :class:`zw` diagram from a bosonic operator."""
-        # pylint: disable=import-outside-toplevel
         from optyx.core import zw
 
-        # pylint: disable=invalid-name
         d = cls.id(Mode(n_modes))
         annil = zw.Split(2) >> zw.Select(1) @ zw.Id(1)
         create = annil.dagger()
@@ -408,12 +404,10 @@ class Diagram(frobenius.Diagram):
             d = d >> zw.Id(idx) @ box @ zw.Id(n_modes - idx - 1)
 
         if scalar != 1:
-            # pylint: disable=invalid-name
             d = Scalar(scalar) @ d
         return d
 
     def to_pyzx(self):
-        # pylint: disable=import-outside-toplevel
         from optyx.core import zx
 
         try:
@@ -428,7 +422,6 @@ class Diagram(frobenius.Diagram):
             )
         return zx_diagram.to_pyzx()
 
-    # pylint: disable=invalid-name
     def inflate(self, d):
         r"""
         Translates from an indistinguishable setting
@@ -438,7 +431,6 @@ class Diagram(frobenius.Diagram):
         assert isinstance(d, int), "Dimension must be an integer"
         assert d > 0, "Dimension must be positive"
 
-        # pylint: disable=invalid-name
         def ob(x):
             return Ty.tensor(
                 *(o**d if o.inside[0].name == "mode" else o for o in x)
@@ -453,12 +445,21 @@ class Diagram(frobenius.Diagram):
 
 
 class Box(frobenius.Box, Diagram):
-    """A box in an optyx diagram"""
+    """A box in an optyx diagram.
+
+    A box can be defined through an :code:`array`, which will inform
+    :code:`Box.truncation()`, :code:`Box.dagger()`, :code:`Box.conjugate()`
+    and :code:`Box.determine_output_dimensions()`. The box needs to have
+    fixed dom and cod, and the tensor fixed dimensions. Usually used for
+    zx boxes (Bit) with tensors with dims of 2.
+    """
 
     __ambiguous_inheritance__ = (frobenius.Box,)
 
+    array = None
+
     def __init__(self, name, dom, cod, array=None, **params):
-        self._array = array
+        self.array = array
         super().__init__(name, dom, cod, **params)
         self.photon_preservation_behaviour = PhotonNumberPreservation.NON_LO
 
@@ -497,7 +498,8 @@ class Box(frobenius.Box, Diagram):
             )
 
     @classmethod
-    def get_perm(self, n, d):
+    def get_perm(cls, n, d):
+        """Interleave :code:`n` wires into :code:`d` inflated copies."""
         return sorted(sorted(list(range(n))), key=lambda i: i % d)
 
     def inflate(self, d):
@@ -519,12 +521,12 @@ class Box(frobenius.Box, Diagram):
         """Conjugate the box.
         Inheriting boxes should implement this method.
         Otherwise it is defined by the array."""
-        if self._array is not None:
+        if self.array is not None:
             return type(self)(
                 self.name + ".dagger()",
                 dom=self.cod,
                 cod=self.dom,
-                array=self._array.conjugate(),
+                array=self.array.conjugate(),
             )
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support conjugation"
@@ -534,12 +536,12 @@ class Box(frobenius.Box, Diagram):
         """Return the dagger of the box.
         Inheriting boxes should implement this method.
         Otherwise it is defined by the array."""
-        if self._array is not None:
+        if self.array is not None:
             return type(self)(
                 self.name + ".dagger()",
                 dom=self.cod,
                 cod=self.dom,
-                array=self._array.T.conjugate(),
+                array=self.array.T.conjugate(),
             )
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support dagger"
@@ -551,12 +553,12 @@ class Box(frobenius.Box, Diagram):
         """Create a tensor in the semantics of a ZW diagram.
         Inheriting boxes should implement this method.
         Otherwise it is defined by the array."""
-        if self._array is not None:
+        if self.array is not None:
             return tensor.Box(
                 self.name,
                 dom=tensor.Dim(2) ** len(self.dom),
                 cod=tensor.Dim(2) ** len(self.cod),
-                data=self._array,
+                data=self.array,
             )
 
         if input_dims is None:
@@ -607,11 +609,11 @@ class Box(frobenius.Box, Diagram):
         of the output tensor diagrams.
         Inheriting boxes should implement this method.
         Otherwise it is defined by the array."""
-        if self._array is not None:
+        if self.array is not None:
             return input_dims
-        str = "does not support determine_output_dimensions"
         raise NotImplementedError(
-            f"{self.__class__.__name__} {str}"
+            f"{self.__class__.__name__} does not support "
+            "determine_output_dimensions"
         )
 
     def to_path(self, dtype=complex):
@@ -635,22 +637,6 @@ class Box(frobenius.Box, Diagram):
     def subs(self, *args) -> Diagram:
         syms, exprs = zip(*args)
         return self.lambdify(*syms)(*exprs)
-
-    @property
-    def array(self):
-        return self._array
-
-    @array.setter
-    def array(self, value):
-        """
-        A :code:`diagram.Box` can be defined through an array
-        which will inform :code:`Box.truncation()`, :code:`Box.dagger()`,
-        :code:`Box.conjugate()` and :code:`Box.determine_output_dimensions()`.
-        The box need to have fixed dom and cod. The tensor should also have
-        fixed dimensions. Usually used for zx boxes
-        (Bit) with tensor with dims of 2.
-        """
-        self._array = value
 
     def truncation_specification(
         self,
@@ -737,10 +723,7 @@ class Sum(symmetric.Sum, Box):
         # we need to implement the proper sums of qpath diagrams
         # this is only a temporary solution, so that the grad tests pass
         if permanent is None:
-            # pylint: disable=import-outside-toplevel
-            from optyx.core.path import npperm
-
-            permanent = npperm
+            permanent = path.npperm
         return sum(
             term.to_path(dtype).eval(n_photons, permanent)
             for term in self.terms
@@ -792,10 +775,7 @@ class Swap(frobenius.Swap, Box):
         return self
 
     def to_path(self, dtype: type = complex):
-        # pylint: disable=import-outside-toplevel
-        from optyx.core.path import Matrix
-
-        return Matrix([0, 1, 1, 0], 2, 2)
+        return path.Matrix([0, 1, 1, 0], 2, 2)
 
     def determine_output_dimensions(self, input_dims: list[int]) -> list[int]:
         """Determine the output dimensions based on the input dimensions."""
@@ -842,10 +822,7 @@ class Scalar(Box):
         return f"scalar({format_number(self.data)})"
 
     def to_path(self, dtype: type = complex):
-        # pylint: disable=import-outside-toplevel
-        from optyx.core.path import Matrix
-
-        return Matrix[dtype]([], 0, 0, scalar=self.scalar)
+        return path.Matrix[dtype]([], 0, 0, scalar=self.scalar)
 
     def dagger(self) -> Diagram:
         return Scalar(self.scalar.conjugate())
@@ -861,9 +838,6 @@ class Scalar(Box):
         return Scalar(self.scalar.diff(var))
 
     def lambdify(self, *symbols, **kwargs):
-        # pylint: disable=import-outside-toplevel
-        from sympy import lambdify
-
         return lambda *xs: type(self)(
             lambdify(symbols, self.scalar, **kwargs)(*xs)
         )
@@ -899,7 +873,6 @@ class DualRail(Box):
     def photon_number_transform(self, dims_in, dims_out):
         from optyx.core.zw import Create
         from optyx.core.zx import Z
-        from copy import deepcopy
 
         prev_layers = []
         prev_layers.append(Z(1, 0) if not self.is_dagger else Z(0, 1))
@@ -932,7 +905,6 @@ class DualRail(Box):
         return [2, 2]
 
     def inflate(self, d):
-        # pylint: disable=import-outside-toplevel
         from optyx.core.zw import W, Endo
 
         assert self.internal_state is not None, \
@@ -1006,7 +978,6 @@ class PhotonThresholdDetector(Box):
         return PhotonThresholdDetector(not self.is_dagger)
 
     def inflate(self, d):
-        # pylint: disable=import-outside-toplevel
         from optyx.core.zw import Add
         dgrm = Add(d) >> PhotonThresholdDetector()
         if self.is_dagger:
