@@ -946,11 +946,38 @@ no search to get wrong.
 
 - [ ] redefine `truncation_dimension()` as the maximal codomain dimension, over the existing
       propagation; keep it a method in PR 2
-- [ ] open question: for a loop the codomain grows by one photon per step, so the dimension
-      never converges — the method sizes one step's inflation, and `eigen_fix` must still
-      *choose* a cutoff and accept truncation error. Decide whether `truncation_dimension`
-      takes a `tol` and returns the cutoff whose tail is below it, or stays a pure photon
-      budget and `eigen_fix` owns the choice
+**The budget is not uniform across the wires, and the propagation already knows it.**
+Measured:
+
+| diagram | codomain dimensions |
+| --- | --- |
+| `Create(3) @ Create(5)` | `Dim(4, 4, 6, 6)` |
+| `Create(1) @ Create(1) @ Create(4)` | `Dim(2, 2, 2, 2, 5, 5)` |
+| `(Create(1) @ Create(1) >> BS) @ Create(4)` | `Dim(3, 3, 3, 3, 5, 5)` |
+| a photon injected into mode 0 of a two-mode memory | `Dim(3, 3, 3, 3, 2, 2)` |
+
+The light cone is what makes this non-trivial: in the third row the beam splitter spreads the
+two photons across its own outputs, taking both to dimension three, but does not reach the
+untouched wire, which keeps its own budget of five.
+
+The last row is a loop memory, so it is the case `eigen_fix` meets: memory wires at
+dimensions three and two. A scalar `chi` over-allocates, and the eigensolve is cubic in the
+product of the dimensions — the exact budget gives `h = 3 * 3 * 2 * 2 = 36`, a uniform
+`chi = 4` gives `h = 256`, which is **360 times** the work on the same problem.
+
+So `truncation_dimension()` returns one dimension per doubled codomain wire, and `chi` stays
+the scalar the caller gives: a per-wire cap, `min(budget, chi)`, rather than the dimension
+itself.
+
+- [ ] return a list, one dimension per doubled codomain wire, and apply `chi` as a cap
+- [ ] `eigen_fix` builds `dimensions` from it instead of
+      `[chi if ob.inside[0].name == "mode" else 2 for ob in memory.double()]`, which is the
+      uniform allocation the measurement above prices
+- [ ] open question: for a loop the budget grows by one photon per step, so it never
+      converges — the method sizes one step's inflation given the domain dimensions, and
+      `eigen_fix` must still *choose* where to truncate. Decide whether it takes a `tol` and
+      returns the cutoff whose tail falls below it, or stays a pure budget and `eigen_fix`
+      owns the choice
 
 ### Keeping `eigen_fix` under the limit
 
