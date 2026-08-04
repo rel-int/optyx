@@ -125,3 +125,19 @@ too-many-ancestors,
 too-many-arguments
 """
 ignore-patterns = "_version.py"
+
+[tool.pylint.basic]
+# optyx names after the mathematics (STYLE.md: "when possible the names
+# correspond to well-known mathematical definitions"), which pylint rejects
+# for being under three characters. Listed explicitly rather than matched by
+# a regex, so that a new one-letter name stays a deliberate act.
+good-names = [
+    "_", "ex", "Run",     # pylint's defaults, restated because this replaces them
+    "i", "j", "k",        # indices
+    "n", "m",             # numbers of legs, wires or modes
+    "d",                  # inflation dimension
+    "c", "f", "g", "p", "s", "x", "y",
+    "ob", "ty", "ar",     # objects, types and arrows: DisCoPy vocabulary
+    "Z", "X", "H", "W",   # generators of the ZX and ZW calculi
+    "BS", "MZI", "TBS", "Id", "Scalar",
+]
