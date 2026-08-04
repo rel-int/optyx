@@ -965,7 +965,7 @@ Every wire is linked to every other by a beam splitter, and still:
 | stages | wires | dimensions | most photons per wire |
 | --- | --- | --- | --- |
 | 2 | 3 | `[2, 3, 3]` | `[1, 2, 2]` |
-| 3 | 4 | `[2, 3, 4, 4]` | `[1, 2, 3, 4]` |
+| 3 | 4 | `[2, 3, 4, 4]` | `[1, 2, 3, 3]` |
 | 4 | 5 | `[2, 3, 4, 5, 5]` | `[1, 2, 3, 4, 4]` |
 
 Wire `i` is reachable only by the photons that entered at or before stage `i`, so its budget
