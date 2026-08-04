@@ -1060,3 +1060,67 @@ output fed back:
 - [ ] `normalisation`: the fixed point of this loop has trace one
 - [ ] draw the loop once for the module docstring and reuse the figure rather than
       regenerating it per method
+
+> Now that I think of it, we need to add some tests where the feedback is classical, let's think of a simple example in photonics
+
+## Classical feedback tests
+
+Nothing today feeds a photonic measurement back through a classical memory, which is the
+combination `AGENTS.md` puts at the centre of the package — "lossy channels, heralded
+measurements and classical feedback". `test_bit_delay_line`, `identity()` and `flip()` use a
+`bit` memory but no optics; no test uses a classical `mode` memory at all; and no test runs
+`fix` on a memory produced by detection.
+
+Three, sharing the beam splitter of the docstring example. Each has an exact analytic answer,
+so the assertion is a closed form rather than a recorded number. All three verified against
+the current branch in a Python 3.12 venv.
+
+**1. Running count — deterministic, `mode` memory.** The simplest classical loop in photonics:
+detect one photon per step and accumulate.
+
+```python
+count = photonic.Create(1) >> photonic.NumberResolvingMeasurement(1)
+step = Diagram.id(mode) @ count >> classical.Add(2) >> classical.CopyN(2)
+loop = step.feedback(mem=mode, state=classical.Digit(0))
+```
+
+The total after `n` steps is exactly `n`, with probability one. Verified for `n = 1..4`.
+
+**2. Binomial counter — probabilistic, `mode` memory.** One photon on a 50:50 splitter,
+detect both arms, accumulate one of them.
+
+```python
+detect = (photonic.Create(1) @ photonic.Create(0) >> photonic.BS
+          >> photonic.NumberResolvingMeasurement(2))
+step = (Diagram.id(mode) @ detect >> Diagram.id(mode @ mode) @ classical.DiscardMode(1)
+        >> classical.Add(2) >> classical.CopyN(2))
+```
+
+The total after `n` steps is `Binomial(n, 1/2)` exactly. Verified at `n = 1, 2, 3`:
+`{0: .125, 1: .375, 2: .375, 3: .125}` at `n = 3`.
+
+**3. Parity — bounded `bit` memory, so it has a fixed point.** The one classical loop where
+`fix` means anything: an unbounded counter has no stationary state, a parity does.
+
+```python
+click = (photonic.Create(1) @ photonic.Create(0) >> photonic.MZI(.15, 0)
+         >> photonic.NumberResolvingMeasurement(2)
+         >> classical.Mod2() @ classical.DiscardMode(1))
+step = Diagram.id(bit) @ click >> classical.Xor() >> classical.CopyBit(2)
+```
+
+With a biased splitter the parity converges geometrically rather than immediately, at a rate
+that is known in closed form. At `theta = .15` the click probability is `p = 0.206107`, and
+`P(parity = 0)` after `n` steps is `(1 + (1 - 2p) ** n) / 2` — matched to eight decimals at
+`n = 1, 2, 3, 4, 6`, with rate `|1 - 2p| = 0.587785`. Both `fix` methods return the uniform
+distribution.
+
+- [ ] add the three loops to `test_feedback.py` (types, unrolling) and `test_fix.py`
+      (convergence), asserting the closed forms rather than recorded numbers
+- [ ] test 3 doubles as the guard for `unroll_depth` branch three: `to_path` on it fails with
+      "Diagram must be pure to convert to path", so with no `loss` given it must raise
+      `NotImplementedError` rather than returning a bound it cannot justify
+- [ ] test 3 is also the only coverage of `eigen_fix` on a memory that came out of a
+      detector; `identity()` and `flip()` reach a `bit` memory without any optics
+- [ ] check a classical memory survives `double` and `unroll` commuting, as the quantum
+      delay lines already do
