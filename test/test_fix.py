@@ -180,14 +180,17 @@ def test_max_steps_is_the_depth_when_nothing_certifies_one():
     assert np.allclose(result.density_matrix, expected)
 
 
-def test_feedback_of_the_identity_is_a_closed_loop():
-    """The identity fed back to itself leaves nothing open: the memory
-    carries its state around unchanged. Every memory state is stationary,
-    so `eigen_fix` refuses to pick one, while the visible fixpoint over the
-    empty codomain is the scalar one."""
+def test_fixpoint_of_a_closed_loop():
+    """A loop with nothing outside must still be solved or refused, never
+    silently wrong. Feeding the identity back closes everything and keeps
+    every memory state stationary: `eigen_fix` refuses the arbitrary
+    choice, `fix` iterates from the loop's own state and returns the
+    scalar one — the trace of the fixpoint over the empty codomain — and
+    without a state there is nothing to iterate from, so `fix` raises. A
+    closed loop that resets its memory has a unique fixpoint, and both
+    solvers return the same scalar."""
     closed = Diagram.id(qmode).feedback(state=photonic.Create(0))
     assert closed.dom == closed.cod == Ty()
-    assert closed.mem == qmode
     assert closed.one_step() == Diagram.id(qmode)
     with pytest.raises(ValueError, match="not unique"):
         closed.eigen_fix()
@@ -195,8 +198,16 @@ def test_feedback_of_the_identity_is_a_closed_loop():
         result = closed.fix(max_steps=3)
     assert result.density_matrix.shape == ()
     assert np.isclose(result.density_matrix, 1)
+
     with pytest.raises(ValueError, match="needs a state"):
-        Diagram.id(qmode).feedback().at_time(2)
+        Diagram.id(qmode).feedback().fix(max_steps=3)
+
+    reset = (Discard(qubit) @ qubits.Ket(0)).feedback(
+        mem=qubit, state=qubits.Ket(1))
+    assert reset.dom == reset.cod == Ty()
+    assert np.isclose(reset.eigen_fix().density_matrix, 1)
+    with pytest.warns(UserWarning, match="no loss certifies"):
+        assert np.isclose(reset.fix(max_steps=3).density_matrix, 1)
 
 
 def test_a_delay_does_not_change_the_fixpoint():

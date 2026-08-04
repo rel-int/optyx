@@ -658,6 +658,7 @@ class Diagram(frobenius.Diagram):
         certified = self.unroll_depth(tol, loss) if loss else None
         depth = max_steps if certified is None \
             else min(certified, max_steps)
+        network = self.at_time(depth - 1)
         if certified is None:
             warnings.warn(
                 f"no loss certifies {depth} time steps within tol={tol}: "
@@ -669,7 +670,6 @@ class Diagram(frobenius.Diagram):
                 f"{certified}: the result is not guaranteed within "
                 f"tol={tol}.", UserWarning, stacklevel=2)
 
-        network = self.at_time(depth - 1)
         needed = max(network.truncation_dimensions(), default=1)
         if chi is not None and needed > chi:
             warnings.warn(
