@@ -804,7 +804,7 @@ Sixteen public additions become ten documented methods.
 | PR | Base | Surface |
 | --- | --- | --- |
 | 1 — the feedback category (#12) | `main` | `feedback`, `unroll`, `one_step` |
-| 2 — fixpoint semantics (#15) | PR 1 | `at_time`, `fix`, `power_fix`, `eigen_fix`, `unroll_depth`, `truncation_dimension`, `normalisation` |
+| 2 — fixpoint semantics (#15) | PR 1 | `at_time`, `fix`, `power_fix`, `eigen_fix`, `unroll_depth`, `truncation_dimensions`, `normalisation` |
 
 Only `one_step` moves into PR 1; everything else either stays in PR 2, is absorbed into the
 method that used it, or goes.
@@ -854,7 +854,7 @@ step and `unroll(n)` is `n + 1`.
 | removed | into |
 | --- | --- |
 | `stationary_state()` | `eigen_fix`, its only caller in the package |
-| `truncation_dimension()` | `eigen_fix`, its only caller |
+| `truncation_dimensions()` | `eigen_fix`, its only caller |
 | `is_hermitian()`, `is_positive()` | nothing — **zero callers**; `stationary_state` stopped running them and nothing picked them up |
 | `Ty.double_axes()`, `Ty.dagger_axes()` | nothing — they exist only to serve those two |
 | `MAX_TRUNCATION` | a local cap in `eigen_fix` |
@@ -922,9 +922,9 @@ answering before any contraction runs:
 | estimates | method | for |
 | --- | --- | --- |
 | `n_steps` | `unroll_depth(tol, loss)` | `power` |
-| `chi` | `truncation_dimension()` | `eigen` |
+| `chi` | `truncation_dimensions()` | `eigen` |
 
-`truncation_dimension` is redefined as **the maximal dimension of the codomain**, not the
+`truncation_dimensions` is redefined as **the maximal dimension of the codomain**, not the
 causality search it runs today. That makes it general over any optyx diagram, and it is
 already computable — `determine_output_dimensions`, `get_max_dim_for_box` and `MAX_DIM` do
 the propagation, so the method reads the codomain off it rather than contracting anything.
@@ -939,40 +939,57 @@ Measured on the running example:
 The memory grows by exactly one per step, which is the injected photon, and qubit wires sit
 at two with nothing to compute — "only does some computation for photonic diagrams".
 
-This also replaces the broken search rather than repairing it. Today `truncation_dimension`
+This also replaces the broken search rather than repairing it. Today `truncation_dimensions`
 doubles until `is_causal` holds and always returns two, because it measures the unprojected
 map while `stationary_state` refuses the projected one. A dimension read off the diagram has
 no search to get wrong.
 
-- [ ] redefine `truncation_dimension()` as the maximal codomain dimension, over the existing
+- [ ] redefine `truncation_dimensions()` as the maximal codomain dimension, over the existing
       propagation; keep it a method in PR 2
-**The budget is not uniform across the wires, and the propagation already knows it.**
-Measured:
+**The budget is not uniform across the wires, and the propagation already knows it.** The
+method returns a list, so it is `truncation_dimensions`.
 
-| diagram | codomain dimensions |
-| --- | --- |
-| `Create(3) @ Create(5)` | `Dim(4, 4, 6, 6)` |
-| `Create(1) @ Create(1) @ Create(4)` | `Dim(2, 2, 2, 2, 5, 5)` |
-| `(Create(1) @ Create(1) >> BS) @ Create(4)` | `Dim(3, 3, 3, 3, 5, 5)` |
-| a photon injected into mode 0 of a two-mode memory | `Dim(3, 3, 3, 3, 2, 2)` |
+A connected chain shows it best — photon zero enters and is split, and each later photon
+appears only *after* the previous splitter, so it cannot reach the wires the earlier ones
+already passed:
 
-The light cone is what makes this non-trivial: in the third row the beam splitter spreads the
-two photons across its own outputs, taking both to dimension three, but does not reach the
-untouched wire, which keeps its own budget of five.
+```python
+d = photonic.Create(1) @ photonic.Create(0) >> photonic.BS
+for _ in range(stages - 1):
+    tail = Diagram.id(qmode) @ photonic.Create(1) >> photonic.BS
+    d = d >> Diagram.id(qmode ** (len(d.cod) - 1)) @ tail
+```
 
-The last row is a loop memory, so it is the case `eigen_fix` meets: memory wires at
-dimensions three and two. A scalar `chi` over-allocates, and the eigensolve is cubic in the
-product of the dimensions — the exact budget gives `h = 3 * 3 * 2 * 2 = 36`, a uniform
-`chi = 4` gives `h = 256`, which is **360 times** the work on the same problem.
+Every wire is linked to every other by a beam splitter, and still:
 
-So `truncation_dimension()` returns one dimension per doubled codomain wire, and `chi` stays
+| stages | wires | dimensions | most photons per wire |
+| --- | --- | --- | --- |
+| 2 | 3 | `[2, 3, 3]` | `[1, 2, 2]` |
+| 3 | 4 | `[2, 3, 4, 4]` | `[1, 2, 3, 4]` |
+| 4 | 5 | `[2, 3, 4, 5, 5]` | `[1, 2, 3, 4, 4]` |
+
+Wire `i` is reachable only by the photons that entered at or before stage `i`, so its budget
+is `i + 1`; the last two wires share the final splitter and so share a budget. The light cone
+is what computes this, and it survives mixing — the earlier
+`(Create(1) @ Create(1) >> BS) @ Create(4)` gives `Dim(3, 3, 3, 3, 5, 5)`, the splitter
+spreading its two photons across its own outputs but not reaching the untouched wire.
+
+**A scalar cutoff is expensive here.** The eigensolve is cubic in the product of the doubled
+dimensions. On the four-stage chain the exact budget gives `h = 360000` against `9765625`
+for a uniform `chi = 5`, which is about **twenty thousand times** the work. On the smaller
+loop memory measured earlier — wires at three and two — it is 360 times.
+
+So `truncation_dimensions()` returns one dimension per doubled codomain wire, and `chi` stays
 the scalar the caller gives: a per-wire cap, `min(budget, chi)`, rather than the dimension
 itself.
 
-- [ ] return a list, one dimension per doubled codomain wire, and apply `chi` as a cap
+- [ ] rename to `truncation_dimensions`, returning a list, one dimension per doubled
+      codomain wire, with `chi` applied as a cap
 - [ ] `eigen_fix` builds `dimensions` from it instead of
-      `[chi if ob.inside[0].name == "mode" else 2 for ob in memory.double()]`, which is the
-      uniform allocation the measurement above prices
+      `[chi if ob.inside[0].name == "mode" else 2 for ob in memory.double()]`, the uniform
+      allocation priced above
+- [ ] use the staggered chain as its doctest: it is connected, its dimensions are all
+      different, and the pattern `[2, 3, 4, 5, 5]` is readable off the construction
 - [ ] open question: for a loop the budget grows by one photon per step, so it never
       converges — the method sizes one step's inflation given the domain dimensions, and
       `eigen_fix` must still *choose* where to truncate. Decide whether it takes a `tol` and
@@ -982,11 +999,11 @@ itself.
 ### Keeping `eigen_fix` under the limit
 
 Measured before planning the absorption: absorbing both `stationary_state` and
-`truncation_dimension` would make `eigen_fix` **55 statements and 12 branches**, against
+`truncation_dimensions` would make `eigen_fix` **55 statements and 12 branches**, against
 pylint's `max-statements=50` and `max-branches=12`, with inline disables banned here.
 `power_fix` is fine at 30 and 7 and does not grow, since `unroll_depth` stays a method.
 
-Two things fix that, and `truncation_dimension` staying separate is one of them.
+Two things fix that, and `truncation_dimensions` staying separate is one of them.
 
 `stationary_state`'s 34 statements break down as:
 
