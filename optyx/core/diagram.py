@@ -473,29 +473,25 @@ class Box(frobenius.Box, Diagram):
             PhotonNumberPreservation.QUBIT
         ):
             return [self]
-        elif self.photon_preservation_behaviour == \
+        if self.photon_preservation_behaviour != \
                 PhotonNumberPreservation.NON_LO:
-            from optyx.core.zw import Create, Select
-
-            return_list = []
-            if len(dims_in) > 0:
-                return_list.append(
-                    (
-                        Select(*[int(i) for i in np.array(dims_in)-1])
-                    )
-                )
-            if len(dims_out) > 0:
-                return_list.append(
-                    (
-                        Create(*[int(i) for i in np.array(dims_out)-1])
-                    )
-                )
-            return return_list
-        else:
             raise NotImplementedError(
                 f"{self.__class__.__name__} does not implement "
                 "photon_number_transform method"
             )
+
+        from optyx.core.zw import Create, Select
+
+        return_list = []
+        if len(dims_in) > 0:
+            return_list.append(
+                Select(*[int(i) for i in np.array(dims_in)-1])
+            )
+        if len(dims_out) > 0:
+            return_list.append(
+                Create(*[int(i) for i in np.array(dims_out)-1])
+            )
+        return return_list
 
     @classmethod
     def get_perm(cls, n, d):

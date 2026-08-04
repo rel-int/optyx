@@ -31,7 +31,7 @@ package is listed in the PR body, not fixed here.
       `utils.misc`, `sympy`, `copy`) and fix the import order
 - [x] `good-names` in `pyproject.toml`; delete the `invalid-name` disables in the two files
 - [x] Fix `bad-classmethod-argument`, `redefined-builtin` in `core/diagram.py`
-- [ ] `no-else-return` in `Box.photon_number_transform` and `Spider.determine_output_dimensions`
+- [x] `no-else-return` in `Box.photon_number_transform` (`Spider.determine_output_dimensions` was already clean)
 - [ ] Leave the genuinely circular `import-outside-toplevel` visible; open the layering issue
 
 ## Verify
