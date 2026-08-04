@@ -771,7 +771,6 @@ tested and reused, so the `_`-prefixed helpers of the previous round were the wr
   from `dom` to `cod` needs a design choice — waiting for USER / @armandld before
   filing checkboxes.
 
-
 > I need a proper review on https://github.com/rel-int/optyx/pull/15. My idea would be to split this PR in two. Basically, one part needs to go into the previous PR on feedback and stream semantics. Particularly the Diagram.stream and Diagram.now methods. And the treatment of feedback boundaries. The latter requires some more thought. Do you have any ideas for incorporating this concept, e.g. we could have (top, bot) instead of initial state and final effect, and have them as boundary.top, boundary.bot. We also need a different way of standardising the boundary which should make some of the code simpler. Write a plan of action in the TODO.md
 
 > Actually the proper way to do this is to have 3 prs in total: 1) Feedback and unroll, 2) Streams and boundaries, 3) Fixpoint semantics
@@ -788,228 +787,116 @@ tested and reused, so the `_`-prefixed helpers of the previous round were the wr
 
 > Explain better why you think the stream method should remain? I don't see how we would use it outside unrolling. For now I see the point of getting eacy access to the "feedback normal form". But now I'm thinking that one_step() was a better name if there's no stream anymore.
 
-## Split into two PRs
+> What is the difference between eigen and stationary_state? Could they also be merged into one?
 
-| PR | Scope | Base |
+> This edit is becoming more and more important. If we can restrict to feedback, unroll, one_step (first PR) and at_time, eigen_fix, power_fix, fix (second PR) it would be great. At_time seemed useful to me as a shortcut, although it can be defined with discard and unroll. I want to avoid to_stream so we don't need to define our own stream class and the semantics of channel remains external to the package. I think stationary_state can be included in the eigen_fix method if we don't use it elsewhere. The only thing that would be worth keeping separate is the spectral decomposition but it would have to be generalised properly to arbitrary channels if so. I don't like these methods that work only for certain diagrams. Edit the PR description making a list of the proposed methods that remain and those that are removed by the restructuring of fix PR.
+
+> Now that I think of it, we need to add some tests where the feedback is classical, let's think of a simple example in photonics
+
+> I wanted a classical-quantum example, not just classical. You need to measure some qmode and use the classical int as a control
+
+> Don't worry let's keep it simple for now. Let's get this PR in shape. The aim is to remove a lot of unnecessary methods from the fixpoint PR and add to the first PR what belongs there (only one_step I think we need). The PR should also properly document the list of methods that remain with docstrings.
+
+## Split #15 in two
+
+Sixteen public additions become nine documented methods.
+
+| PR | Base | Surface |
 | --- | --- | --- |
-| 1 — The feedback category (#12) | `feedback(dom, cod, mem, state, effect)`, `unroll(n, state, effect)`, `one_step()` | `main` |
-| 2 — Fixpoint semantics (#15) | `fix`, `power`, `eigen`, `stationary_state`, backends, notebook | PR 1 |
+| 1 — the feedback category (#12) | `main` | `feedback`, `unroll`, `one_step` |
+| 2 — fixpoint semantics (#15) | PR 1 | `at_time`, `fix`, `power_fix`, `eigen_fix`, `unroll_depth`, `normalisation` |
 
-- [ ] order the rebases 1 → 2, rebasing PR 2 on PR 1's head at every round
+Only `one_step` moves into PR 1; everything else either stays in PR 2, is absorbed into the
+method that used it, or goes.
 
-## `stream()` is needed nowhere
+- [ ] rebase PR 2 on PR 1's head at every round
 
-With boundary handles on `unroll`, every consumer of the stream goes through `unroll`:
-
-| was | becomes |
-| --- | --- |
-| `now()` | `one_step()`, a one-line alias for `unroll(0, state=None, effect=None)` |
-| `truncation_dimension`, `eigen_fix` | the same call; they then split `step.cod[len(self.cod):]` as today |
-| `at_time(n)` | deleted; `power_fix` composes on `unroll(n, effect=None)` |
-| `unroll(n)` | keeps the functor inline, exactly as #12 shipped |
-
-So `stream()`, `core.diagram.Stream` and `core.diagram.FeedbackBoundary` are all deleted, and
-PR 1's public surface is `feedback` and `unroll` — #12's shipped surface — plus `one_step`
-as sugar. The per-loop boundary list never leaves `unroll`, so the aggregate `(state, effect)`
-is the only boundary anyone sees.
-
-Why the open call gives what `eigen` needs: with both handles open the plugs are identities,
-so `unroll(1, state=None, effect=None)` is `stream.now` on the nose — the one-step map from
-`dom @ mem` to `cod @ mem` with the memory trailing, which is all
-`truncation_dimension` and `eigen_fix` ever read.
-
-- [ ] delete `stream()`, `Stream` and `FeedbackBoundary`
-- [ ] delete `at_time`
-
-
-## The boundary handles
+## PR 1: feedback, unroll, one_step
 
 `initial_state` and `final_effect` become `state` and `effect`, ordinary attributes of the
-`Feedback` bubble and keyword parameters of both `feedback` and `unroll`.
-
-**`None` is an input spelling, not a stored value.** It resolves at construction to
-`Diagram.id(mem)` — an open memory wire *is* the identity on `mem` — so `Feedback.state` and
-`Feedback.effect` are always diagrams. That is what removes the `None` branching at ten
-sites, each currently spelling `None if x is None else f(x)` twice:
-
-```python
-def double(self):
-    """The feedback loop of the doubled diagram."""
-    return Diagram.double(self.arg).feedback(
-        mem=self.mem.double(),
-        state=Diagram.double(self.state), effect=Diagram.double(self.effect))
-```
-
-**Defaults: open wires everywhere, except the effect of a `channel.Diagram`.**
+`Feedback` bubble and keyword parameters of `feedback` and `unroll`. `None` is an input
+spelling, resolved at construction to `Diagram.id(mem)` — an open memory wire *is* the
+identity — so the attributes are always diagrams and the `None` branching at ten sites goes.
+Defaults are open wires everywhere except the effect of a `channel.Diagram`:
 
 | | `state` | `effect` |
 | --- | --- | --- |
 | `core.diagram.Diagram` | `Id(mem)` | `Id(mem)` |
 | `channel.Diagram` | `Id(mem)` | `Discard(mem)` |
 
-There is no vacuum default, so nothing reaches from `channel` up into `photonic` and
-classical `mode` needs no vacuum of its own. A forgotten initial state stays an open wire and
-fails loudly downstream rather than silently answering from vacuum. `Discard` is the one
-default that is unambiguous and it exists only in the CPM layer, which is exactly where it is
-applied.
+`unroll` follows DisCoPy's indexing: `n_steps` counts unrollings, so `unroll(0)` is one time
+step and `unroll(n)` is `n + 1`.
 
-- [ ] `feedback(dom=None, cod=None, mem=None, state=None, effect=None)`, each `None`
-      resolving to `Id(mem)` except `channel`'s `effect`, which resolves to `Discard(mem)`
+- [ ] `feedback(dom=None, cod=None, mem=None, state=None, effect=None)` with those defaults
 - [ ] validate `state.cod == mem` and `effect.dom == mem` in `Feedback.__init__` — the check
       that does not exist today, so the two plug-size cases of `test_feedback_axioms` move
       from "raises at `unroll`" to "raises at `feedback`"
-- [ ] `unroll(n_steps=1, state=..., effect=...)`, where `...` uses the bubble's boundary,
-      `None` overrides it to an open memory wire, and a diagram overrides it to that diagram.
-      Document that `None` opens the input or output memory, and that an override applies to
-      the aggregate memory, so the caller supplies its dimension
-- [ ] `one_step()` as `unroll(0, state=None, effect=None)`, returning the feedback normal
-      form: every `Feedback` bubble eliminated and the memory moved to the boundary, from
-      `dom @ mem` to `cod @ mem`. Named `one_step` and not `now` because `now` is DisCoPy's
-      name for a *field of a* `Stream`, and with no stream left in optyx it would borrow from
-      a structure the reader cannot see
-- [ ] `__str__` and `__repr__` print `state` and `effect` only when they differ from the
-      default for their `mem`, keeping `eval(repr(x)) == x`
+- [ ] `unroll(n_steps=1, state=..., effect=...)`: `...` uses the bubble's, `None` opens the
+      memory, a diagram replaces it. An override applies to the aggregate memory, so the
+      caller supplies its dimension
+- [ ] reindex `unroll` to `stream.unroll(n_steps).now`, refusing `n_steps < 0`, and shift
+      every call site: the doctests, the CNOT ladder regenerating `cnot_ladder.svg`, and
+      `test_feedback.py` throughout. `test_unroll_open_wires`'s "`unroll(0)` raises" becomes
+      `unroll(-1)`
+- [ ] `one_step()` as `unroll(0, state=None, effect=None)`: the feedback normal form, every
+      bubble eliminated and the memory at the boundary. Named `one_step` and not `now`
+      because `now` is DisCoPy's name for a field of a `Stream`, and there is no stream here
+- [ ] delete `core.diagram.Stream`, `core.diagram.FeedbackBoundary` and `Diagram.stream()`;
+      the stream functor stays inline in `unroll`, its only caller
 - [ ] the structural transports — `conjugate`, `inflate` twice, `double`, `get_kraus`, both
       `Functor.__call__` — become single expressions, and `is_pure` becomes
       `all(part.is_pure for part in (self.arg, self.state, self.effect))`
-- [ ] `unroll(n).dom == dom ** (n + 1) @ state.dom`, empty for a genuine state and `mem` for
-      an open wire, so "open wires gathered at the end of the domain in loop order" stops
-      being prose
-- [ ] the "Stateful channels" module docstring without its "Fixpoints." paragraph, with
-      `feedback.png` and `unroll.png`, carrying the Di Lavore, de Felice and Roman (LICS
-      2022) and Katis, Sabadini and Walters (2002) grounding out of the deleted
-      `FeedbackBoundary` docstring
+- [ ] `__str__` and `__repr__` print `state` and `effect` only when they differ from the
+      default for their `mem`, keeping `eval(repr(x)) == x`
 
-## Follow DisCoPy's indexing
+## PR 2: what is absorbed and what goes
 
-`Diagram.unroll(n_steps)` currently means `n_steps` **time steps** and computes
-`stream.unroll(n_steps - 1).now`, refusing `n_steps < 1`. DisCoPy's `Stream.unroll` is
-`@inductive`: `n_steps` is the number of **unrollings**, and `unroll(0)` is the stream
-itself. Adopting it makes `unroll(0)` one time step, which is what lets `one_step` be a call
-rather than a method with its own machinery.
-
-| call | time steps |
+| removed | into |
 | --- | --- |
-| `unroll(0)` | 1 |
-| `unroll(1)` — the default | 2 |
-| `unroll(n)` | n + 1 |
+| `stationary_state()` | `eigen_fix`, its only caller in the package |
+| `truncation_dimension()` | `eigen_fix`, its only caller |
+| `is_causal()` | nothing — one caller, `truncation_dimension`, so zero once absorbed |
+| `is_hermitian()`, `is_positive()` | nothing — **zero callers**; `stationary_state` stopped running them and nothing picked them up |
+| `Ty.double_axes()`, `Ty.dagger_axes()` | nothing — they exist only to serve those two |
+| `MAX_TRUNCATION` | a local cap in `eigen_fix` |
 
-- [ ] `unroll(n_steps=1)` becomes `stream.unroll(n_steps).now`, refusing `n_steps < 0`;
-      `test_unroll_open_wires`'s `unroll(0)` raises becomes `unroll(-1)` raises
-- [ ] shift every call site by one: the `unroll` and `Feedback` doctests, the CNOT ladder
-      that regenerates `docs/_static/cnot_ladder.svg`, and `test_feedback.py` throughout
-- [ ] state in the docstring that `n_steps` counts unrollings and not time steps, since the
-      name invites the other reading, and that `unroll()` with no argument now covers two
-      time steps rather than one
+No spectral decomposition is added. `normalisation` stays: two callers survive, the trace in
+`power_fix` and the trace inside the absorbed `stationary_state`.
 
-## PR 2: fixpoint semantics
-
-Everything else in the current diff, unchanged in substance: `normalisation`, `is_causal`,
-`is_hermitian`, `is_positive`, `stationary_state`, `unroll_depth`, `truncation_dimension`,
-`fix`, `power_fix`, `eigen_fix`, `Ty.double_axes`, `Ty.dagger_axes`, `MAX_UNROLL`,
-`MAX_TRUNCATION`, `backends.py`, the `misc.py` deletion, `test_fix.py`, the notebook,
-`docs/conf.py`, `docs/notebooks.rst`, the workflow and the "Fixpoints." paragraph.
-
-`at_time` is `unroll` plus one composition. Both call the identical stream unrolling, and
-with `dom == Ty()` their initial plug is the same expression, so for `n` time steps and
-`effect == Discard(mem)`:
-
-```
-unroll(n - 1) >> Discard(cod ** (n - 1)) @ Id(cod)
-  = initial >> unrolled >> (Id(cod ** n) @ Discard(mem))
-             >> (Discard(cod ** (n - 1)) @ Id(cod))
-  = initial >> unrolled >> (Discard(cod ** (n - 1)) @ Id(cod) @ Discard(mem))
-  = at_time(n)
-```
-
-by interchange, the two composites acting on disjoint wires. `power_fix` should not rely on
-the loop's `effect` being a discard, since a caller may have set another one — conditioning
-is a different computation — so it opens the memory and discards it itself.
-
-**The off-by-one seam.** `fix(n_steps)`, `unroll_depth(tol, loss)` and `MAX_UNROLL` are all
-depths in **time steps**: `unroll_depth` returns a mixing time, `ceil(log tol / log(1 -
-loss))`. They stay in time steps, and the single conversion to unrollings lives in
-`power_fix`.
-
-- [ ] `power_fix`'s `contract` closure becomes `self.unroll(steps - 1, effect=None)`, then
-      `Discard(self.cod ** (steps - 1)) @ self.id(self.cod) @ Discard(memory)` with
-      `memory = step.cod[len(self.cod) * steps:]`
-- [ ] keep every public depth in time steps and convert exactly once, in `contract`; state
-      the seam in `power_fix`'s docstring so the next reader does not have to derive it
-- [ ] `truncation_dimension` and `eigen_fix` replace `self.now()` with `self.one_step()`;
-      neither reads anything but the open one-step map
-- [ ] carry `at_time`'s three guards into `power_fix`: empty domain, positive integer depth,
-      and every loop's `state` a state — now one check, `state.dom == Ty()`, on the aggregate
-      rather than a scan over loops. With no vacuum default this guard genuinely bites, which
-      is the intent
-- [ ] `steps == 1` still needs its branch: `Discard(Ty())` is a box and not an identity, and
+- [ ] absorb `stationary_state`, `truncation_dimension` and `MAX_TRUNCATION` into `eigen_fix`
+- [ ] fix `truncation_dimension` while absorbing it: it always returns two today, measuring
+      the unprojected map while `stationary_state` refuses the projected one
+- [ ] delete `is_causal`, `is_hermitian`, `is_positive`, `Ty.double_axes`, `Ty.dagger_axes`
+      and the tests that only covered them
+- [ ] rebuild `at_time` as `unroll(n - 1, effect=None)` composed with the discards, instead
+      of re-implementing the plumbing; keep its three guards — empty domain, positive integer
+      depth, every `state` a state — as `state.dom == Ty()` on the aggregate
+- [ ] keep the `steps == 1` branch: `Discard(Ty())` is a box and not an identity, and
       `power_fix` reaches `contract(depth - 1)` with `depth == 2` on the hot path
-- [ ] `test_fix.py` asserts diagram equality in `conditioned.at_time(2) ==
-      plain.at_time(2)`; the composed form puts the memory discard in its own layer, so
-      restate it as an evaluation comparison or accept the new layer order
-- [ ] note where the rewrite happens that `Discard(m0 @ m1) != Discard(m0) @ Discard(m1)` as
-      terms; irrelevant to every diagram `fix` is called on, all of which are single-loop
+- [ ] keep every public depth in time steps and convert to unrollings exactly once, in
+      `power_fix`; `unroll_depth` returns a mixing time, not a number of unrollings
+- [ ] `test_fix.py` asserts diagram equality in `conditioned.at_time(2) == plain.at_time(2)`;
+      the composed form puts the memory discard in its own layer, so restate it as an
+      evaluation comparison
 - [ ] rename `initial_state=` to `state=` in the `test_fix.py` fixtures and the notebook, and
-      drop the now-redundant `final_effect=Discard(...)` where it matches the default
-- [ ] reword `stationary_state`'s guard, whose message names `now`, to name `one_step`, and
-      its test matching `"without feedback"`
-
-> What is the difference between eigen and stationary_state? Could they also be merged into one?
-
-> This edit is becoming more and more important. If we can restrict to feedback, unroll, one_step (first PR) and at_time, eigen_fix, power_fix, fix (second PR) it would be great. At_time seemed useful to me as a shortcut, although it can be defined with discard and unroll. I want to avoid to_stream so we don't need to define our own stream class and the semantics of channel remains external to the package. I think stationary_state can be included in the eigen_fix method if we don't use it elsewhere. The only thing that would be worth keeping separate is the spectral decomposition but it would have to be generalised properly to arbitrary channels if so. I don't like these methods that work only for certain diagrams. Edit the PR description making a list of the proposed methods that remain and those that are removed by the restructuring of fix PR.
-
-## The surface after the restructuring
-
-Seven methods survive, from sixteen public additions. PR 1 keeps `feedback`, `unroll` and
-`one_step`; PR 2 keeps `at_time`, `fix`, `power_fix` and `eigen_fix`. `at_time` stays as the
-shortcut even though `unroll` and `Discard` define it. Listed in the description of #26.
-
-Call graph checked before deciding: `is_hermitian` and `is_positive` have **zero** callers in
-the package — `stationary_state` deliberately stopped running them and nothing picked them up
-— and `Ty.double_axes` / `Ty.dagger_axes` exist only to serve those two. `is_causal` has one
-caller, `truncation_dimension`, which is itself absorbed. `unroll_depth` and
-`truncation_dimension` have one caller each. `stationary_state` has one caller in code,
-`eigen_fix`, though five tests, a doctest and a notebook section call it directly.
-
-- [ ] delete `Stream`, `FeedbackBoundary` and `stream()`
-- [ ] absorb `stationary_state` and `truncation_dimension` into `eigen_fix`, and
-      `MAX_TRUNCATION` into a local cap there; fix `truncation_dimension` while absorbing it,
-      since it always returns two today — it measures the unprojected map while
-      `stationary_state` refuses the projected one
-- [ ] keep `unroll_depth`, but make it depend on the diagram. As implemented it never
-      touches `self`: the body is `ceil(log(tol) / log(1 - loss))`, and the notebook says so
-      outright — "That depth depends on gamma and the target accuracy alone — not on U, M or
-      L". So today it is a module function wearing a method's clothes, the pattern review
-      rejected elsewhere in this PR
-- [ ] delete `is_causal`, `is_hermitian`, `is_positive`, `Ty.double_axes` and
-      `Ty.dagger_axes`, with the tests that only covered them
-- [ ] keep `at_time`, defined as `unroll(n - 1, effect=None)` composed with the discards
-      rather than re-implementing the plumbing
-
-`normalisation` stays: after the absorptions it is called by two methods, `power_fix` for
-the trace of the contracted state and `eigen_fix` for the trace inside the absorbed
-`stationary_state`. No spectral decomposition — `spectrum` is not added.
+      drop `final_effect=Discard(...)` where it now matches the default
+- [ ] reword `stationary_state`'s guard, whose message names `now`
 
 ### `unroll_depth` reads the loop block when it can
 
-Three branches, in order:
+Today its body is `ceil(log(tol) / log(1 - loss))` and it never touches `self`. Three
+branches instead, `tol` defaulting to `1e-6`:
 
-1. **`to_path` succeeds** — take the underlying linear-optical matrix, restrict it to the
-   memory wires to get the `L x L` loop block `D`, and use
-   `|lambda_2| = gamma * rho(|D| ** 2 entrywise)` with `gamma = 1 - loss`, `gamma = 1` when no
-   loss is given. Depth is `ceil(log tol / log |lambda_2|)`, at `O(L^3)`.
-2. **`to_path` fails and a `loss` is given** — the universal bound
-   `ceil(log tol / log(1 - loss))`, today's behaviour.
-3. **`to_path` fails and no `loss` is given** — `NotImplementedError`. There is nothing to
-   compute a gap from.
+1. **`to_path` succeeds** — restrict the linear-optical matrix to the memory wires for the
+   `L x L` loop block `D`, and use `|lambda_2| = gamma * rho(|D| ** 2 entrywise)` with
+   `gamma = 1 - loss`, or `gamma = 1` when no loss is given. `O(L^3)`.
+2. **`to_path` fails and a `loss` is given** — the universal bound, today's behaviour.
+3. **neither** — `NotImplementedError`; there is nothing to compute a gap from.
 
-`tol` defaults to `1e-6` throughout.
-
-Branch 1 is not just tighter, it is the difference between a guarantee and none: today
-`unroll_depth` **raises** at `loss = 0`, and `fix` falls back to doubling until successive
-contractions agree. A lossless loop still leaks — light leaves through the external port — so
-its loop block is strictly substochastic and the gap is real. Measured on the beam-splitter
-loop, all three lossless:
+Branch one is the difference between a guarantee and none: today the method raises at
+`loss = 0` and `fix` falls back to doubling. A lossless loop still leaks through its external
+port, so its loop block is strictly substochastic. Measured on the beam-splitter loop, all
+three lossless:
 
 | `theta` | `rho(\|D\|^2)` | `n*` at `tol = 1e-6` |
 | --- | --- | --- |
@@ -1017,110 +904,67 @@ loop, all three lossless:
 | 0.25, the 50:50 splitter | 0.5000 | 20 |
 | 0.40 | 0.0955 | 6 |
 
-The 50:50 row reproduces the existing doctest `unroll_depth(1e-6, loss=.5) == 20` exactly,
-now derived from the diagram rather than supplied.
+The 50:50 row reproduces the existing doctest `unroll_depth(1e-6, loss=.5) == 20`, now
+derived from the diagram rather than supplied.
 
-- [ ] implement the three branches, `tol` defaulting to `1e-6`
-- [ ] try `to_path` on the `Feedback` bubble's `arg`, not on the whole diagram: the rate is a
-      property of the loop, and `measured = loop >> NumberResolvingMeasurement(1)` fails with
-      "Diagram must be pure to convert to path" while its bubble is still reachable and
-      linear-optical. Settle what to do when several bubbles disagree; `fix` only ever sees one
-- [ ] pin which rows and columns of the path matrix are the memory block. The memory is
-      trailing in `dom` and `cod`, so it should be the trailing index, but the beam-splitter
-      `|U|^2` is symmetric and cannot distinguish the convention — check against an
-      asymmetric multi-mode loop before relying on it
-- [ ] state in the docstring that the bound is conservative: the notebook converges `loop(.06)`
+- [ ] implement the three branches
+- [ ] try `to_path` on the `Feedback` bubble's `arg`, not the whole diagram: the rate is a
+      property of the loop, and `loop >> NumberResolvingMeasurement(1)` fails with "Diagram
+      must be pure to convert to path" while its bubble stays linear-optical
+- [ ] pin which rows and columns of the path matrix are the memory block against an
+      asymmetric multimode loop; the beam-splitter `|U|^2` is symmetric and cannot
+      distinguish the convention
+- [ ] say in the docstring that the bound is conservative: the notebook converges `loop(.06)`
       in 12 steps where the certificate asks 387
 
-## Docstrings for every method that stays
+## Docstrings
 
-One running example, the beam splitter with a single photon injected at each step and its
-output fed back:
+Every surviving method gets one, sharing a single running example — the beam splitter with a
+photon injected at each step and its output fed back:
 
 ```python
->>> from optyx import photonic
->>> from optyx.channel import qmode, Ty, Discard
 >>> step = photonic.Create(1) @ qmode >> photonic.MZI(.25, 0)
 >>> loop = step.feedback(mem=qmode, state=photonic.Create(0))
 ```
 
-- [ ] `feedback`: `loop.dom == Ty()`, `loop.cod == loop.mem == qmode`, `loop.state` the
-      vacuum given and `loop.effect == Discard(qmode)` from the default — the one place the
-      default is visible
-- [ ] `unroll`: `loop.unroll(0)` one time step and `loop.unroll(2)` three, with the DisCoPy
-      indexing stated; `loop.unroll(1, state=None)` leaving the input memory open, which is
-      what documents the handle
-- [ ] `one_step`: `loop.one_step() == step`, the feedback normal form
-- [ ] `at_time`: `loop.at_time(3).dom == Ty()` and `.cod == qmode`, and that it is
-      `unroll` composed with the discards
-- [ ] `unroll_depth`: `loop.unroll_depth() == 20` off the loop block, with no loss given —
-      the branch that today raises
-- [ ] `fix`: both methods on this loop agreeing to `tol`
-- [ ] `power_fix` and `eigen_fix`: what each contracts, and the regime where each is cheaper
+- [ ] `feedback`: `loop.dom == Ty()`, `loop.cod == loop.mem == qmode`, and
+      `loop.effect == Discard(qmode)` arriving from the default — the one place it is visible
+- [ ] `unroll`: `unroll(0)` one time step and `unroll(2)` three, stating the indexing;
+      `unroll(1, state=None)` leaving the input memory open, which documents the handle
+- [ ] `one_step`: `loop.one_step() == step`
+- [ ] `at_time`: `loop.at_time(3).dom == Ty()` and `.cod == qmode`, and that it is `unroll`
+      composed with the discards
+- [ ] `unroll_depth`: `loop.unroll_depth() == 20` off the loop block with no loss given
+- [ ] `fix`: both methods agreeing on this loop to `tol`
+- [ ] `power_fix` and `eigen_fix`: what each contracts and where each is cheaper
 - [ ] `normalisation`: the fixed point of this loop has trace one
-- [ ] draw the loop once for the module docstring and reuse the figure rather than
-      regenerating it per method
+- [ ] draw the loop once for the module docstring and reuse the figure
 
-> Now that I think of it, we need to add some tests where the feedback is classical, let's think of a simple example in photonics
-
-## Classical feedback tests
+## Tests
 
 Nothing today feeds a photonic measurement back through a classical memory, which is the
-combination `AGENTS.md` puts at the centre of the package — "lossy channels, heralded
-measurements and classical feedback". `test_bit_delay_line`, `identity()` and `flip()` use a
-`bit` memory but no optics; no test uses a classical `mode` memory at all; and no test runs
-`fix` on a memory produced by detection.
+combination `AGENTS.md` puts at the centre of the package. `test_bit_delay_line`,
+`identity()` and `flip()` use a `bit` memory but no optics; no test uses a classical `mode`
+memory at all. Three loops, each with a closed form, all verified against the branch:
 
-Three, sharing the beam splitter of the docstring example. Each has an exact analytic answer,
-so the assertion is a closed form rather than a recorded number. All three verified against
-the current branch in a Python 3.12 venv.
+- [ ] **running count**, `mode` memory: `Create(1) >> NumberResolvingMeasurement(1)` added to
+      the memory by `Add(2)` and copied out by `CopyN(2)`, from `Digit(0)`. The total after
+      `n` steps is exactly `n`
+- [ ] **binomial counter**, `mode` memory: one photon on a 50:50 splitter, both arms
+      detected, one accumulated. The total after `n` steps is `Binomial(n, 1/2)`
+- [ ] **parity**, `bit` memory: `Mod2` of one detector XORed into the memory. Bounded, so it
+      is the one classical loop where `fix` means anything. At `MZI(.15, 0)` the click
+      probability is `p = 0.206107` and `P(parity = 0)` after `n` steps is
+      `(1 + (1 - 2p) ** n) / 2`, matched to eight decimals; both `fix` methods return uniform
+- [ ] parity also guards `unroll_depth` branch three — `to_path` on it fails, so with no
+      `loss` it must raise — and is the only `eigen_fix` coverage on a memory that came out
+      of a detector
+- [ ] check a classical memory survives `double` and `unroll` commuting, as the quantum delay
+      lines already do
 
-**1. Running count — deterministic, `mode` memory.** The simplest classical loop in photonics:
-detect one photon per step and accumulate.
-
-```python
-count = photonic.Create(1) >> photonic.NumberResolvingMeasurement(1)
-step = Diagram.id(mode) @ count >> classical.Add(2) >> classical.CopyN(2)
-loop = step.feedback(mem=mode, state=classical.Digit(0))
-```
-
-The total after `n` steps is exactly `n`, with probability one. Verified for `n = 1..4`.
-
-**2. Binomial counter — probabilistic, `mode` memory.** One photon on a 50:50 splitter,
-detect both arms, accumulate one of them.
-
-```python
-detect = (photonic.Create(1) @ photonic.Create(0) >> photonic.BS
-          >> photonic.NumberResolvingMeasurement(2))
-step = (Diagram.id(mode) @ detect >> Diagram.id(mode @ mode) @ classical.DiscardMode(1)
-        >> classical.Add(2) >> classical.CopyN(2))
-```
-
-The total after `n` steps is `Binomial(n, 1/2)` exactly. Verified at `n = 1, 2, 3`:
-`{0: .125, 1: .375, 2: .375, 3: .125}` at `n = 3`.
-
-**3. Parity — bounded `bit` memory, so it has a fixed point.** The one classical loop where
-`fix` means anything: an unbounded counter has no stationary state, a parity does.
-
-```python
-click = (photonic.Create(1) @ photonic.Create(0) >> photonic.MZI(.15, 0)
-         >> photonic.NumberResolvingMeasurement(2)
-         >> classical.Mod2() @ classical.DiscardMode(1))
-step = Diagram.id(bit) @ click >> classical.Xor() >> classical.CopyBit(2)
-```
-
-With a biased splitter the parity converges geometrically rather than immediately, at a rate
-that is known in closed form. At `theta = .15` the click probability is `p = 0.206107`, and
-`P(parity = 0)` after `n` steps is `(1 + (1 - 2p) ** n) / 2` — matched to eight decimals at
-`n = 1, 2, 3, 4, 6`, with rate `|1 - 2p| = 0.587785`. Both `fix` methods return the uniform
-distribution.
-
-- [ ] add the three loops to `test_feedback.py` (types, unrolling) and `test_fix.py`
-      (convergence), asserting the closed forms rather than recorded numbers
-- [ ] test 3 doubles as the guard for `unroll_depth` branch three: `to_path` on it fails with
-      "Diagram must be pure to convert to path", so with no `loss` given it must raise
-      `NotImplementedError` rather than returning a bound it cannot justify
-- [ ] test 3 is also the only coverage of `eigen_fix` on a memory that came out of a
-      detector; `identity()` and `flip()` reach a `bit` memory without any optics
-- [ ] check a classical memory survives `double` and `unroll` commuting, as the quantum
-      delay lines already do
+Follow-up, deliberately not in this round: a genuinely **classical-quantum** loop, where the
+measured integer controls the next step's optics rather than only accumulating.
+`BitControlledGate(gate, default_gate)` is the mechanism — `bit @ qmode ** n -> qmode ** n`,
+choosing between two gates on the control bit — so the loop carries a classical bit while the
+optics stay quantum. `BitControlledPhaseShift` takes a `mode` control but returns `mode`, so
+it cannot close a quantum step; worth checking whether that codomain is deliberate.
