@@ -336,6 +336,84 @@ def _lossy(memory, loss):
         else Diagram.id(Ty(ob.name)) for ob in memory.inside))
 
 
+def unroll_certificate(unitary, loop_modes: int, tol: float = 1e-6,
+                       max_photons: int = 1, loss: float = 0,
+                       max_steps: int = 10 ** 6) -> int:
+    r"""
+    The number of round trips certified to bring the loop state of a
+    feedback interferometer within `tol` of its fixpoint in trace norm,
+    read off the geometry of the loop block rather than bounded by the
+    loss — the a posteriori certificate of the stationary boson sampling
+    bound (issue #32).
+
+    `unitary` is the one-step :math:`M \times M` interferometer and
+    `loop_modes` counts its last :math:`L` wires, the ones
+    :meth:`Diagram.feedback` closes. Writing :math:`\beta_r` for the
+    singular values of :math:`(\sqrt{1 - loss}\; U_{ll})^k`, the power of
+    the damped loop block :math:`U_{ll} = U[-L:, -L:]`,
+
+    .. math:: \big\| \rho_{stat} - \rho^{(k)} \big\|_1
+        \;\le\; 4 K(\bar q) \sum_r \arcsin^2 \beta_r,
+        \qquad
+        K(\bar q) = (\bar q + 1)\big(\sqrt{6 \bar q (\bar q + 1)}
+        + \bar q\big),
+
+    with :math:`\bar q` = `max_photons` per injected mode. The constant
+    is uniform in the depth, the total photon number and the Fock cutoff;
+    summing over the :math:`L` singular directions rather than taking the
+    worst one is what keeps it free of the non-normal constant
+    :math:`C_U`. The certificate is the smallest `k` whose bound falls
+    below `tol`, computed exactly in :math:`O(k L^3)` with no eigenvalue
+    and no spectral radius.
+
+    Unlike :meth:`Diagram.unroll_depth` it needs no loss: a lossless loop
+    converges whenever the loop block is a strict contraction, e.g. a
+    delay line reaches its fixpoint in one step. Unitarity puts a floor
+    under it — the loop can only leak through the :math:`M - L` external
+    wires, so no certificate is shorter than :math:`\lceil L/(M-L)\rceil`.
+
+    >>> delay = [[0, 1], [1, 0]]
+    >>> assert unroll_certificate(delay, loop_modes=1) == 1
+    >>> reflectivity = [[.6, .8], [.8, -.6]]
+    >>> assert unroll_certificate(reflectivity, loop_modes=1) == 18
+    >>> assert unroll_certificate(
+    ...     reflectivity, loop_modes=1, loss=.5) == 11
+    """
+    matrix = np.asarray(unitary, dtype=complex)
+    if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1] \
+            or not np.allclose(
+                matrix @ matrix.conj().T, np.eye(len(matrix)), atol=1e-8):
+        raise ValueError("unitary must be a square unitary matrix.")
+    if not isinstance(loop_modes, Integral) or isinstance(loop_modes, bool) \
+            or not 0 < loop_modes <= len(matrix):
+        raise ValueError(
+            f"loop_modes must be in [1, {len(matrix)}], the last wires of "
+            "the unitary.")
+    if not isinstance(max_photons, Integral) \
+            or isinstance(max_photons, bool) or max_photons <= 0:
+        raise ValueError("max_photons must be a positive integer.")
+    if not isinstance(tol, Real) or isinstance(tol, bool) \
+            or not np.isfinite(tol) or tol <= 0:
+        raise ValueError("tol must be a positive finite real number.")
+    if not isinstance(loss, Real) or isinstance(loss, bool) \
+            or not 0 <= loss < 1:
+        raise ValueError("loss must be a real number in [0, 1).")
+    block = matrix[-loop_modes:, -loop_modes:]
+    kappa = (max_photons + 1) * (
+        np.sqrt(6 * max_photons * (max_photons + 1)) + max_photons)
+    power = np.eye(loop_modes, dtype=complex)
+    for steps in range(1, max_steps + 1):
+        power = power @ block
+        betas = np.clip(
+            (1 - loss) ** (steps / 2)
+            * np.linalg.svd(power, compute_uv=False), 0, 1)
+        if 4 * kappa * np.sum(np.arcsin(betas) ** 2) <= tol:
+            return steps
+    raise ValueError(
+        f"No certificate below {max_steps} round trips: the loop block "
+        "keeps too much light, give a positive loss.")
+
+
 @factory
 class Ty(frobenius.Ty):
     """Classical and quantum types."""
@@ -534,10 +612,11 @@ class Diagram(frobenius.Diagram):
             = \\lceil\\log(tol) / \\log(\\gamma)\\rceil
 
         is a depth rather than a guess, and it does not grow with the memory.
-        Without loss no finite depth is guaranteed: the gap depends on the
-        diagram and can be arbitrarily close to one, so :meth:`fix` searches
-        instead. Reading the gap off a linear-optical loop instead of
-        bounding it by the loss is issue #32.
+        Without loss no finite depth is guaranteed here: the gap depends on
+        the diagram and can be arbitrarily close to one. For a
+        linear-optical loop, :func:`unroll_certificate` reads a depth off
+        the loop block of the interferometer instead, with no loss needed
+        (issue #32).
 
         >>> loop = Diagram.swap(qmode, qmode).feedback()
         >>> assert loop.unroll_depth(1e-6, loss=.5) == 20
