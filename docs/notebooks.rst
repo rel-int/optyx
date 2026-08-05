@@ -7,6 +7,7 @@ Here we give examples of using ``optyx``:
 
 .. toctree::
 
+    notebooks/what_is_a_channel.ipynb
     notebooks/fixpoints
     notebooks/feed_forward_example.ipynb
     notebooks/optyx-compilation.ipynb
