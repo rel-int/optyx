@@ -346,11 +346,12 @@ def unroll_certificate(unitary, loop_modes: int, tol: float = 1e-6,
     loss — the a posteriori certificate of the stationary boson sampling
     bound (issue #32).
 
-    `unitary` is the one-step :math:`M \times M` interferometer and
-    `loop_modes` counts its last :math:`L` wires, the ones
-    :meth:`Diagram.feedback` closes. Writing :math:`\beta_r` for the
-    singular values of :math:`(\sqrt{1 - loss}\; U_{ll})^k`, the power of
-    the damped loop block :math:`U_{ll} = U[-L:, -L:]`,
+    `unitary` is the one-step interferometer on :math:`L + M` modes —
+    :math:`L` loop wires, its last ones per :meth:`Diagram.feedback`'s
+    convention, counted by `loop_modes`, and :math:`M` external wires
+    where photons enter and detectors sit. Writing :math:`\beta_r` for
+    the singular values of :math:`(\sqrt{1 - loss}\; U_{ll})^k`, the
+    power of the damped loop block :math:`U_{ll} = U[-L:, -L:]`,
 
     .. math:: \big\| \rho_{stat} - \rho^{(k)} \big\|_1
         \;\le\; 4 K(\bar q) \sum_r \arcsin^2 \beta_r,
@@ -369,8 +370,8 @@ def unroll_certificate(unitary, loop_modes: int, tol: float = 1e-6,
     Unlike :meth:`Diagram.unroll_depth` it needs no loss: a lossless loop
     converges whenever the loop block is a strict contraction, e.g. a
     delay line reaches its fixpoint in one step. Unitarity puts a floor
-    under it — the loop can only leak through the :math:`M - L` external
-    wires, so no certificate is shorter than :math:`\lceil L/(M-L)\rceil`.
+    under it — the loop can only leak through the :math:`M` external
+    wires, so no certificate is shorter than :math:`\lceil L/M\rceil`.
 
     >>> delay = [[0, 1], [1, 0]]
     >>> assert unroll_certificate(delay, loop_modes=1) == 1
