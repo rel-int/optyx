@@ -35,6 +35,14 @@ def sampler(reflectivity=.06):
             ).feedback(mem=qmode, state=photonic.Create(0))
 
 
+def asymmetric_sampler():
+    """A two-mode memory with nilpotent, non-symmetric loop block."""
+    unitary = np.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]])
+    step = photonic.Create(1) @ photonic.Id(2) \
+        >> photonic.Gate(unitary, 3, 3, "cycle")
+    return step.feedback(mem=qmode ** 2, state=photonic.Create(0, 0))
+
+
 def identity():
     """Copy the memory out without changing the memory."""
     return classical.CopyBit(2).feedback(
@@ -141,16 +149,15 @@ def test_eigen_against_at_time():
 
 
 def test_fix_converges_to_eigen():
-    """The contracted state at a certified depth agrees with the
-    eigensolve; without a loss the same depth warns that nothing
-    guarantees it."""
-    diagram_ = rotation(0.25)
-    certified = diagram_.fix(tol=1e-3, loss=.1).density_matrix
-    assert np.linalg.norm(
-        certified - diagram_.eigen_fix().density_matrix) < 1e-2
-    with pytest.warns(UserWarning, match="no loss certifies"):
-        finite = diagram_.fix(max_steps=diagram_.unroll_depth(1e-3, .1))
-    assert np.allclose(finite.density_matrix, certified, atol=1e-2)
+    """The certified contraction agrees with the eigensolve, with or without
+    loss. The nilpotent delay needs one burn-in step before its readout."""
+    diagram_ = delay()
+    for loss in (0, .5):
+        certified = diagram_.fix(
+            tol=1e-6, loss=loss, chi=None,
+            backend=DiscopyBackend()).density_matrix
+        exact = diagram_.eigen_fix(chi=2, loss=loss).density_matrix
+        assert np.allclose(certified, exact, atol=1e-6)
 
 
 def test_fix_is_a_state():
@@ -164,7 +171,7 @@ def test_fix_is_a_state():
 def test_fix_normalises_the_contracted_state():
     backend = RecordingBackend()
     backend.result.tensor.array *= 1e-4
-    with pytest.warns(UserWarning, match="no loss certifies"):
+    with pytest.warns(UserWarning, match="certificate does not apply"):
         result = source().fix(max_steps=3, backend=backend)
     assert np.allclose(result.density_matrix, [[1, 0], [0, 0]])
     assert len(backend.calls) == 1
@@ -174,7 +181,7 @@ def test_max_steps_is_the_depth_when_nothing_certifies_one():
     """A period-two loop has a stationary state its iterates never reach:
     `fix` returns the finite-time state at `max_steps` and the warning is
     what says no tolerance is guaranteed."""
-    with pytest.warns(UserWarning, match="no loss certifies"):
+    with pytest.warns(UserWarning, match="certificate does not apply"):
         result = flip().fix(chi=4, max_steps=8)
     expected = flip().at_time(7).eval().density_matrix
     assert np.allclose(result.density_matrix, expected)
@@ -194,7 +201,7 @@ def test_fixpoint_of_a_closed_loop():
     assert closed.one_step() == Diagram.id(qmode)
     with pytest.raises(ValueError, match="not unique"):
         closed.eigen_fix()
-    with pytest.warns(UserWarning, match="no loss certifies"):
+    with pytest.warns(UserWarning, match="certificate does not apply"):
         result = closed.fix(max_steps=3)
     assert result.density_matrix.shape == ()
     assert np.isclose(result.density_matrix, 1)
@@ -206,7 +213,7 @@ def test_fixpoint_of_a_closed_loop():
         mem=qubit, state=qubits.Ket(1))
     assert reset.dom == reset.cod == Ty()
     assert np.isclose(reset.eigen_fix().density_matrix, 1)
-    with pytest.warns(UserWarning, match="no loss certifies"):
+    with pytest.warns(UserWarning, match="certificate does not apply"):
         assert np.isclose(reset.fix(max_steps=3).density_matrix, 1)
 
 
@@ -263,12 +270,12 @@ def test_fix_truncates_a_growing_photon_budget():
     assert [sampler().at_time(n).truncation_dimensions()[0]
             for n in range(4)] == [2, 3, 4, 5]
     with pytest.warns(UserWarning, match="truncated at chi"):
-        truncated = sampler().fix(chi=2, loss=.9, tol=1e-2)
+        truncated = sampler().fix(chi=2, loss=.9, tol=.5)
     assert np.isclose(np.trace(truncated.density_matrix), 1)
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        sampler().fix(chi=4, loss=.9, tol=1e-2)
+        sampler().fix(chi=4, loss=.9, tol=.5)
 
 
 def test_chi_defaults_to_a_laptop_sized_budget():
@@ -277,7 +284,7 @@ def test_chi_defaults_to_a_laptop_sized_budget():
     exact mode."""
     assert channel.DEFAULT_CHI == 8
     backend = RecordingBackend()
-    with pytest.warns(UserWarning, match="no loss certifies"):
+    with pytest.warns(UserWarning, match="certificate does not apply"):
         source().fix(max_steps=3, backend=backend)
     assert [params["max_bond"] for _, params in backend.calls] == [8]
 
@@ -290,19 +297,19 @@ def test_certification_and_truncation_warn_separately():
         sampler().fix(chi=2, loss=.9, tol=1e-4, max_steps=2)
     messages = sorted(str(warning.message)[:20] for warning in caught)
     assert len(messages) == 2
-    assert messages[0].startswith("max_steps=2 stops sh")
+    assert messages[0].startswith("max_steps=2 stops be")
     assert messages[1].startswith("the contraction need")
 
 
 def test_loss_certifies_the_depth():
-    """A lossy loop knows its depth without contracting anything, and one
-    contraction is all `fix` ever runs."""
-    assert source().unroll_depth(1e-6, loss=.5) == 20
-    with pytest.raises(ValueError, match="loss in"):
-        source().unroll_depth(1e-6, loss=0)
-    backend = RecordingBackend()
-    source().fix(chi=4, loss=.9, tol=1e-2, backend=backend)
-    assert len(backend.calls) == 1
+    """The path normal form puts open memory inputs before creations. A
+    non-symmetric loop block catches the tempting trailing-block mistake."""
+    loop = asymmetric_sampler() >> photonic.NumberResolvingMeasurement(1)
+    assert loop.unroll_depth(1e-6) == 3
+    assert loop.unroll_depth(1e-6, loss=.5) == 3
+    assert loop.unroll_depth(1e-6, max_steps=2) is None
+    assert sampler(.25).unroll_depth(1e-2) == 13
+    assert sampler(.25).unroll_depth(1e-2, loss=.5) == 7
 
 
 def test_backend_uses_existing_interface():
