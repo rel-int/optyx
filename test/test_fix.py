@@ -210,6 +210,19 @@ def test_fixpoint_of_a_closed_loop():
         assert np.isclose(reset.fix(max_steps=3).density_matrix, 1)
 
 
+def test_both_solvers_return_the_same_kind_of_result():
+    """`fix` and `eigen_fix` produce interchangeable `EvalResult`s: a
+    density matrix over the codomain, real when the state is, read the
+    same way whichever solver produced it."""
+    from optyx.core.backends import StateType
+    eigen = source().eigen_fix()
+    power = source().fix(loss=.5, tol=1e-2)
+    for result in (eigen, power):
+        assert result.state_type is StateType.DM
+        assert result.output_types == source().cod
+    assert eigen.density_matrix.dtype == power.density_matrix.dtype
+
+
 def test_a_delay_does_not_change_the_fixpoint():
     """Post-composing a delay line shifts the output by one tick, and the
     fixed point is exactly what a time shift preserves."""

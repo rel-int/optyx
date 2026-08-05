@@ -690,7 +690,8 @@ class Diagram(frobenius.Diagram):
                 "Contraction returned zero or non-finite trace.")
         return backends.EvalResult(
             tensor.Box(
-                "Result", tensor.Dim(1), result.tensor.cod, state / trace),
+                "Result", tensor.Dim(1), result.tensor.cod,
+                np.real_if_close(state / trace)),
             output_types=self.cod, state_type=backends.StateType.DM)
 
     def eigen_fix(self, chi: int = None, loss: float = 0,
