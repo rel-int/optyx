@@ -79,6 +79,12 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y pandoc
         pip install .[docs]
+    - name: Execute what-is-a-channel notebook
+      run: |
+        jupyter nbconvert --to notebook --execute \
+          ${{ env.DOCS_DIR }}/notebooks/what_is_a_channel.ipynb \
+          --output what_is_a_channel.ipynb --output-dir /tmp \
+          --ExecutePreprocessor.timeout=600
     - name: Execute fixpoint notebook
       run: |
         jupyter nbconvert --to notebook --execute \
