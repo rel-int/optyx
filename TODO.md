@@ -1,5 +1,56 @@
 # TODO
 
+> Then it makes sense that the MapGNN performs much better. Let's try to
+> increase the number of parameters
+
+> Try again, allocating more compute to each box, and following the unchecked
+> suggestions in the TODO.md to make it efficient. Let's run a few experiments
+> in sequence on the GPU and test its limits for contraction
+
+## GPU contraction-limit retry
+
+Increase capacity without widening the recurrent graph.  A conditional
+rotation on target qubit `q` partitions the computational basis into
+`2 ** (w - 1)` pairs that differ only at `q`, and gives every pair an
+independent real rotation angle.  Cycling the target through the qubits yields
+an orthogonal, near-identity box ansatz whose whole layer is applied by one
+vectorised row-pair update.  With product rotations before, between and after
+these conditional layers, a depth-`d` cell has `265d + 9` parameters and a
+constraint has `136d + 8`, or `401d + 17` shared parameters in total.  Depths
+8, 16 and 32 therefore have 3,225, 6,433 and 12,849 parameters; the largest is
+within 1.1% of the 12,980-parameter MapGNN in discopy#416.  Parameters remain
+shared over boxes and time.  Depth only changes vectorised construction of the
+dense local arrays; tensor-map indices are unchanged.  Ticks and compressed
+bond dimension are benchmarked separately, using configuration records with
+`depth`, `ticks`, `chi`, elapsed seconds, scalar-contraction count and live MPS
+memory.
+
+The GPU probes are capped at 48 scalar contractions: three four-way capacity
+probes at depths 8, 16 and 32, followed by one four-way loss and backward pass
+for ticks in `{2, 3, 4}` and `chi` in `{4, 8, 16}`, in increasing order.  The
+ladder stops before the next configuration if a probe takes more than 30
+seconds, holds more than 6 GiB of live MPS tensors, or raises an unsupported or
+out-of-memory error.  Capacity pilots use at most 384 further contractions:
+three depths times 64 training, 32 candidate-ranking and 32 targeted-readout
+contractions.  Only the winner may use another 448 contractions: 192 for
+training, 128 for all held-out candidate rankings and 128 for exact readout on
+four grids.  Total experiment cost is at most 880 scalar contractions.  A
+configuration is eligible for training only if its measured time projects the
+whole training study below 15 minutes.  MPS is asserted, CPU fallback remains
+fatal, paths are reused per `(ticks, chi)`, and the existing real `float32`
+representation is retained.
+
+- [ ] Implement the vectorised conditional-rotation ansatz and configurable
+      compression rank, cache one deterministic Cotengra path per
+      `(ticks, chi)`, and add timed MPS-memory diagnostics.
+- [ ] Run the increasing GPU contraction ladder over two to four ticks and
+      `chi` in `{4, 8, 16}`, respecting the time and memory stop conditions.
+- [ ] At the largest affordable three-tick configuration, compare conditional
+      depths 8, 16 and 32 under the fixed pilot budget, then scale only the
+      held-out winner.
+- [ ] Execute the notebook in a fresh GPU-only kernel, record the limit and
+      learning results, and update the conclusions and unchecked suggestions.
+
 > Check out the PR https://github.com/rel-int/optyx/pull/16. We need to push
 > this model to try to solve the sudoku task. One important concept for the
 > interaction.CMap is that every cell: X -> Y should have additionally a memory
