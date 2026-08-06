@@ -27,8 +27,10 @@ classifiers = [
     "Topic :: Scientific/Engineering"
 ]
 dependencies = [
-  "discopy @ git+https://github.com/discopy/discopy@88895277",
+  "discopy[tensor] @ git+https://github.com/discopy/discopy@cc585bd",
   "opt_einsum",
+  "quimb",
+  "cotengra",
   "sympy",
   "perceval-quandela >=0.12,<0.13",
   "networkx >= 3.2",

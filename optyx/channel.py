@@ -927,5 +927,5 @@ Scalar = lambda s: Channel(  # noqa: E731
 
 Diagram.spider_factory = Spider
 Diagram.hypergraph_factory = Hypergraph
-Diagram.braid_factory = Swap
+Diagram.swap_factory = Swap
 Diagram.sum_factory = Sum
