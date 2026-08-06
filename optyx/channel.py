@@ -278,81 +278,6 @@ MAX_TRUNCATION = 32
 DEFAULT_CHI = 8
 
 
-def _trace(ty, state):
-    """
-    The trace of `state`, the array of a density matrix over `ty`: feed it
-    into `Discard(ty)` and read off the scalar.
-
-    :meth:`Diagram.normalisation` is this same scalar for a diagram. The
-    array case stays private because it is not a thing a user has: it is
-    what the solvers below hold between a linear algebra step and a diagram,
-    and it exists only because :class:`Box` discards the dimensions it is
-    passed for an array-backed box, which is issue #28.
-    """
-    discarded = Discard(ty).double().to_tensor(list(np.shape(state)))
-    return (tensor.Box(
-        "State", tensor.Dim(1), discarded.dom, np.asarray(state))
-        >> discarded).eval().array
-
-
-def _validate(stateful, tol, loss, chi):
-    """
-    The guards :meth:`Diagram.fix` and :meth:`Diagram.eigen_fix` share.
-
-    Both are public entry points taking the same user input, and neither has
-    the statements to spare under the style guide's limit.
-    """
-    if stateful.dom:
-        raise ValueError(
-            "The stationary state of a diagram with a domain is not "
-            f"defined, got dom={stateful.dom}.")
-    if not any(isinstance(box, Feedback) for box in stateful.boxes):
-        raise ValueError(
-            "The diagram has no feedback loop, so it is already its own "
-            "stationary state.")
-    if chi is not None and (not isinstance(chi, Integral)
-                            or isinstance(chi, bool) or chi <= 0):
-        raise ValueError("chi must be a positive integer.")
-    if not isinstance(tol, Real) or isinstance(tol, bool) \
-            or not np.isfinite(tol) or tol <= 0:
-        raise ValueError("tol must be a positive finite real number.")
-    if not isinstance(loss, Real) or isinstance(loss, bool) \
-            or not 0 <= loss < 1:
-        raise ValueError("loss must be a real number in [0, 1).")
-
-
-def _lossy(memory, loss):
-    """
-    A :class:`optyx.photonic.PhotonLoss` of survival `1 - loss` on every
-    optical wire of `memory`, the identity on the classical ones.
-
-    Losing a fraction of the memory each round trip is what bounds the
-    second eigenvalue of the transfer channel, so this is what turns
-    :meth:`Diagram.unroll_depth`'s assumed gap into a real one.
-    """
-    photonic = import_module("optyx.photonic")
-    return Diagram.id(Ty()).tensor(*(
-        photonic.PhotonLoss(1 - loss) if ob.name == "qmode"
-        else Diagram.id(Ty(ob.name)) for ob in memory.inside))
-
-
-def _with_loss(stateful, loss):
-    """Add uniform round-trip loss to every optical feedback memory."""
-    def ar_map(box):
-        if not isinstance(box, Feedback):
-            return box
-        arg = _with_loss(box.arg, loss) \
-            >> Diagram.id(box.cod) @ _lossy(box.mem, loss)
-        return arg.feedback(
-            dom=box.dom, cod=box.cod, mem=box.mem,
-            state=_with_loss(box.state, loss),
-            effect=_with_loss(box.effect, loss))
-
-    return frobenius.Functor(
-        ob_map=lambda x: x, ar_map=ar_map,
-        dom=Diagram, cod=Diagram)(stateful)
-
-
 @factory
 class Ty(frobenius.Ty):
     """Classical and quantum types."""
@@ -409,7 +334,7 @@ class Diagram(frobenius.Diagram):
     ob = Ty
     grad = tensor.Diagram.grad
     unroll = diagram.Diagram.unroll
-    unroll_with_boundaries = diagram.Diagram.unroll_with_boundaries
+    with_boundaries = diagram.Diagram.with_boundaries
     one_step = diagram.Diagram.one_step
 
     def feedback(self, dom=None, cod=None, mem=None,
@@ -489,17 +414,90 @@ class Diagram(frobenius.Diagram):
         step = self.one_step()
         memory = step.cod[len(self.cod):]
         readout = step >> self.id(self.cod) @ Discard(memory)
-        if n_steps == 0:
-            iterated = self.unroll_with_boundaries(0, effect=None) \
-                >> self.id(self.cod) @ Discard(memory)
-        else:
-            iterated = (self >> Discard(self.cod)).unroll_with_boundaries(
-                n_steps - 1, effect=readout)
+        opened = self if n_steps == 0 else self >> Discard(self.cod)
+        unrolled = opened.with_boundaries(effect=None).unroll(
+            max(n_steps - 1, 0))
+        iterated = unrolled >> self.id(
+            unrolled.cod[:len(unrolled.cod) - len(memory)]) @ (
+                Discard(memory) if n_steps == 0 else readout)
         if iterated.dom:
             raise ValueError(
                 "Every feedback loop needs a state, got an open memory of "
                 f"type {iterated.dom}.")
         return iterated
+
+    def check_fixpoint(self, tol: float = 1e-6, loss: float = 0,
+                       chi: int = None):
+        """
+        The guards :meth:`fix` and :meth:`eigen_fix` share: that this
+        diagram poses a fixpoint problem at all, and that the numbers asked
+        of it are in range. Raises rather than returning, since every
+        failure is a mistake in the call.
+
+        >>> from optyx.qubits import Ket
+        >>> try:
+        ...     Ket(0).check_fixpoint()
+        ... except ValueError as error:
+        ...     assert "no feedback loop" in str(error)
+        """
+        if self.dom:
+            raise ValueError(
+                "The stationary state of a diagram with a domain is not "
+                f"defined, got dom={self.dom}.")
+        if not any(isinstance(box, Feedback) for box in self.boxes):
+            raise ValueError(
+                "The diagram has no feedback loop, so it is already its own "
+                "stationary state.")
+        if chi is not None and (not isinstance(chi, Integral)
+                                or isinstance(chi, bool) or chi <= 0):
+            raise ValueError("chi must be a positive integer.")
+        if not isinstance(tol, Real) or isinstance(tol, bool) \
+                or not np.isfinite(tol) or tol <= 0:
+            raise ValueError("tol must be a positive finite real number.")
+        if not isinstance(loss, Real) or isinstance(loss, bool) \
+                or not 0 <= loss < 1:
+            raise ValueError("loss must be a real number in [0, 1).")
+
+    @staticmethod
+    def loss(memory: Ty, loss: float):
+        """
+        A :class:`optyx.photonic.PhotonLoss` of survival `1 - loss` on every
+        optical wire of `memory`, the identity on the classical ones.
+
+        Losing a fraction of the memory each round trip is what bounds the
+        second eigenvalue of the transfer channel, so this is what turns
+        :meth:`unroll_depth`'s assumed gap into a real one.
+
+        >>> assert Diagram.loss(qubit, .5) == Diagram.id(qubit)
+        >>> assert Diagram.loss(qmode, .5).cod == qmode
+        """
+        photonic = import_module("optyx.photonic")
+        return Diagram.id(Ty()).tensor(*(
+            photonic.PhotonLoss(1 - loss) if ob.name == "qmode"
+            else Diagram.id(Ty(ob.name)) for ob in memory.inside))
+
+    def with_loss(self, loss: float):
+        """
+        This diagram with uniform round-trip loss on every optical feedback
+        memory, rebuilding each loop rather than wrapping it.
+
+        >>> from optyx.photonic import Create
+        >>> wait = Diagram.swap(qmode, qmode).feedback(state=Create(0))
+        >>> assert wait.with_loss(.5).cod == wait.cod
+        """
+        def ar_map(box):
+            if not isinstance(box, Feedback):
+                return box
+            arg = box.arg.with_loss(loss) \
+                >> Diagram.id(box.cod) @ Diagram.loss(box.mem, loss)
+            return arg.feedback(
+                dom=box.dom, cod=box.cod, mem=box.mem,
+                state=box.state.with_loss(loss),
+                effect=box.effect.with_loss(loss))
+
+        return frobenius.Functor(
+            ob_map=lambda x: x, ar_map=ar_map,
+            dom=Diagram, cod=Diagram)(self)
 
     def normalisation(self):
         """
@@ -559,7 +557,7 @@ class Diagram(frobenius.Diagram):
         ...         mem=qmode, state=photonic.Create(0))
         >>> assert loop.unroll_depth(1e-6) == 2
         """
-        _validate(self, tol, loss, None)
+        self.check_fixpoint(tol, loss)
         if max_steps is not None and (
                 not isinstance(max_steps, Integral)
                 or isinstance(max_steps, bool) or max_steps <= 0):
@@ -710,7 +708,7 @@ class Diagram(frobenius.Diagram):
         See :doc:`/notebooks/fixpoints` for the semantic diagram, agreement
         map and contraction planning.
         """
-        _validate(self, tol, loss, chi)
+        self.check_fixpoint(tol, loss, chi)
         if not isinstance(max_steps, Integral) \
                 or isinstance(max_steps, bool) or max_steps <= 0:
             raise ValueError("max_steps must be a positive integer.")
@@ -730,7 +728,7 @@ class Diagram(frobenius.Diagram):
         else:
             unsupported = False
         depth = max_steps if certified is None else certified
-        stateful = _with_loss(self, loss) if loss else self
+        stateful = self.with_loss(loss) if loss else self
         network = stateful.at_time(depth - 1)
         if unsupported:
             warnings.warn(
@@ -756,7 +754,10 @@ class Diagram(frobenius.Diagram):
             backend, **({"max_bond": chi} if compressible else {}))
 
         state = np.asarray(result.density_matrix)
-        trace = _trace(self.cod, state)
+        discarded = Discard(self.cod).double().to_tensor(list(state.shape))
+        trace = (tensor.Box(
+            "State", tensor.Dim(1), discarded.dom, state)
+            >> discarded).eval().array
         if not np.isfinite(trace) \
                 or abs(trace) <= 100 * state.size * np.finfo(float).eps:
             raise ValueError(
@@ -820,11 +821,11 @@ class Diagram(frobenius.Diagram):
         ...     delay.eigen_fix(chi=2).density_matrix, [[0, 0], [0, 1]],
         ...     atol=1e-6)
         """
-        _validate(self, tol, loss, chi)
+        self.check_fixpoint(tol, loss, chi)
         step = self.one_step()
         memory = step.cod[len(self.cod):]
         if loss:
-            step = step >> self.id(self.cod) @ _lossy(memory, loss)
+            step = step >> self.id(self.cod) @ self.loss(memory, loss)
         transfer = step >> Discard(self.cod) @ self.id(memory)
         readout = step >> self.id(self.cod) @ Discard(memory)
 
@@ -870,7 +871,10 @@ class Diagram(frobenius.Diagram):
                 "The stationary state is not unique "
                 f"(fixed-space dimension {len(fixed)}).")
         state = eigenvectors[:, fixed[0]].reshape(dimensions)
-        trace = _trace(transfer.cod, state)
+        discarded = Discard(transfer.cod).double().to_tensor(list(state.shape))
+        trace = (tensor.Box(
+            "State", tensor.Dim(1), discarded.dom, state)
+            >> discarded).eval().array
         if not np.isfinite(trace) or abs(trace) <= tol:
             raise ValueError(
                 "The stationary state has zero or non-finite trace.")
