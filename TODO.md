@@ -21,21 +21,21 @@ dropped and the compact closed structure only glues along message ports.
 
 ## `interaction.Box` with memory and prediction
 
-- [ ] Extend `Box(name, dom, cod, channel, memory=Ty(), prediction=Ty())`,
+- [WIP] @claude-xz2c4u-2026-08-06 12:05 Extend `Box(name, dom, cod, channel, memory=Ty(), prediction=Ty())`,
       type-checking `channel` from `dom @ cod @ memory` to
       `dom @ cod @ memory @ prediction`; the defaults recover the boxes of
       #16 so every existing doctest and test stays valid.
-- [ ] Route each internal memory as a self-loop in `CMap`: it joins
+- [WIP] @claude-xz2c4u-2026-08-06 12:05 Route each internal memory as a self-loop in `CMap`: it joins
       `CMap.memory` after the paired ports, in box order, and is fed back to
       the same box by `read` and `write`; document the wire-order convention.
-- [ ] Make predictions write-only boundary: `CMap.cod == dom @ predictions`
+- [WIP] @claude-xz2c4u-2026-08-06 12:05 Make predictions write-only boundary: `CMap.cod == dom @ predictions`
       in box order, with `read`, `write`, `step`, `protocol`, `unroll` and
       the drawings updated; state in the docstring that `glue` and the cups
       and caps act on message ports only.
-- [ ] Update `CMap.fix`: `input_state` stays of type `dom`,
+- [WIP] @claude-xz2c4u-2026-08-06 12:05 Update `CMap.fix`: `input_state` stays of type `dom`,
       `initial_state` now prepares the paired ports and the internal
       memories; the stationary output includes the predictions.
-- [ ] Update `__matmul__`, `glue`, `__repr__`, `__eq__`, `__hash__` and the
+- [WIP] @claude-xz2c4u-2026-08-06 12:05 Update `__matmul__`, `glue`, `__repr__`, `__eq__`, `__hash__` and the
       module docstring for the two new attributes.
 
 ## Sudoku with one qubit of cell memory
