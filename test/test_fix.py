@@ -192,11 +192,12 @@ def test_fix_is_a_state():
 
 
 def test_power_fix_normalises_the_contracted_state():
-    backend = RecordingBackend()
-    backend.result.tensor.array *= 1e-4
-    result = source().power_fix(tol=1e-2, backend=backend)
+    """A scalar in the diagram scales every contracted state; the returned
+    density matrix is normalised regardless, with no backend to inject."""
+    result = (Scalar(2) @ source()).power_fix(tol=1e-2)
     assert np.allclose(result.density_matrix, [[1, 0], [0, 0]])
-    assert len(backend.calls) == 2
+    with pytest.raises(TypeError):
+        source().power_fix(tol=1e-2, backend=DiscopyBackend())
 
 
 def test_power_iteration_warns_on_a_periodic_loop():
@@ -374,13 +375,13 @@ def test_backend_uses_existing_interface():
 
 
 def test_fix_supports_numpy_tensor_functor():
-    result = source().fix(tol=1e-2, backend=DiscopyBackend())
-    assert np.allclose(result.density_matrix, [[1, 0], [0, 0]])
+    result = lossy_delay().fix(tol=1e-2, backend=DiscopyBackend())
+    assert np.allclose(result.density_matrix, [[.5, 0], [0, .5]])
 
 
 def test_fix_supports_exact_quimb():
-    result = source().fix(tol=1e-2, chi=None, backend=QuimbBackend())
-    assert np.allclose(result.density_matrix, [[1, 0], [0, 0]])
+    result = lossy_delay().fix(tol=1e-2, chi=None, backend=QuimbBackend())
+    assert np.allclose(result.density_matrix, [[.5, 0], [0, .5]])
 
 
 def test_photonic_delay_line():

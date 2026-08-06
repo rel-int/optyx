@@ -697,9 +697,11 @@ class Diagram(frobenius.Diagram):
             max_steps : The maximum number of time steps, including the final
                 readout. The public `DEFAULT_MAX_STEPS` is sixty-four.
             backend : An optional
-                :class:`optyx.core.backends.AbstractBackend`. DisCoPy
-                evaluates with ``tensor.Functor``; Quimb contracts the same
-                doubled network with an optimised path, compressed to `chi`.
+                :class:`optyx.core.backends.AbstractBackend` for the
+                certified contraction. DisCoPy evaluates with
+                ``tensor.Functor``; Quimb contracts the same doubled network
+                with an optimised path, compressed to `chi`. The fallback
+                iteration takes no backend — see :meth:`power_fix`.
 
         A delay whose loop block vanishes forgets its initial state after one
         step; the following step reads its stationary output. With loss on
@@ -732,8 +734,7 @@ class Diagram(frobenius.Diagram):
         try:
             certified = self.unroll_certificate(tol, max_steps)
         except NotImplementedError:
-            return self.power_fix(
-                tol, max_steps=max_steps, backend=backend)
+            return self.power_fix(tol, max_steps=max_steps)
         depth = max_steps if certified is None else certified
         if certified is None:
             warnings.warn(
@@ -770,7 +771,7 @@ class Diagram(frobenius.Diagram):
             output_types=self.cod, state_type=backends.StateType.DM)
 
     def power_fix(self, tol: float = 1e-3, n_steps: int = 1,
-                  max_steps: int = DEFAULT_MAX_STEPS, *, backend=None):
+                  max_steps: int = DEFAULT_MAX_STEPS):
         """
         The stationary state by plain power iteration: contract
         :meth:`at_time` at successive depths from `n_steps`, and stop when
@@ -790,10 +791,10 @@ class Diagram(frobenius.Diagram):
                 which the iteration stops.
             n_steps : The depth the iteration starts from.
             max_steps : The depth at which it gives up and warns.
-            backend : An optional
-                :class:`optyx.core.backends.AbstractBackend`; the default
-                Quimb backend contracts exactly, since a truncated
-                contraction would corrupt the distances being watched.
+
+        There is no backend or `chi` to choose: each state is contracted
+        exactly with the default backend, since a truncated or approximate
+        contraction would corrupt the very distances being watched.
 
         >>> from optyx.qubits import Ket, X, Z
         >>> loop = (X(1, 1, .25) >> Z(1, 2)).feedback(
@@ -810,11 +811,7 @@ class Diagram(frobenius.Diagram):
                     or value <= 0:
                 raise ValueError(f"{name} must be a positive integer.")
         backends = import_module("optyx.core.backends")
-        if backend is None:
-            backend = backends.QuimbBackend()
-        elif not isinstance(backend, backends.AbstractBackend):
-            raise ValueError(
-                "backend must implement the AbstractBackend interface.")
+        backend = backends.QuimbBackend()
 
         def state_at(depth):
             result = self.at_time(depth).eval(backend)
