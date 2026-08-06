@@ -101,12 +101,13 @@ def test_at_time_needs_a_state():
         loop.at_time(2)
 
 
-def test_unroll_takes_only_a_number_of_steps():
-    """The boundaries belong to `feedback`, so `unroll` has no other
-    parameter; `one_step` and `at_time` rebuild each loop with a fresh
-    `feedback` call before unrolling."""
-    with pytest.raises(TypeError):
-        source().unroll(1, state=None)
+def test_unroll_boundary_overrides_serve_the_solvers():
+    """`boundary` reads each loop's state and effect back, so `unroll` can
+    override them per call: `one_step` opens both with `False`, and
+    `at_time` plugs its read-out as the final effect."""
+    assert source().boundary() == (qubits.Ket(1), Discard(qubit))
+    assert source().one_step() == source().unroll(
+        0, state=False, effect=False)
 
 
 @pytest.mark.parametrize("solver", ["fix", "eigen_fix"])

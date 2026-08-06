@@ -391,9 +391,9 @@ class Diagram(frobenius.Diagram):
         accumulating `n_steps` outputs to throw away, which is what
         :meth:`fix` contracts.
 
-        The last tick is the `effect` of that unrolling: :meth:`one_step`
-        with the memory discarded instead of the output, so it reads out
-        rather than continuing.
+        The last tick is the `effect` of that unrolling, overridden at
+        :meth:`unroll`: :meth:`one_step` with the memory discarded instead
+        of the output, so it reads out rather than continuing.
 
         The diagram must be a state and so must every loop, i.e. each
         :attr:`Feedback.state` needs an empty domain rather than the open
@@ -420,24 +420,9 @@ class Diagram(frobenius.Diagram):
         step = self.one_step()
         memory = step.cod[len(self.cod):]
         readout = step >> self.id(self.cod) @ Discard(memory)
-
-        def opened_effects(inside):
-            def ar_map(box):
-                if not isinstance(box, Feedback):
-                    return box
-                return opened_effects(box.arg).feedback(
-                    dom=box.dom, cod=box.cod, mem=box.mem,
-                    state=box.state, effect=self.id(box.mem))
-            return frobenius.Functor(
-                ob_map=lambda x: x, ar_map=ar_map,
-                dom=Diagram, cod=Diagram)(inside)
-
-        opened = opened_effects(
-            self if n_steps == 0 else self >> Discard(self.cod))
-        unrolled = opened.unroll(max(n_steps - 1, 0))
-        iterated = unrolled >> self.id(
-            unrolled.cod[:len(unrolled.cod) - len(memory)]) @ (
-                Discard(memory) if n_steps == 0 else readout)
+        iterated = self.unroll(0, effect=Discard(memory)) if n_steps == 0 \
+            else (self >> Discard(self.cod)).unroll(
+                n_steps - 1, effect=readout)
         if iterated.dom:
             raise ValueError(
                 "Every feedback loop needs a state, got an open memory of "
