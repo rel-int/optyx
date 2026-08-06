@@ -40,7 +40,7 @@ whole training study below 15 minutes.  MPS is asserted, CPU fallback remains
 fatal, paths are reused per `(ticks, chi)`, and the existing real `float32`
 representation is retained.
 
-- [ ] Implement the vectorised conditional-rotation ansatz and configurable
+- [WIP] @codex-019fd73e-2026-08-06 19:26 Implement the vectorised conditional-rotation ansatz and configurable
       compression rank, cache one deterministic Cotengra path per
       `(ticks, chi)`, and add timed MPS-memory diagnostics.
 - [ ] Run the increasing GPU contraction ladder over two to four ticks and
