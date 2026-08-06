@@ -81,6 +81,7 @@ import numpy as np
 import perceval as pcvl
 from quimb.tensor import TensorNetwork
 from optyx.channel import Diagram, Ty, mode, bit
+from optyx.core.contract import contract_tensor
 from optyx.core.path import Matrix
 
 
@@ -470,93 +471,13 @@ class QuimbBackend(AbstractBackend):
             The result of the evaluation.
         """
 
-        tensor_diagram = self._get_discopy_tensor(diagram)
         params = {**self.contraction_params, **extra}
-
-        if hasattr(tensor_diagram, 'terms'):
-            results = sum(
-                self.process_term(term, params)
-                for term in tensor_diagram.terms
-            )
-        else:
-            results = self.process_term(tensor_diagram, params)
-
-        if diagram.is_pure:
-            state_type = StateType.AMP
-        else:
-            state_type = StateType.DM
-
+        result = contract_tensor(
+            self._get_discopy_tensor(diagram), backend="quimb",
+            optimize=self.hyperoptimiser, **params)
+        state_type = StateType.AMP if diagram.is_pure else StateType.DM
         return EvalResult(
-            discopy_tensor.Box(
-                "Result",
-                tensor_diagram.dom,
-                tensor_diagram.cod,
-                results
-            ),
-            output_types=diagram.cod,
-            state_type=state_type
-        )
-
-    def process_term(
-            self, term: discopy_tensor.Diagram,
-            params: dict = None) -> np.ndarray:
-        """
-        Process a term in a sum of diagrams.
-
-        Args:
-            term (discopy.tensor.Diagram): The term to process.
-            params (dict): Contraction parameters, :attr:`contraction_params`
-                by default.
-
-        Returns:
-            np.ndarray: The processed term as a numpy array.
-        """
-        params = self.contraction_params if params is None else params
-        quimb_tn = term.to_quimb()
-
-        for t in quimb_tn:
-            dt = t.data.dtype
-            if dt.kind in {'i', 'u', 'b'}:
-                t.modify(data=t.data.astype(np.complex128, copy=False))
-
-        if self.hyperoptimiser is None:
-            result = quimb_tn ^ ...
-        else:
-            is_approx = isinstance(
-                self.hyperoptimiser,
-                (ReusableHyperCompressedOptimizer, HyperCompressedOptimizer)
-            )
-
-            is_exact = isinstance(
-                self.hyperoptimiser,
-                (ReusableHyperOptimizer, HyperOptimizer)
-            )
-
-            if not is_approx and not is_exact:
-                raise ValueError(
-                    "Unsupported hyperoptimiser type. " +
-                    "Use ReusableHyperOptimizer, HyperOptimizer, " +
-                    "ReusableHyperCompressedOptimizer, or " +
-                    "HyperCompressedOptimizer. " +
-                    f"Got: {type(self.hyperoptimiser)}"
-
-                )
-
-            contract = quimb_tn.contract_compressed if \
-                is_approx else quimb_tn.contract
-            result = contract(
-                optimize=self.hyperoptimiser,
-                output_inds=sorted(quimb_tn.outer_inds()),
-                **params
-            )
-
-        if isinstance(result, TensorNetwork):
-            result = result.contract(
-                output_inds=sorted(result.outer_inds()))
-        if not isinstance(result, (complex, float, int)):
-            result = result.data
-
-        return result
+            result, output_types=diagram.cod, state_type=state_type)
 
 
 # pylint: disable=too-few-public-methods
@@ -564,6 +485,10 @@ class DiscopyBackend(AbstractBackend):
     """
     Backend implementation using Discopy.
     """
+
+    def __init__(self, backend: str = None):
+        """Select the NumPy, JAX or PyTorch array backend."""
+        self.backend = backend
 
     def eval(self, diagram: Diagram,  **extra: Any) -> EvalResult:
         """
@@ -575,13 +500,9 @@ class DiscopyBackend(AbstractBackend):
         Returns:
             The result of the evaluation.
         """
-        tensor_diagram = self._get_discopy_tensor(diagram).eval()
-
-        if diagram.is_pure:
-            state_type = StateType.AMP
-        else:
-            state_type = StateType.DM
-
+        tensor_diagram = contract_tensor(
+            self._get_discopy_tensor(diagram), self.backend, **extra)
+        state_type = StateType.AMP if diagram.is_pure else StateType.DM
         return EvalResult(
             tensor_diagram,
             output_types=diagram.cod,

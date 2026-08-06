@@ -1,0 +1,132 @@
+"""Tests for backend-neutral tensor contraction."""
+
+from contextlib import nullcontext
+
+from cotengra import ReusableHyperCompressedOptimizer
+import numpy as np
+import pytest
+
+from discopy import tensor
+from optyx import qubits
+from optyx.channel import Channel, qubit
+from optyx.core import contract
+from optyx.core.contract import contract_tensor
+from optyx.core.diagram import Box, bit
+
+
+@pytest.mark.parametrize("backend", [None, "numpy", "quimb"])
+def test_exact_backends(backend):
+    network = qubits.Ket(0).double().to_tensor()
+    result = contract_tensor(network, backend=backend)
+    assert np.allclose(result.array, [[1, 0], [0, 0]])
+
+
+@pytest.mark.parametrize(("backend", "module"), [
+    ("jax", "jax"),
+    ("pytorch", "torch"),
+])
+def test_array_backends(backend, module):
+    pytest.importorskip(module)
+    network = qubits.Ket(0).double().to_tensor()
+    result = contract_tensor(network, backend=backend)
+    assert np.allclose(np.asarray(result.array), [[1, 0], [0, 0]])
+
+
+def test_array_backend_without_optional_dependency(monkeypatch):
+    network = qubits.Ket(0).double().to_tensor()
+
+    def backend_context(_backend=None):
+        return nullcontext(np)
+
+    monkeypatch.setattr(contract.tensor, "backend", backend_context)
+    result = contract_tensor(network, backend="pytorch")
+    assert np.allclose(result.array, [[1, 0], [0, 0]])
+
+
+def test_pytorch_autodiff():
+    torch = pytest.importorskip("torch")
+    theta = torch.tensor(0.3, dtype=torch.float64, requires_grad=True)
+    array = torch.stack((
+        torch.stack((torch.cos(theta), -torch.sin(theta))),
+        torch.stack((torch.sin(theta), torch.cos(theta))),
+    )).to(torch.float64)
+    gate = Channel("R", Box("R", bit, bit, array=array), qubit, qubit)
+    with tensor.backend("pytorch"):
+        state = tensor.Box(
+            "zero", tensor.Dim(), tensor.Dim(2), [1, 0])
+        gate_tensor = tensor.Box(
+            "R", tensor.Dim(2), tensor.Dim(2), gate.kraus.array)
+        effect = tensor.Box(
+            "one", tensor.Dim(2), tensor.Dim(), [0, 1])
+        network = state >> gate_tensor >> effect
+    optimizer = ReusableHyperCompressedOptimizer(
+        chi=2, methods=("greedy-compressed",),
+        max_repeats=1, parallel=False)
+    result = contract_tensor(
+        network.to_map(), backend="pytorch", optimize=optimizer,
+        max_bond=2, dtype=float)
+    probability = result.array ** 2
+    probability.backward()
+    assert torch.allclose(theta.grad, torch.sin(2 * theta))
+
+
+@pytest.mark.parametrize("backend", ["numpy", "quimb", "pytorch"])
+def test_combinatorial_map(backend):
+    if backend == "pytorch":
+        pytest.importorskip("torch")
+    network = (qubits.Ket(0) >> qubits.H()).get_kraus().to_tensor()
+    expected = contract_tensor(network, backend="numpy")
+    result = contract_tensor(network.to_map(), backend=backend)
+    assert np.allclose(np.asarray(result.array), expected.array)
+
+
+def test_open_combinatorial_map():
+    network = tensor.Diagram.id(tensor.Dim(2)).to_map()
+    result = contract_tensor(network, backend="numpy")
+    assert np.allclose(result.array, np.eye(2))
+
+
+def test_combinatorial_loop():
+    network = tensor.CMap(
+        tensor.Dim(), tensor.Dim(), (), (), loops=(tensor.Dim(2),))
+    result = contract_tensor(network, backend="numpy")
+    assert np.allclose(result.array, 2)
+
+
+def test_compressed_quimb():
+    network = (qubits.Ket(0) >> qubits.H()).double().to_tensor()
+    exact = contract_tensor(network, backend="numpy")
+    optimizer = ReusableHyperCompressedOptimizer(
+        methods=["greedy"], max_repeats=1, progbar=False)
+    compressed = contract_tensor(
+        network, backend="quimb", optimize=optimizer, max_bond=2)
+    assert np.allclose(compressed.array, exact.array)
+
+
+def test_strip_exponent():
+    tiny = tensor.Box(
+        "tiny", tensor.Dim(), tensor.Dim(), np.array(1e-200))
+    mantissa, exponent = contract_tensor(
+        tiny, backend="quimb", strip_exponent=True)
+    log_value = np.log(abs(mantissa.array)) + np.log(10) * exponent
+    assert np.isclose(log_value, np.log(1e-200))
+
+
+def test_sum():
+    zero = qubits.Ket(0).double().to_tensor()
+    one = qubits.Ket(1).double().to_tensor()
+    result = contract_tensor(zero + one, backend="quimb")
+    assert np.allclose(result.array, np.eye(2))
+
+
+def test_quimb_only_parameters():
+    network = qubits.Ket(0).double().to_tensor()
+    with pytest.raises(ValueError, match="backend='quimb'"):
+        contract_tensor(network, backend="numpy", max_bond=2)
+
+
+def test_reserved_quimb_parameters():
+    network = qubits.Ket(0).double().to_tensor()
+    with pytest.raises(ValueError, match="cannot override output_inds"):
+        contract_tensor(
+            network, backend="quimb", output_inds=())
