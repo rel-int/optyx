@@ -45,7 +45,7 @@ representation is retained.
       `(ticks, chi)`, and add timed MPS-memory diagnostics.
 - [x] Run the increasing GPU contraction ladder over two to four ticks and
       `chi` in `{4, 8, 16}`, respecting the time and memory stop conditions.
-- [WIP] @codex-019fd73e-2026-08-06 19:40 Replace the over-budget full-map per-cell loss by the induced local
+- [x] Replace the over-budget full-map per-cell loss by the induced local
       `CMap` containing the target, its seven peers and its three constraints;
       close missing message ports with `|+>` states/effects and rerun the
       three-tick ladder.
@@ -63,6 +63,16 @@ live MPS tensors.  Three ticks at `chi=4` then took 117.33 seconds and held
 higher three-tick bonds and all four-tick probes were skipped.  The next run
 therefore uses the local-loss suggestion rather than training an over-budget
 full map.
+
+The local map has 8 cells, 3 constraints, 24 paired edges, 24 open boundary
+wires and 56 recurrent wires.  At three ticks it reduces the tensor network
+from 596 boxes / 1,856 ports to 337 boxes / 832 ports.  The 12,849-parameter
+model completed `chi=4`, `8` and `16` four-way gradients in 3.27, 2.36 and
+2.97 seconds using at most 0.58 GiB live MPS memory.  Four ticks completed
+through `chi=8` in 4.71 seconds and 2.28 GiB, while `chi=16` hit the MPS
+high-water mark after 82.18 seconds.  Thus three ticks at `chi=16` is the
+largest configuration eligible for the 15-minute learning budget; four ticks
+at `chi=16` is the measured local contraction limit.
 
 > Check out the PR https://github.com/rel-int/optyx/pull/16. We need to push
 > this model to try to solve the sudoku task. One important concept for the
