@@ -1349,18 +1349,29 @@ class Feedback(monoidal.Bubble, Box):
                 args += f", {attr}={repr(boundary)}"
         return f"{type(self).__name__}({args})"
 
-    def unrolled_only(self, *_, **__):
-        """A feedback loop has no tensor or path semantics until unrolled:
-        every evaluation entry point raises this same guard, rather than
-        each pretending to be the method it stands in for."""
+    def to_path(self, dtype: type = complex):
+        """A feedback loop has no path matrix until unrolled."""
         raise ValueError(
-            "The diagram contains a feedback loop "
-            "which must be unrolled before evaluation.")
+            "A feedback loop has no path matrix: "
+            "unroll the diagram before calling to_path.")
 
-    truncation = unrolled_only
-    determine_output_dimensions = unrolled_only
-    photon_number_transform = unrolled_only
-    to_path = unrolled_only
+    def truncation(self, input_dims=None, output_dims=None):
+        """A feedback loop has no truncation tensor until unrolled."""
+        raise ValueError(
+            "A feedback loop has no truncation tensor: "
+            "unroll the diagram before calling to_tensor.")
+
+    def determine_output_dimensions(self, input_dims=None):
+        """A feedback loop has no output dimensions until unrolled."""
+        raise ValueError(
+            "A feedback loop has no output dimensions: "
+            "unroll the diagram before propagating the photon budget.")
+
+    def photon_number_transform(self, dims_in=None, dims_out=None):
+        """A feedback loop transforms no photon numbers until unrolled."""
+        raise ValueError(
+            "A feedback loop transforms no photon numbers: "
+            "unroll the diagram before building the tensor network.")
 
     def conjugate(self):
         return self.arg.conjugate().feedback(
