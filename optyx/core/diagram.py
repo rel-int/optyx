@@ -66,8 +66,6 @@ Other classes
     :toctree:
 
     EmbeddingTensor
-    FeedbackBoundary
-    Stream
 
 Functions
 ----------
@@ -217,7 +215,7 @@ from optyx.utils.misc import (
     calculate_right_offset,
     get_max_dim_for_box
 )
-from typing import List, Tuple, Iterable, NamedTuple
+from typing import List, Tuple, Iterable
 
 MAX_DIM = 10
 
@@ -283,24 +281,6 @@ class Bit(Ty):
         super().__init__(*["bit" for _ in range(n)])
 
 
-class FeedbackBoundary(NamedTuple):
-    """Boundary data attached to one feedback loop.
-
-    The entries are ordered by the functorial traversal used by
-    :meth:`Diagram.to_stream`: left to right for composition, with an outer
-    loop before any loop nested in its argument.
-    """
-    initial_state: object | None
-    final_effect: object | None
-    mem: Ty
-
-
-class Stream(NamedTuple):
-    """A diagram's stream and its ordered feedback boundaries."""
-    stream: monoidal_stream.Stream
-    boundaries: tuple[FeedbackBoundary, ...]
-
-
 @factory
 class Diagram(frobenius.Diagram):
     """Optyx diagram combining :class:`zw`,
@@ -337,7 +317,7 @@ class Diagram(frobenius.Diagram):
         )(self)
 
     def feedback(self, dom=None, cod=None, mem=None,
-                 initial_state=None, final_effect=None) -> Diagram:
+                 state=None, effect=None) -> Diagram:
         """
         Feed the last `mem` outputs of a diagram from `dom @ mem`
         to `cod @ mem` back into its last `mem` inputs,
@@ -348,91 +328,93 @@ class Diagram(frobenius.Diagram):
             cod : The codomain of the result, `arg.cod[:-len(mem)]`
                 by default.
             mem : The memory type fed back, `arg.cod[-1:]` by default.
-            initial_state : Optional state of type `mem` plugged in the input
-                memory by :meth:`unroll`, default `None` for an open wire.
-            final_effect : Optional effect on `mem` plugged in the output
-                memory at the last time step of :meth:`unroll`,
-                default `None` for an open wire.
+            state : The boundary plugged in the input memory before the first
+                time step of :meth:`unroll`, a diagram with `cod == mem`.
+                `None` gives :meth:`Feedback.default_state`, the identity on
+                `mem`, which leaves the wire open.
+            effect : The boundary plugged in the output memory after the last
+                time step, a diagram with `dom == mem`. `None` gives
+                :meth:`Feedback.default_effect`, the identity on `mem` here
+                and :class:`optyx.channel.Discard` for a channel diagram.
+
+        The boundaries are set here and nowhere else: :meth:`unroll` takes a
+        number of steps and reads them off the loop, so this is where a
+        caller decides what the memory starts and ends as.
 
         >>> wait = Diagram.swap(mode, mode).feedback()
         >>> assert wait.dom == wait.cod == mode
         >>> assert wait.mem == mode
+        >>> assert wait.state == wait.effect == Diagram.id(mode)
+
+        Left as the identity, the memory stays open, so unrolling puts it
+        at the end of the domain and of the codomain — two time steps of one
+        mode each, plus the memory:
+
+        >>> assert wait.unroll(1).dom == wait.unroll(1).cod == mode ** 3
+
+        Give it a state and an effect and unrolling plugs them, closing the
+        memory: the loop becomes a delay line emitting `Create(1)` first.
+
+        >>> from optyx.core.zw import Create, Select
+        >>> delay = Diagram.swap(mode, mode).feedback(
+        ...     state=Create(1), effect=Select(0))
+        >>> assert delay.unroll(1).dom == delay.unroll(1).cod == mode ** 2
+        >>> assert delay.state == Create(1) and delay.effect == Select(0)
+
+        To unroll the same loop against other boundaries, call
+        :meth:`feedback` again with them — the argument is an attribute of
+        the loop:
+
+        >>> assert delay.arg.feedback().unroll(1) == wait.unroll(1)
         """
         return self.feedback_factory(
-            self, dom=dom, cod=cod, mem=mem,
-            initial_state=initial_state, final_effect=final_effect)
+            self, dom=dom, cod=cod, mem=mem, state=state, effect=effect)
 
     def unroll(self, n_steps: int = 1) -> Diagram:
         """
-        Unroll the feedback loops of a diagram over `n_steps` time steps,
-        by interpreting it as a :class:`discopy.stream.Stream`: every box
-        maps to the constant stream and every :class:`Feedback` loop moves
-        its memory from the wires to the memory of the stream.
+        Unroll the feedback loops of a diagram `n_steps` times, by
+        interpreting it as a :class:`discopy.stream.Stream`: every box maps
+        to the constant stream and every :class:`Feedback` loop moves its
+        memory from the wires to the memory of the stream.
 
-        The `initial_state` of each loop is plugged in its input memory at
-        the first time step and its `final_effect` in its output memory at
-        the last one; memories with `None` are left as open wires at the end
-        of the domain and codomain of the result.
+        As in :meth:`discopy.stream.Stream.unroll`, `n_steps` counts
+        unrollings rather than time steps, so `unroll(0)` is one time step
+        and `unroll(n)` is `n + 1` of them.
+
+        Each loop's :attr:`Feedback.state` is plugged in its input memory
+        before the first time step and its :attr:`Feedback.effect` in its
+        output memory after the last one. Both are fixed by :meth:`feedback`,
+        so the number of steps is the only parameter here; other boundaries
+        mean another :meth:`feedback` call. A loop whose boundary is the
+        identity on its memory keeps that memory open, at the end of the
+        domain and of the codomain.
+
+        Parameters:
+            n_steps : The number of unrollings, one fewer than the number of
+                time steps.
 
         A feedback loop over a swap acts as a delay line: it outputs its
-        `initial_state` at the first time step, then its previous input.
+        `state` at the first time step, then its previous input.
 
         >>> import numpy as np
         >>> from optyx.core.zw import Create, Select
         >>> wait = Diagram.swap(mode, mode).feedback(
-        ...     initial_state=Create(1), final_effect=Select(0))
-        >>> assert wait.unroll(2).dom == wait.unroll(2).cod == mode ** 2
-        >>> amplitude = (Create(0, 0) >> wait.unroll(2) >> Select(1, 0)\\
+        ...     state=Create(1), effect=Select(0))
+        >>> assert wait.unroll(1).dom == wait.unroll(1).cod == mode ** 2
+        >>> amplitude = (Create(0, 0) >> wait.unroll(1) >> Select(1, 0)\\
         ...     ).to_tensor().eval().array
         >>> assert np.isclose(amplitude, 1)
+
         """
-        if n_steps < 1:
-            raise ValueError("n_steps must be at least 1.")
-        stream, boundaries = self.to_stream()
-        unrolled = stream.unroll(n_steps - 1).now
-        mem = stream.mem.now
-        dom = unrolled.dom[:len(unrolled.dom) - len(mem)]
-        cod = unrolled.cod[:len(unrolled.cod) - len(mem)]
-        initial = self.id(type(mem)()).tensor(*(
-            self.id(loop_mem) if state is None else state
-            for state, _, loop_mem in boundaries))
-        final = self.id(type(mem)()).tensor(*(
-            self.id(loop_mem) if effect is None else effect
-            for _, effect, loop_mem in boundaries))
-        return self.id(dom) @ initial >> unrolled >> self.id(cod) @ final
-
-    def to_stream(self) -> Stream:
-        """
-        Convert a diagram to its stream semantics and ordered boundaries.
-
-        Every box maps to the constant stream and every :class:`Feedback`
-        loop moves its memory from the wires to the memory of the stream,
-        so that :attr:`Stream.stream.now` is the one-step diagram
-        from `dom @ mem` to `cod @ mem`, with no feedback boxes left.
-
-        This is an intentional conversion rather than a cached ``.stream``
-        property. Both :meth:`unroll` and
-        :meth:`optyx.channel.Diagram.one_step`
-        reuse it so nested loops have one definition of memory order. Boundary
-        states and effects are not applied to ``stream.now``; they are returned
-        immutably, left to right with an outer loop before nested loops, for
-        :meth:`unroll` to plug at the first and last time steps.
-
-        >>> from optyx.core.zw import Create
-        >>> wait = Diagram.swap(mode, mode).feedback(initial_state=Create(1))
-        >>> semantics = wait.to_stream()
-        >>> assert semantics.stream.now == Diagram.swap(mode, mode)
-        >>> assert semantics.boundaries == (
-        ...     FeedbackBoundary(Create(1), None, mode),)
-        """
+        if n_steps < 0:
+            raise ValueError("n_steps must be at least 0.")
         stream_factory = monoidal_stream.Stream[self.factory]
-        ty_factory, boundaries = stream_factory.ob, []
+        ty_factory, loops = stream_factory.ob, []
 
         def ar_map(box):
             if not isinstance(box, self.feedback_factory):
                 return box
-            boundaries.append(FeedbackBoundary(
-                box.initial_state, box.final_effect, box.mem))
+            loops.append(box)
             inner = functor(box.arg)
             return stream_factory(
                 inner.now, dom=ty_factory(box.dom), cod=ty_factory(box.cod),
@@ -441,7 +423,44 @@ class Diagram(frobenius.Diagram):
         functor = monoidal.Functor(
             ob_map=lambda x: x, ar_map=ar_map,
             dom=self.factory, cod=stream_factory)
-        return Stream(functor(self), tuple(boundaries))
+        stream = functor(self)
+        unrolled = stream.unroll(n_steps).now
+        mem = stream.mem.now
+        dom = unrolled.dom[:len(unrolled.dom) - len(mem)]
+        cod = unrolled.cod[:len(unrolled.cod) - len(mem)]
+        initial, final = (self.id(type(mem)()).tensor(*(
+            getattr(loop, attr) for loop in loops))
+            for attr in ("state", "effect"))
+        return self.id(dom) @ initial >> unrolled >> self.id(cod) @ final
+
+    def one_step(self) -> Diagram:
+        """
+        The feedback normal form: one time step with every loop opened, from
+        `dom @ mem` to `cod @ mem`, with no :class:`Feedback` box left and
+        the memory at the boundary.
+
+        Each loop is rebuilt by calling :meth:`feedback` again with the
+        identity on its memory as both boundaries — an identity boundary is
+        an open wire — then unrolled zero times, which is one time step.
+
+        >>> step = Diagram.swap(mode, mode)
+        >>> wait = step.feedback()
+        >>> assert wait.one_step() == step
+        >>> from optyx.core.zw import Create
+        >>> assert wait.feedback_factory(step, state=Create(1)).one_step()\\
+        ...     == step
+        """
+        def ar_map(box):
+            if not isinstance(box, self.feedback_factory):
+                return box
+            return functor(box.arg).feedback(
+                dom=box.dom, cod=box.cod, mem=box.mem,
+                state=self.id(box.mem), effect=self.id(box.mem))
+
+        functor = frobenius.Functor(
+            ob_map=lambda x: x, ar_map=ar_map,
+            dom=self.factory, cod=self.factory)
+        return functor(self).unroll(0)
 
     # pylint: disable=too-many-locals
     def to_tensor(
@@ -1230,8 +1249,13 @@ class Feedback(monoidal.Bubble, Box):
         dom : The domain of the result, `arg.dom[:-len(mem)]` by default.
         cod : The codomain of the result, `arg.cod[:-len(mem)]` by default.
         mem : The memory type fed back, `arg.cod[-1:]` by default.
-        initial_state : Optional state of type `mem`, see :meth:`unroll`.
-        final_effect : Optional effect on `mem`, see :meth:`unroll`.
+        state : The boundary on the input memory, see :meth:`Diagram.unroll`.
+        effect : The boundary on the output memory, see
+            :meth:`Diagram.unroll`.
+
+    Both boundaries are always defined: `None` is an input spelling, not a
+    stored value, resolved by :meth:`default_state` and :meth:`default_effect`
+    to the identity on `mem`, which leaves the wire open.
 
     Example
     -------
@@ -1242,9 +1266,8 @@ class Feedback(monoidal.Bubble, Box):
     >>> from optyx.core.zx import Z, X
     >>> cnot = Z(1, 2) @ bit >> bit @ X(2, 1) @ Scalar(2 ** 0.5)
     >>> plus = Scalar(0.5 ** 0.5) @ Z(0, 1)
-    >>> ladder = (cnot >> Diagram.swap(bit, bit)).feedback(
-    ...     initial_state=plus)
-    >>> Equation(ladder, ladder.unroll(3), symbol="$\\mapsto$").draw(
+    >>> ladder = (cnot >> Diagram.swap(bit, bit)).feedback(state=plus)
+    >>> Equation(ladder, ladder.unroll(2), symbol="$\\mapsto$").draw(
     ...     path="docs/_static/cnot_ladder.svg")
 
     .. image:: /_static/cnot_ladder.svg
@@ -1252,8 +1275,18 @@ class Feedback(monoidal.Bubble, Box):
     """
     __ambiguous_inheritance__ = (monoidal.Bubble,)
 
+    @classmethod
+    def default_state(cls, mem) -> Diagram:
+        """The identity on `mem`, i.e. an open input memory wire."""
+        return Diagram.id(mem)
+
+    @classmethod
+    def default_effect(cls, mem) -> Diagram:
+        """The identity on `mem`, i.e. an open output memory wire."""
+        return Diagram.id(mem)
+
     def __init__(self, arg, dom=None, cod=None, mem=None,
-                 initial_state=None, final_effect=None):
+                 state=None, effect=None):
         mem = arg.cod[-1:] if mem is None else mem
         dom = arg.dom[:len(arg.dom) - len(mem)] if dom is None else dom
         cod = arg.cod[:len(arg.cod) - len(mem)] if cod is None else cod
@@ -1261,24 +1294,33 @@ class Feedback(monoidal.Bubble, Box):
             raise AxiomError(
                 f"{arg} is not a diagram from {dom @ mem} to {cod @ mem}")
         self.mem = mem
-        self.initial_state, self.final_effect = initial_state, final_effect
+        self.state = self.default_state(mem) if state is None else state
+        self.effect = self.default_effect(mem) if effect is None else effect
+        if self.state.cod != mem:
+            raise AxiomError(
+                f"{self.state} is not a state on the memory {mem}")
+        if self.effect.dom != mem:
+            raise AxiomError(
+                f"{self.effect} is not an effect on the memory {mem}")
         monoidal.Bubble.__init__(
             self, arg, dom=dom, cod=cod, method="feedback_operator")
         Box.__init__(self, str(self), dom, cod)
 
     def __str__(self):
         args = "" if self.mem == self.arg.cod[-1:] else f"mem={self.mem}"
-        for attr in ("initial_state", "final_effect"):
-            if getattr(self, attr) is not None:
+        for attr in ("state", "effect"):
+            boundary = getattr(self, attr)
+            if boundary != getattr(self, f"default_{attr}")(self.mem):
                 prefix = ", " if args else ""
-                args += f"{prefix}{attr}={getattr(self, attr)}"
+                args += f"{prefix}{attr}={boundary}"
         return f"({self.arg}).feedback({args})"
 
     def __repr__(self):
         args = f"{repr(self.arg)}, mem={repr(self.mem)}"
-        for attr in ("initial_state", "final_effect"):
-            if getattr(self, attr) is not None:
-                args += f", {attr}={repr(getattr(self, attr))}"
+        for attr in ("state", "effect"):
+            boundary = getattr(self, attr)
+            if boundary != getattr(self, f"default_{attr}")(self.mem):
+                args += f", {attr}={repr(boundary)}"
         return f"{type(self).__name__}({args})"
 
     def truncation(self, input_dims=None, output_dims=None):
@@ -1292,23 +1334,16 @@ class Feedback(monoidal.Bubble, Box):
     to_path = truncation
 
     def conjugate(self):
-        initial_state = None if self.initial_state is None \
-            else self.initial_state.conjugate()
-        final_effect = None if self.final_effect is None \
-            else self.final_effect.conjugate()
         return self.arg.conjugate().feedback(
             dom=self.dom, cod=self.cod, mem=self.mem,
-            initial_state=initial_state, final_effect=final_effect)
+            state=self.state.conjugate(), effect=self.effect.conjugate())
 
     def inflate(self, d):
         mem = Ty.tensor(
             *(o ** d if o.inside[0].name == "mode" else o for o in self.mem))
-        initial_state = None if self.initial_state is None \
-            else self.initial_state.inflate(d)
-        final_effect = None if self.final_effect is None \
-            else self.final_effect.inflate(d)
         return self.arg.inflate(d).feedback(
-            mem=mem, initial_state=initial_state, final_effect=final_effect)
+            mem=mem, state=self.state.inflate(d),
+            effect=self.effect.inflate(d))
 
     def dagger(self):
         raise NotImplementedError(
@@ -1332,13 +1367,9 @@ class Functor(frobenius.Functor):
 
     def __call__(self, other):
         if isinstance(other, Feedback):
-            plugs = {
-                attr: self(getattr(other, attr))
-                for attr in ("initial_state", "final_effect")
-                if getattr(other, attr) is not None}
             return self(other.arg).feedback(
-                dom=self(other.dom), cod=self(other.cod),
-                mem=self(other.mem), **plugs)
+                dom=self(other.dom), cod=self(other.cod), mem=self(other.mem),
+                state=self(other.state), effect=self(other.effect))
         return super().__call__(other)
 
 

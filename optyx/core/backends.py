@@ -463,6 +463,9 @@ class QuimbBackend(AbstractBackend):
 
         Args:
             diagram (Diagram): The diagram to evaluate.
+            **extra: Contraction parameters overriding
+                :attr:`contraction_params` for this call only, such as
+                ``max_bond`` for a compressed hyperoptimiser.
 
         Returns:
             The result of the evaluation.
@@ -550,13 +553,13 @@ class PercevalBackend(AbstractBackend):
             array = 0
             for term in diagram.terms:
                 arr, output_types, return_type = \
-                    self._process_term(
+                    self.process_term(
                         term, extra
                     )
                 array += arr
         else:
             array, output_types, return_type = \
-                self._process_term(
+                self.process_term(
                     diagram, extra
                 )
 
@@ -871,7 +874,7 @@ class PercevalBackend(AbstractBackend):
             array[0] = result
         return array
 
-    def _process_term(
+    def process_term(
             self,
             term,
             extra
