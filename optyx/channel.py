@@ -334,6 +334,7 @@ class Diagram(frobenius.Diagram):
 
     ob = Ty
     grad = tensor.Diagram.grad
+    boundary = diagram.Diagram.boundary
     unroll = diagram.Diagram.unroll
     one_step = diagram.Diagram.one_step
 
