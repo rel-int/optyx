@@ -154,13 +154,19 @@ memory near the original four-contraction update. Only the winner is allowed
 the remaining 144 train cases and a broader held-out evaluation, budgeted at
 about 1,200 further contractions.
 
-- [WIP] @Codex-2026-08-06 17:38 Build the disjoint 192/64 uniquely-solvable dataset and compare the
+- [x] Build the disjoint 192/64 uniquely-solvable dataset and compare the
       bipartite, nearest-neighbour-ring and all-pairs box ansatzes under the
       fixed pilot budget; scale only the validation winner and record timings,
       contraction counts, losses, per-cell accuracy and full-grid solve rate.
 - [ ] If none of the three ansatzes beats random per-cell accuracy after the
       pilot, stop before the scale-up and diagnose the four-way energy and
       gradient distributions instead of spending the winner budget.
+
+The three pilots used exactly 480 contractions each. The bipartite, ring and
+all-pairs ansatzes reached 21.9%, 20.3% and 20.3% validation cell accuracy;
+their candidate probabilities all fell during training, while their initial
+gradient norms remained between 2.58 and 3.16. None beat the 25% random cell
+baseline, so the 1,216-contraction scale-up was not run.
 
 ## Scaling on a Mac Mini
 
