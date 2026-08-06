@@ -64,7 +64,7 @@ memories, and the compact closed structure glues along message ports only.
 - [WIP] @codex-2026-08-06 15:28 Check the topology: 96 edges and 192 paired memory wires as in #16,
       plus 16 internal memory wires (208 total), empty `dom` and a `cod` of
       32 prediction qubits per step.
-- [ ] Move clue injection entirely to the write side: at every step the
+- [WIP] @codex-2026-08-06 15:28 Move clue injection entirely to the write side: at every step the
       prediction output of a clue cell is postselected on its digit, free
       cells meet uniform effects at intermediate steps and the candidate
       digit at the last step; pick and document the initial memory state.
