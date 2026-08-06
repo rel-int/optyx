@@ -137,7 +137,7 @@ memories, and the compact closed structure glues along message ports only.
 - [x] PyTorch gradient through the memory wire: a rotation on the memory
       qubit of a two-step readout network, contracted with
       `contract_tensor`, matches the analytic Born score and gradient.
-- [ ] Notebook assertions: topology counts, non-zero initial gradient,
+- [WIP] @codex-2026-08-06 15:28 Notebook assertions: topology counts, non-zero initial gradient,
       held-out metrics improving over their initial values, fresh-kernel
       execution.
 
