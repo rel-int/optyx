@@ -27,7 +27,7 @@ classifiers = [
     "Topic :: Scientific/Engineering"
 ]
 dependencies = [
-  "discopy[tensor] @ git+https://github.com/discopy/discopy@caec1c6",
+  "discopy[tensor] @ git+https://github.com/discopy/discopy@cc585bd",
   "opt_einsum",
   "quimb",
   "cotengra",

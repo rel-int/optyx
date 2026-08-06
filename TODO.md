@@ -11,12 +11,12 @@
 > PercevalBackend). What is the best solution? Propose a plan for standardising this
 > between discopy and optyx
 
-- [WIP] @f1h17k-2026-08-06 12:56 Replace `QuimbBackend._process_term` by a single call to discopy's
+- [x] Replace `QuimbBackend._process_term` by a single call to discopy's
       `eval(contract="quimb")`, deleting the hyperoptimiser dispatch, the dtype
       promotion loop and `preprocess_quimb_tensors_safe`
-- [WIP] @f1h17k-2026-08-06 12:56 Pass `**extra` through `DiscopyBackend.eval` so `contract` and `optimize`
+- [x] Pass `**extra` through `DiscopyBackend.eval` so `contract` and `optimize`
       reach discopy; delete the dead `_get_quimb_tensor`
-- [WIP] @f1h17k-2026-08-06 12:56 Repin discopy to its contraction-standardization branch with the
+- [x] Repin discopy to its contraction-standardization branch with the
       `[tensor]` extra and
       declare the directly imported `quimb` and `cotengra` as dependencies
-- [WIP] @f1h17k-2026-08-06 12:56 Run `pflake8 optyx` and the test suite, doctests included
+- [x] Run `pflake8 optyx` and the test suite, doctests included
