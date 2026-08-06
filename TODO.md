@@ -51,7 +51,7 @@ memories, and the compact closed structure glues along message ports only.
 
 ## Sudoku with one qubit of cell memory
 
-- [ ] Rebuild the notebook map: a cell is
+- [WIP] @codex-2026-08-06 15:28 Rebuild the notebook map: a cell is
       `Box("cell", qubit ** 3, qubit ** 3, channel, memory=qubit,
       prediction=qubit ** 2)` — three messages read, three written, one
       internal memory qubit, two prediction qubits; constraints stay
