@@ -43,13 +43,26 @@ representation is retained.
 - [x] Implement the vectorised conditional-rotation ansatz and configurable
       compression rank, cache one deterministic Cotengra path per
       `(ticks, chi)`, and add timed MPS-memory diagnostics.
-- [WIP] @codex-019fd73e-2026-08-06 19:35 Run the increasing GPU contraction ladder over two to four ticks and
+- [x] Run the increasing GPU contraction ladder over two to four ticks and
       `chi` in `{4, 8, 16}`, respecting the time and memory stop conditions.
-- [ ] At the largest affordable three-tick configuration, compare conditional
-      depths 8, 16 and 32 under the fixed pilot budget, then scale only the
-      held-out winner.
+- [ ] Replace the over-budget full-map per-cell loss by the induced local
+      `CMap` containing the target, its seven peers and its three constraints;
+      close missing message ports with `|+>` states/effects and rerun the
+      three-tick ladder.
+- [ ] At the largest affordable local three-tick configuration, compare
+      conditional depths 8, 16 and 32 under the fixed pilot budget, then scale
+      only the held-out winner.
 - [ ] Execute the notebook in a fresh GPU-only kernel, record the limit and
       learning results, and update the conclusions and unchecked suggestions.
+
+The full-map ladder reached all 12,849 parameters without pressure from box
+construction: at two ticks, `chi=4`, `8` and `16` took 1.76, 8.54 and 25.11
+seconds for a four-way forward/backward and held 0.67, 1.71 and 4.72 GiB of
+live MPS tensors.  Three ticks at `chi=4` then took 117.33 seconds and held
+10.37 GiB live (11.33 GiB including the MPS driver), crossing both stop limits;
+higher three-tick bonds and all four-tick probes were skipped.  The next run
+therefore uses the local-loss suggestion rather than training an over-budget
+full map.
 
 > Check out the PR https://github.com/rel-int/optyx/pull/16. We need to push
 > this model to try to solve the sudoku task. One important concept for the
