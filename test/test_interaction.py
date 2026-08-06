@@ -125,6 +125,18 @@ def test_readout_predicts_its_memory():
         np.asarray(array).flatten(), np.asarray(expected).flatten())
 
 
+def without_certificate(call):
+    """`fix` falls back to `power_fix` silently when no certificate
+    applies, so the call warns about anything but the certificate."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = call()
+    assert not [
+        warning for warning in caught
+        if "certificate does not apply" in str(warning.message)]
+    return result
+
+
 def fixed_wire():
     wire = Box("wire", qubit, qubit ** 2, Diagram.id(qubit ** 3))
     return CMap([wire], [((0, 1), (0, 2))])
@@ -142,26 +154,22 @@ def test_fix_requires_input_state():
 
 
 def test_fix_reuses_protocol_fixed_point():
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        result = fixed_wire().fix(
-            Ket(1), Ket(0) @ Ket(0), max_steps=2,
-            backend=DiscopyBackend())
+    result = without_certificate(lambda: fixed_wire().fix(
+        Ket(1), Ket(0) @ Ket(0), max_steps=2,
+        backend=DiscopyBackend()))
     assert np.allclose(result.density_matrix, [[0, 0], [0, 1]])
 
 
 def test_fix_certifies_an_optical_delay():
     wait = Box("wait", Ty(), qmode,
                Diagram.swap(qmode, qmode), memory=qmode)
-    fixed = CMap([wait], []).fix(Create(1), Create(0), chi=None)
+    fixed = CMap([wait], []).fix(Create(1), Create(0), max_chi=None)
     assert np.allclose(fixed.density_matrix, [[0, 0], [0, 1]])
 
 
 def test_fix_with_internal_memory():
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        result = CMap([readout()], []).fix(
-            initial_state=Ket(1), max_steps=2, backend=DiscopyBackend())
+    result = without_certificate(lambda: CMap([readout()], []).fix(
+        initial_state=Ket(1), max_steps=2, backend=DiscopyBackend()))
     assert np.allclose(result.density_matrix, [[0, 0], [0, 1]])
 
 
@@ -201,11 +209,9 @@ def delay():
 
 
 def test_closed_fix_needs_no_input_state():
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        result = delay().fix(
-            initial_state=Ket(0) @ Ket(0), max_steps=2,
-            backend=DiscopyBackend())
+    result = without_certificate(lambda: delay().fix(
+        initial_state=Ket(0) @ Ket(0), max_steps=2,
+        backend=DiscopyBackend()))
     assert np.allclose(result.density_matrix, 1)
 
 

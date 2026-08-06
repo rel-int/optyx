@@ -354,7 +354,7 @@ class CMap:
         >>> from optyx.photonic import Create
         >>> wait = Box("wait", Ty(), qmode,
         ...     Diagram.swap(qmode, qmode), memory=qmode)
-        >>> fixed = CMap([wait], []).fix(Create(1), Create(0), chi=None)
+        >>> fixed = CMap([wait], []).fix(Create(1), Create(0), max_chi=None)
         >>> assert np.allclose(fixed.density_matrix, [[0, 0], [0, 1]])
         """
         if input_state is None:
