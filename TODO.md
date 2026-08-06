@@ -30,6 +30,9 @@
 > running too big experiments, the tensor contractions will get expensive. Try
 > your best, let's solve these sudokus!
 
+> make sure you run your experiments on the GPU, there's another agent running
+> some experiments on the CPU
+
 Stacked on #16 and merged with the fixpoint PR #15. Mathematically, a box
 `X -> Y` of a `CMap` now carries three kinds of wires: the message ports
 `X @ Y`, read and written at every step and pairable by edges; a private
@@ -154,19 +157,32 @@ memory near the original four-contraction update. Only the winner is allowed
 the remaining 144 train cases and a broader held-out evaluation, budgeted at
 about 1,200 further contractions.
 
+The rerun uses PyTorch MPS in `float32` with
+`PYTORCH_ENABLE_MPS_FALLBACK=0`, and the notebook asserts the device. Apple's
+backend does not implement `torch.linalg.svd`; allowing its default fallback
+would silently contend for the CPU. Compressed bonds therefore use a
+deterministic rank-four range projection followed by MPS-native QR. This keeps
+the same `chi=4` topology and makes an unsupported GPU operation fail instead
+of migrating it to the other agent's CPU.
+
 - [x] Build the disjoint 192/64 uniquely-solvable dataset and compare the
       bipartite, nearest-neighbour-ring and all-pairs box ansatzes under the
       fixed pilot budget; scale only the validation winner and record timings,
       contraction counts, losses, per-cell accuracy and full-grid solve rate.
-- [WIP] @Codex-2026-08-06 17:52 If none of the three ansatzes beats random per-cell accuracy after the
+- [x] If none of the three ansatzes beats random per-cell accuracy after the
       pilot, stop before the scale-up and diagnose the four-way energy and
       gradient distributions instead of spending the winner budget.
 
-The three pilots used exactly 480 contractions each. The bipartite, ring and
-all-pairs ansatzes reached 21.9%, 20.3% and 20.3% validation cell accuracy;
-their candidate probabilities all fell during training, while their initial
-gradient norms remained between 2.58 and 3.16. None beat the 25% random cell
-baseline, so the 1,216-contraction scale-up was not run.
+The final GPU-only run used exactly 2,656 contractions. The bipartite, ring and
+all-pairs pilots reached 18.8%, 29.7% and 20.3% validation cell accuracy, so
+the ring ansatz beat the 25% random baseline and received the scale-up. After
+one 192-example pass, it assigned the correct completion 0.581 mean
+probability over all 64 held-out puzzles and ranked it first 59.4% of the time.
+Exact four-way decoding reached 26.6% hidden-cell accuracy on 16 held-out
+puzzles and solved 0/16 full grids. Median training target probability was
+0.040, median target margin was -3.02 and unclipped gradient norms ranged from
+88.8 to 227,061, so the channel learns a weak constraint signal but the local
+readout remains unstable even with clipping.
 
 ## Scaling on a Mac Mini
 

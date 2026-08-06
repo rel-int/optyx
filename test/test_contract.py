@@ -103,6 +103,15 @@ def test_compressed_quimb():
     assert np.allclose(compressed.array, exact.array)
 
 
+def test_strip_exponent():
+    tiny = tensor.Box(
+        "tiny", tensor.Dim(), tensor.Dim(), np.array(1e-200))
+    mantissa, exponent = contract_tensor(
+        tiny, backend="quimb", strip_exponent=True)
+    log_value = np.log(abs(mantissa.array)) + np.log(10) * exponent
+    assert np.isclose(log_value, np.log(1e-200))
+
+
 def test_sum():
     zero = qubits.Ket(0).double().to_tensor()
     one = qubits.Ket(1).double().to_tensor()

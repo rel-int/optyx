@@ -146,7 +146,8 @@ def _contract_quimb(
         *,
         tensor_backend: str = None,
         dtype: type = complex,
-        **params: Any) -> tensor.Tensor:
+        **params: Any,
+) -> tensor.Tensor | tuple[tensor.Tensor, Any]:
     """Contract with Quimb on one array backend."""
     reserved = {"output_inds"} & params.keys()
     if reserved:
@@ -158,9 +159,13 @@ def _contract_quimb(
     _set_network_backend(network, tensor_backend, dtype)
     result = _contract_network(
         network, output_inds, optimize, max_bond, params)
+    strip_exponent = params.get("strip_exponent", False)
+    if strip_exponent:
+        result, exponent = result
     array = result.data if isinstance(result, Tensor) else result
     with tensor.backend(tensor_backend):
-        return tensor.Tensor(array, diagram.dom, diagram.cod)
+        wrapped = tensor.Tensor(array, diagram.dom, diagram.cod)
+    return (wrapped, exponent) if strip_exponent else wrapped
 
 
 def contract_tensor(
@@ -168,7 +173,7 @@ def contract_tensor(
         backend: str = None,
         optimize=None,
         max_bond: int = None,
-        **params: Any) -> tensor.Tensor:
+        **params: Any) -> tensor.Tensor | tuple[tensor.Tensor, Any]:
     """Contract a backend-neutral tensor diagram or combinatorial map.
 
     ``backend`` selects NumPy, JAX, PyTorch or Quimb arrays. JAX and PyTorch
@@ -185,6 +190,9 @@ def contract_tensor(
             JAX or PyTorch.
         max_bond: An optional maximum intermediate bond dimension.
         params: Parameters forwarded to the selected contraction routine.
+            With ``strip_exponent=True``, return the mantissa tensor and its
+            base-ten exponent instead of reconstructing very small or large
+            values.
 
     Returns:
         The contracted tensor.
