@@ -414,17 +414,18 @@ class Diagram(frobenius.Diagram):
         memory = step.cod[len(self.cod):]
         readout = step >> self.id(self.cod) @ Discard(memory)
 
-        def ar_map(box):
-            if not isinstance(box, Feedback):
-                return box
-            return functor(box.arg).feedback(
-                dom=box.dom, cod=box.cod, mem=box.mem,
-                state=box.state, effect=self.id(box.mem))
+        def opened_effects(inside):
+            def ar_map(box):
+                if not isinstance(box, Feedback):
+                    return box
+                return opened_effects(box.arg).feedback(
+                    dom=box.dom, cod=box.cod, mem=box.mem,
+                    state=box.state, effect=self.id(box.mem))
+            return frobenius.Functor(
+                ob_map=lambda x: x, ar_map=ar_map,
+                dom=Diagram, cod=Diagram)(inside)
 
-        functor = frobenius.Functor(
-            ob_map=lambda x: x, ar_map=ar_map,
-            dom=Diagram, cod=Diagram)
-        opened = functor(
+        opened = opened_effects(
             self if n_steps == 0 else self >> Discard(self.cod))
         unrolled = opened.unroll(max(n_steps - 1, 0))
         iterated = unrolled >> self.id(
