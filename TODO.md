@@ -9,33 +9,44 @@
 > improvements and tests to solve the sudoku task in the notebook. Write the
 > plan in TODO.md.
 
-Stacked on #16. Mathematically, a box `X -> Y` of a `CMap` now carries three
-kinds of wires: the message ports `X @ Y`, read and written at every step and
-pairable by edges; a private memory `M`, a feedback loop from the box to
-itself that never appears as a port of the map; and a prediction `O`, written
-to the environment at every step but never read. The process inside the box
-is a channel `X @ Y @ M -> X @ Y @ M @ O`, so the protocol of a map has
-`dom` the unpaired ports, `cod == dom @ predictions` and `mem` the paired
-ports followed by the internal memories: the `cod == dom` invariant of #16 is
-dropped and the compact closed structure only glues along message ports.
+> Why would cod == dom @ predictions? I don't think this is needed. Go ahead
+> and implement the changes to interaction.py. Then give a few more ideas for
+> scaling while keeping the contractions doable on MacMini in the TODO.md
+
+> Also rebase on the fixpoint PR
+
+Stacked on #16 and merged with the fixpoint PR #15. Mathematically, a box
+`X -> Y` of a `CMap` now carries three kinds of wires: the message ports
+`X @ Y`, read and written at every step and pairable by edges; a private
+memory `M`, a feedback loop from the box to itself that never appears as a
+port of the map; and a prediction `O`, written to the environment at every
+step but never read. The process inside the box is a channel
+`X @ Y @ M -> X @ Y @ M @ O`. The map keeps `dom == cod`, the unpaired
+ports: the predictions are appended to the codomain of the `protocol`
+diagram only, its `mem` is the paired ports followed by the internal
+memories, and the compact closed structure glues along message ports only.
 
 ## `interaction.Box` with memory and prediction
 
-- [WIP] @claude-xz2c4u-2026-08-06 12:05 Extend `Box(name, dom, cod, channel, memory=Ty(), prediction=Ty())`,
+- [x] Extend `Box(name, dom, cod, channel, memory=Ty(), prediction=Ty())`,
       type-checking `channel` from `dom @ cod @ memory` to
       `dom @ cod @ memory @ prediction`; the defaults recover the boxes of
       #16 so every existing doctest and test stays valid.
-- [WIP] @claude-xz2c4u-2026-08-06 12:05 Route each internal memory as a self-loop in `CMap`: it joins
+- [x] Route each internal memory as a self-loop in `CMap`: it joins
       `CMap.memory` after the paired ports, in box order, and is fed back to
       the same box by `read` and `write`; document the wire-order convention.
-- [WIP] @claude-xz2c4u-2026-08-06 12:05 Make predictions write-only boundary: `CMap.cod == dom @ predictions`
-      in box order, with `read`, `write`, `step`, `protocol`, `unroll` and
-      the drawings updated; state in the docstring that `glue` and the cups
-      and caps act on message ports only.
-- [WIP] @claude-xz2c4u-2026-08-06 12:05 Update `CMap.fix`: `input_state` stays of type `dom`,
-      `initial_state` now prepares the paired ports and the internal
-      memories; the stationary output includes the predictions.
-- [WIP] @claude-xz2c4u-2026-08-06 12:05 Update `__matmul__`, `glue`, `__repr__`, `__eq__`, `__hash__` and the
+- [x] Make predictions write-only: `CMap.cod` stays equal to `dom` and
+      `CMap.prediction` is appended to the codomain of `protocol` in box
+      order, with `read`, `write`, `step`, `unroll` and the drawings
+      updated; state in the docstring that `glue` and the cups and caps
+      act on message ports only.
+- [x] Update `CMap.fix` to the #15 interface: `input_state` stays of type
+      `dom` and is composed inside the loop so the stationary certificates
+      apply, `initial_state` prepares the paired ports and the internal
+      memories through `feedback(state=...)`, the remaining parameters are
+      `tol`, `loss`, `chi`, `max_steps` and `backend`, and the stationary
+      output includes the predictions.
+- [x] Update `__matmul__`, `glue`, `__repr__`, `__eq__`, `__hash__` and the
       module docstring for the two new attributes.
 
 ## Sudoku with one qubit of cell memory
@@ -79,22 +90,53 @@ dropped and the compact closed structure only glues along message ports.
       matched parameter count and report whether the qubit of internal
       memory improves the held-out metrics.
 - [ ] Stretch: probe `CMap.fix` on one cell with its memory qubit, towards
-      inferring `n_steps` from the stationary semantics during training.
+      reading the number of message-passing steps off the certified depth
+      of the stationary semantics during training.
+
+## Scaling on a Mac Mini
+
+- [ ] Replace the dense eight- and nine-qubit unitaries by shared brickwork
+      circuits of two-qubit rotations: every tensor in the network becomes
+      rank four, the compressed contraction cost grows with the gate count
+      rather than `2 ** width`, and the parameter count stays comparable.
+- [ ] Contract the unrolling as a boundary MPS in the time direction: treat
+      each step as an MPO on the memory wires and sweep with truncation at
+      `chi`, so peak memory is set by `chi` and the 208-wire cut, never by
+      the full network; compare against Cotengra's compressed paths.
+- [ ] Exploit locality of the loss: each cell's prediction after three
+      steps only sees its light cone (its three constraints and their
+      cells), so per-cell scores contract sub-networks a fraction of the
+      660-box map; batch the cells that share a light-cone shape.
+- [ ] Slice the Cotengra path over a few high-degree indices
+      (`slicing_opts`) to cap peak memory at a constant factor of the
+      largest sliced tensor, trading a small constant in time.
+- [ ] Curriculum on sub-grids: pre-train the shared cell and constraint
+      channels on a single row or a 2x2 block `CMap` (a handful of boxes),
+      then fine-tune on the full grid; the parameters transfer because
+      every box shares them.
+- [ ] Keep everything real: the rotation ansatz stays orthogonal, halving
+      memory and contraction constants against complex tensors, and
+      `float32` forward passes with `float64` loss accumulation halve them
+      again if the singular-value gradients stay stable.
 
 ## Tests
 
-- [ ] `test/test_interaction.py`: `Box` rejects a channel whose type is not
+- [x] `test/test_interaction.py`: `Box` rejects a channel whose type is not
       `dom @ cod @ memory -> dom @ cod @ memory @ prediction`.
-- [ ] Protocol types on a one-box map with memory and prediction:
-      `cod == dom @ prediction`, `protocol.mem` is the paired ports followed
-      by the memory, and `unroll` agrees with a hand-built diagram.
-- [ ] Backwards compatibility: default `memory` and `prediction` reproduce
-      the protocol of #16 on its existing examples.
-- [ ] `fix` on a box with one memory qubit and a known stationary
-      prediction.
-- [ ] Non-zero PyTorch gradient through the memory wire: a parameter acting
-      only on the memory qubit of a small unrolled map, contracted with
-      `contract_tensor`.
+- [x] Protocol types on maps with memory and prediction:
+      `protocol.cod == cod @ prediction`, `protocol.mem` is the paired
+      ports followed by the internal memories, an internal memory with a
+      swapped-out port is a delay line, and a copied memory is predicted
+      without being consumed.
+- [x] Backwards compatibility: default `memory` and `prediction` reproduce
+      the protocol of #16 on its existing examples, updated to the #15
+      boundary conventions (open initial memory, discarded final memory,
+      `n_steps` counts unrollings).
+- [x] `fix` on a box with one memory qubit and a known stationary
+      prediction, and on an optical delay certified without warnings.
+- [x] PyTorch gradient through the memory wire: a rotation on the memory
+      qubit of a two-step readout network, contracted with
+      `contract_tensor`, matches the analytic Born score and gradient.
 - [ ] Notebook assertions: topology counts, non-zero initial gradient,
       held-out metrics improving over their initial values, fresh-kernel
       execution.
