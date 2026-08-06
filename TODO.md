@@ -61,7 +61,7 @@ memories, and the compact closed structure glues along message ports only.
       applied to the input tensored with two fresh ancillas, keeping the
       rotation-layer parameterisation and the parameter count comparable
       to #16; constraint channels keep their eight-qubit unitary.
-- [ ] Check the topology: 96 edges and 192 paired memory wires as in #16,
+- [WIP] @codex-2026-08-06 15:28 Check the topology: 96 edges and 192 paired memory wires as in #16,
       plus 16 internal memory wires (208 total), empty `dom` and a `cod` of
       32 prediction qubits per step.
 - [ ] Move clue injection entirely to the write side: at every step the
