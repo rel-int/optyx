@@ -56,6 +56,7 @@ Generators and diagrams
     Swap
     Scalar
     DualRail
+    Feedback
 
 Other classes
 -------------
@@ -201,10 +202,12 @@ from __future__ import annotations
 import numpy as np
 from sympy.core import Symbol, Mul
 from discopy import (
-    symmetric, frobenius, tensor, hypergraph
+    monoidal, symmetric, frobenius, tensor, hypergraph
 )
+from discopy import stream as monoidal_stream
 from discopy.cat import factory, rsubs
 from discopy.frobenius import Dim
+from discopy.utils import AxiomError
 from discopy.quantum.gates import format_number
 from enum import Enum
 from optyx.utils.misc import (
@@ -299,7 +302,11 @@ class Diagram(frobenius.Diagram):
         """Returns the :class:`Matrix` normal form
         of a :class:`Diagram`.
         In other words, it is the underlying matrix
-        representation of a :class:`path` and :class:`lo` diagrams."""
+        representation of a :class:`path` and :class:`lo` diagrams.
+
+        Feedback loops have no path semantics: they raise, asking for the
+        diagram to be unrolled first.
+        """
         # pylint: disable=import-outside-toplevel
         from optyx.core import path
 
@@ -308,6 +315,178 @@ class Diagram(frobenius.Diagram):
             ar_map=lambda f: f.to_path(dtype),
             cod=path.Matrix[dtype],
         )(self)
+
+    def feedback(self, dom=None, cod=None, mem=None,
+                 state=None, effect=None) -> Diagram:
+        """
+        Feed the last `mem` outputs of a diagram from `dom @ mem`
+        to `cod @ mem` back into its last `mem` inputs,
+        one time step later.
+
+        Parameters:
+            dom : The domain of the result, `arg.dom[:-len(mem)]` by default.
+            cod : The codomain of the result, `arg.cod[:-len(mem)]`
+                by default.
+            mem : The memory type fed back, `arg.cod[-1:]` by default.
+            state : The boundary plugged in the input memory before the first
+                time step of :meth:`unroll`, a diagram with `cod == mem`.
+                `None` gives :meth:`Feedback.default_state`, the identity on
+                `mem`, which leaves the wire open.
+            effect : The boundary plugged in the output memory after the last
+                time step, a diagram with `dom == mem`. `None` gives
+                :meth:`Feedback.default_effect`, the identity on `mem` here
+                and :class:`optyx.channel.Discard` for a channel diagram.
+
+        The boundaries are set here and read back by :meth:`boundary`:
+        :meth:`unroll` plugs them by default and can override them per
+        call, since they are extracted either way.
+
+        >>> wait = Diagram.swap(mode, mode).feedback()
+        >>> assert wait.dom == wait.cod == mode
+        >>> assert wait.mem == mode
+        >>> assert wait.state == wait.effect == Diagram.id(mode)
+
+        Left as the identity, the memory stays open, so unrolling puts it
+        at the end of the domain and of the codomain — two time steps of one
+        mode each, plus the memory:
+
+        >>> assert wait.unroll(1).dom == wait.unroll(1).cod == mode ** 3
+
+        Give it a state and an effect and unrolling plugs them, closing the
+        memory: the loop becomes a delay line emitting `Create(1)` first.
+
+        >>> from optyx.core.zw import Create, Select
+        >>> delay = Diagram.swap(mode, mode).feedback(
+        ...     state=Create(1), effect=Select(0))
+        >>> assert delay.unroll(1).dom == delay.unroll(1).cod == mode ** 2
+        >>> assert delay.state == Create(1) and delay.effect == Select(0)
+
+        To unroll the same loop against other boundaries, override them at
+        :meth:`unroll` — `False` opens the memory again:
+
+        >>> assert delay.unroll(1, state=False, effect=False) \\
+        ...     == wait.unroll(1)
+        """
+        return self.feedback_factory(
+            self, dom=dom, cod=cod, mem=mem, state=state, effect=effect)
+
+    def boundary(self):
+        """
+        The initial state and final effect of a stateful diagram: the pair
+        of tensors of each feedback loop's :attr:`Feedback.state` and
+        :attr:`Feedback.effect`, in memory order — a loop's own memory
+        before its nested loops', layers left to right. A diagram with no
+        loop has the empty boundary.
+
+        >>> from optyx.core.zw import Create, Select
+        >>> delay = Diagram.swap(mode, mode).feedback(
+        ...     state=Create(1), effect=Select(0))
+        >>> assert delay.boundary() == (Create(1), Select(0))
+        >>> assert Diagram.id(mode).boundary() \\
+        ...     == (Diagram.id(Ty()), Diagram.id(Ty()))
+        """
+        def loops(inside):
+            for box in inside.boxes:
+                if isinstance(box, self.feedback_factory):
+                    yield box
+                    yield from loops(box.arg)
+
+        collected = tuple(loops(self))
+        empty = self.id(type(self.dom)())
+        return tuple(
+            empty.tensor(*(getattr(loop, attr) for loop in collected))
+            for attr in ("state", "effect"))
+
+    def unroll(self, n_steps: int = 1, state=None, effect=None) \
+            -> Diagram:
+        """
+        Unroll the feedback loops of a diagram `n_steps` times, by
+        interpreting it as a :class:`discopy.stream.Stream`: every box maps
+        to the constant stream and every :class:`Feedback` loop moves its
+        memory from the wires to the memory of the stream.
+
+        As in :meth:`discopy.stream.Stream.unroll`, `n_steps` counts
+        unrollings rather than time steps, so `unroll(0)` is one time step
+        and `unroll(n)` is `n + 1` of them.
+
+        Each loop's :attr:`Feedback.state` is plugged in its input memory
+        before the first time step and its :attr:`Feedback.effect` in its
+        output memory after the last one, read off by :meth:`boundary` —
+        and, since they are extracted anyway, overridable per call at no
+        cost. A memory whose boundary is the identity stays open, at the
+        end of the domain and of the codomain.
+
+        Parameters:
+            n_steps : The number of unrollings, one fewer than the number of
+                time steps.
+            state : The initial state plugged in the input memory. `None`
+                uses the loops' own from :meth:`boundary`, `False` the
+                identity, which leaves the memory open, and a diagram with
+                `cod == mem` replaces it, over the whole memory.
+            effect : The final effect plugged in the output memory the same
+                way, a diagram with `dom == mem`.
+
+        A feedback loop over a swap acts as a delay line: it outputs its
+        `state` at the first time step, then its previous input.
+
+        >>> import numpy as np
+        >>> from optyx.core.zw import Create, Select
+        >>> wait = Diagram.swap(mode, mode).feedback(
+        ...     state=Create(1), effect=Select(0))
+        >>> assert wait.unroll(1).dom == wait.unroll(1).cod == mode ** 2
+        >>> amplitude = (Create(0, 0) >> wait.unroll(1) >> Select(1, 0)\\
+        ...     ).to_tensor().eval().array
+        >>> assert np.isclose(amplitude, 1)
+
+        """
+        if n_steps < 0:
+            raise ValueError("n_steps must be at least 0.")
+        stream_factory = monoidal_stream.Stream[self.factory]
+        ty_factory = stream_factory.ob
+
+        def to_stream(inside):
+            def ar_map(box):
+                if not isinstance(box, self.feedback_factory):
+                    return box
+                inner = to_stream(box.arg)
+                return stream_factory(
+                    inner.now, dom=ty_factory(box.dom),
+                    cod=ty_factory(box.cod),
+                    mem=ty_factory(box.mem) @ inner.mem)
+            return monoidal.Functor(
+                ob_map=lambda x: x, ar_map=ar_map,
+                dom=self.factory, cod=stream_factory)(inside)
+
+        stream = to_stream(self)
+        unrolled = stream.unroll(n_steps).now
+        mem = stream.mem.now
+        dom = unrolled.dom[:len(unrolled.dom) - len(mem)]
+        cod = unrolled.cod[:len(unrolled.cod) - len(mem)]
+        initial, final = self.boundary()
+        if state is not None:
+            initial = self.id(mem) if state is False else state
+        if effect is not None:
+            final = self.id(mem) if effect is False else effect
+        return self.id(dom) @ initial >> unrolled >> self.id(cod) @ final
+
+    def one_step(self) -> Diagram:
+        """
+        The feedback normal form: one time step with every loop opened, from
+        `dom @ mem` to `cod @ mem`, with no :class:`Feedback` box left and
+        the memory at the boundary.
+
+        It is `unroll(0, state=False, effect=False)`: zero unrollings is
+        one time step, and `False` opens both boundaries, leaving the
+        memory on the wires rather than plugging it.
+
+        >>> step = Diagram.swap(mode, mode)
+        >>> wait = step.feedback()
+        >>> assert wait.one_step() == step
+        >>> from optyx.core.zw import Create
+        >>> assert wait.feedback_factory(step, state=Create(1)).one_step()\\
+        ...     == step
+        """
+        return self.unroll(0, state=False, effect=False)
 
     # pylint: disable=too-many-locals
     def to_tensor(
@@ -1081,6 +1260,139 @@ def truncation_tensor(
     return tensor
 
 
+class Feedback(monoidal.Bubble, Box):
+    """
+    A feedback loop connecting the last `mem` outputs of `arg`
+    back to its last `mem` inputs, one time step later.
+
+    The delay endofunctor is the identity, so `arg` goes from `dom @ mem`
+    to `cod @ mem` and the result from `dom` to `cod`. It is drawn as `arg`
+    with a feedback loop and composes with any other diagram; its stream
+    semantics is given by :meth:`Diagram.unroll`.
+
+    Parameters:
+        arg : The diagram from `dom @ mem` to `cod @ mem` to feed back.
+        dom : The domain of the result, `arg.dom[:-len(mem)]` by default.
+        cod : The codomain of the result, `arg.cod[:-len(mem)]` by default.
+        mem : The memory type fed back, `arg.cod[-1:]` by default.
+        state : The boundary on the input memory, see :meth:`Diagram.unroll`.
+        effect : The boundary on the output memory, see
+            :meth:`Diagram.unroll`.
+
+    Both boundaries are always defined: `None` is an input spelling, not a
+    stored value, resolved by :meth:`default_state` and :meth:`default_effect`
+    to the identity on `mem`, which leaves the wire open.
+
+    Example
+    -------
+    The feedback of `CNOT >> SWAP` unrolls to a ladder of CNOT gates,
+    here with the plus state as initial state and an open output memory:
+
+    >>> from discopy.drawing import Equation
+    >>> from optyx.core.zx import Z, X
+    >>> cnot = Z(1, 2) @ bit >> bit @ X(2, 1) @ Scalar(2 ** 0.5)
+    >>> plus = Scalar(0.5 ** 0.5) @ Z(0, 1)
+    >>> ladder = (cnot >> Diagram.swap(bit, bit)).feedback(state=plus)
+    >>> Equation(ladder, ladder.unroll(2), symbol="$\\mapsto$").draw(
+    ...     path="docs/_static/cnot_ladder.svg")
+
+    .. image:: /_static/cnot_ladder.svg
+        :align: center
+    """
+    __ambiguous_inheritance__ = (monoidal.Bubble,)
+
+    @classmethod
+    def default_state(cls, mem) -> Diagram:
+        """The identity on `mem`, i.e. an open input memory wire."""
+        return Diagram.id(mem)
+
+    @classmethod
+    def default_effect(cls, mem) -> Diagram:
+        """The identity on `mem`, i.e. an open output memory wire."""
+        return Diagram.id(mem)
+
+    def __init__(self, arg, dom=None, cod=None, mem=None,
+                 state=None, effect=None):
+        mem = arg.cod[-1:] if mem is None else mem
+        dom = arg.dom[:len(arg.dom) - len(mem)] if dom is None else dom
+        cod = arg.cod[:len(arg.cod) - len(mem)] if cod is None else cod
+        if (arg.dom, arg.cod) != (dom @ mem, cod @ mem):
+            raise AxiomError(
+                f"{arg} is not a diagram from {dom @ mem} to {cod @ mem}")
+        self.mem = mem
+        self.state = self.default_state(mem) if state is None else state
+        self.effect = self.default_effect(mem) if effect is None else effect
+        if self.state.cod != mem:
+            raise AxiomError(
+                f"{self.state} is not a state on the memory {mem}")
+        if self.effect.dom != mem:
+            raise AxiomError(
+                f"{self.effect} is not an effect on the memory {mem}")
+        monoidal.Bubble.__init__(
+            self, arg, dom=dom, cod=cod, method="feedback_operator")
+        Box.__init__(self, str(self), dom, cod)
+
+    def __str__(self):
+        args = "" if self.mem == self.arg.cod[-1:] else f"mem={self.mem}"
+        for attr in ("state", "effect"):
+            boundary = getattr(self, attr)
+            if boundary != getattr(self, f"default_{attr}")(self.mem):
+                prefix = ", " if args else ""
+                args += f"{prefix}{attr}={boundary}"
+        return f"({self.arg}).feedback({args})"
+
+    def __repr__(self):
+        args = f"{repr(self.arg)}, mem={repr(self.mem)}"
+        for attr in ("state", "effect"):
+            boundary = getattr(self, attr)
+            if boundary != getattr(self, f"default_{attr}")(self.mem):
+                args += f", {attr}={repr(boundary)}"
+        return f"{type(self).__name__}({args})"
+
+    def to_path(self, dtype: type = complex):
+        """A feedback loop has no path matrix until unrolled."""
+        raise ValueError(
+            "A feedback loop has no path matrix: "
+            "unroll the diagram before calling to_path.")
+
+    def truncation(self, input_dims=None, output_dims=None):
+        """A feedback loop has no truncation tensor until unrolled."""
+        raise ValueError(
+            "A feedback loop has no truncation tensor: "
+            "unroll the diagram before calling to_tensor.")
+
+    def determine_output_dimensions(self, input_dims=None):
+        """A feedback loop has no output dimensions until unrolled."""
+        raise ValueError(
+            "A feedback loop has no output dimensions: "
+            "unroll the diagram before propagating the photon budget.")
+
+    def photon_number_transform(self, dims_in=None, dims_out=None):
+        """A feedback loop transforms no photon numbers until unrolled."""
+        raise ValueError(
+            "A feedback loop transforms no photon numbers: "
+            "unroll the diagram before building the tensor network.")
+
+    def conjugate(self):
+        return self.arg.conjugate().feedback(
+            dom=self.dom, cod=self.cod, mem=self.mem,
+            state=self.state.conjugate(), effect=self.effect.conjugate())
+
+    def inflate(self, d):
+        mem = Ty.tensor(
+            *(o ** d if o.inside[0].name == "mode" else o for o in self.mem))
+        return self.arg.inflate(d).feedback(
+            mem=mem, state=self.state.inflate(d),
+            effect=self.effect.inflate(d))
+
+    def dagger(self):
+        raise NotImplementedError(
+            "The dagger of a feedback loop is not defined.")
+
+    def to_drawing(self):
+        return self.arg.to_drawing().trace(len(self.mem))
+
+
 class Functor(frobenius.Functor):
     """
     A hypergraph functor is a compact functor that preserves spiders.
@@ -1092,6 +1404,13 @@ class Functor(frobenius.Functor):
         cod : The codomain of the functor, a :class:`Diagram` subclass.
     """
     dom = cod = Diagram
+
+    def __call__(self, other):
+        if isinstance(other, Feedback):
+            return self(other.arg).feedback(
+                dom=self(other.dom), cod=self(other.cod), mem=self(other.mem),
+                state=self(other.state), effect=self(other.effect))
+        return super().__call__(other)
 
 
 class Hypergraph(hypergraph.Hypergraph):  # pragma: no cover
@@ -1105,4 +1424,6 @@ Diagram.hypergraph_factory = Hypergraph
 Diagram.braid_factory, Diagram.spider_factory = Swap, Spider
 Diagram.ob = Ty
 Diagram.sum_factory = Sum
+Diagram.feedback_factory = Feedback
+Diagram.functor_factory = Functor
 Id = Diagram.id
