@@ -49,7 +49,7 @@ representation is retained.
       `CMap` containing the target, its seven peers and its three constraints;
       close missing message ports with `|+>` states/effects and rerun the
       three-tick ladder.
-- [WIP] @codex-019fd73e-2026-08-06 19:48 At the largest affordable local three-tick configuration, compare
+- [x] At the largest affordable local three-tick configuration, compare
       conditional depths 8, 16 and 32 under the fixed pilot budget, then scale
       only the held-out winner.
 - [ ] Execute the notebook in a fresh GPU-only kernel, record the limit and
@@ -73,6 +73,18 @@ through `chi=8` in 4.71 seconds and 2.28 GiB, while `chi=16` hit the MPS
 high-water mark after 82.18 seconds.  Thus three ticks at `chi=16` is the
 largest configuration eligible for the 15-minute learning budget; four ticks
 at `chi=16` is the measured local contraction limit.
+
+The depth-8, depth-16 and depth-32 pilots used 128 contractions each.  Their
+targeted held-out cell accuracies were 12.5%, 0% and 37.5%, and their final
+candidate probabilities were 0.600, 0.386 and 0.535, so the 12,849-parameter
+depth-32 model won and received the remaining 448 contractions.  After 32
+updates / 64 training examples it reached 31.25% exact hidden-cell accuracy on
+four grids and solved 0/4.  Across all 64 held-out candidate pairs it assigned
+the correct grid probability 0.493 and ranked it first 46.9% of the time.  The
+validation candidate probability remained above its 0.246 initial value at
+0.481, but the mean loss rose from 3.03 over the first eight updates to 3.95
+over the last eight.  More parameters expose a stronger pilot signal, not a
+stable solver under this clipped 0.003 learning-rate schedule.
 
 > Check out the PR https://github.com/rel-int/optyx/pull/16. We need to push
 > this model to try to solve the sudoku task. One important concept for the
