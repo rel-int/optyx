@@ -80,7 +80,7 @@ diagonalising the transfer matrix of one step:
 >>> import numpy as np
 >>> measured = loop >> photonic.NumberResolvingMeasurement(1)
 >>> settled = measured.at_time(8).eval().prob_dist()
->>> fixed = measured.eigen_fix(chi=8).prob_dist()
+>>> fixed = measured.eigen_fix().prob_dist()
 >>> assert max(abs(settled[k] - v) for k, v in fixed.items()) < 1e-6
 >>> Equation(loop.at_time(2), symbol="").draw(
 ...     figsize=(6, 3), path="docs/_static/at_time.png")
@@ -275,7 +275,7 @@ class Ob(frobenius.Ob):
 
 DEFAULT_MAX_STEPS = 64
 MAX_TRUNCATION = 32
-DEFAULT_CHI = 8
+MAX_BOND_DIMENSION = 8
 
 
 @factory
@@ -436,7 +436,7 @@ class Diagram(frobenius.Diagram):
                 f"type {iterated.dom}.")
         return iterated
 
-    def check_fixpoint(self, tol: float = 1e-6, chi: int = None):
+    def check_fixpoint(self, tol: float = 1e-6, max_chi: int = None):
         """
         The guards :meth:`fix` and :meth:`eigen_fix` share: that this
         diagram poses a fixpoint problem at all, and that the numbers asked
@@ -457,9 +457,11 @@ class Diagram(frobenius.Diagram):
             raise ValueError(
                 "The diagram has no feedback loop, so it is already its own "
                 "stationary state.")
-        if chi is not None and (not isinstance(chi, Integral)
-                                or isinstance(chi, bool) or chi <= 0):
-            raise ValueError("chi must be a positive integer.")
+        if max_chi is not None and (not isinstance(max_chi, Integral)
+                                    or isinstance(max_chi, bool)
+                                    or max_chi <= 0):
+            raise ValueError(
+                "The truncation bound must be a positive integer.")
         if not isinstance(tol, Real) or isinstance(tol, bool) \
                 or not np.isfinite(tol) or tol <= 0:
             raise ValueError("tol must be a positive finite real number.")
@@ -667,7 +669,7 @@ class Diagram(frobenius.Diagram):
             int(dimension.inside[0]) for dimension in self.double().to_tensor(
                 [2] * len(self.dom.double())).cod]
 
-    def fix(self, tol: float = 1e-6, chi: int = DEFAULT_CHI,
+    def fix(self, tol: float = 1e-6, max_chi: int = MAX_BOND_DIMENSION,
             max_steps: int = DEFAULT_MAX_STEPS, *, backend=None):
         """
         Approximate the stationary state of a stateful diagram as a density
@@ -691,17 +693,19 @@ class Diagram(frobenius.Diagram):
         Parameters:
             tol : The error the certified depth approximates the fixed point
                 within, and the stopping distance of the fallback iteration.
-            chi : The bond dimension of the contraction. The public
-                `DEFAULT_CHI` of eight by default — what a laptop contracts
-                in seconds. `None` contracts exactly, whatever that costs.
+            max_chi : The largest bond dimension the contraction keeps: a
+                bond past it is truncated down to `max_chi`, with a warning.
+                The public `MAX_BOND_DIMENSION` of eight by default — what a
+                laptop contracts in seconds. `None` contracts exactly,
+                whatever that costs.
             max_steps : The maximum number of time steps, including the final
                 readout. The public `DEFAULT_MAX_STEPS` is sixty-four.
             backend : An optional
                 :class:`optyx.core.backends.AbstractBackend` for the
                 certified contraction. DisCoPy evaluates with
                 ``tensor.Functor``; Quimb contracts the same doubled network
-                with an optimised path, compressed to `chi`. The fallback
-                iteration takes no backend — see :meth:`power_fix`.
+                with an optimised path, compressed to `max_chi`. The
+                fallback iteration takes no backend — see :meth:`power_fix`.
 
         A delay whose loop block vanishes forgets its initial state after one
         step; the following step reads its stationary output. With loss on
@@ -712,20 +716,20 @@ class Diagram(frobenius.Diagram):
         ...     >> Diagram.swap(qmode, qmode)
         ...     >> qmode @ photonic.PhotonLoss(.5)).feedback(
         ...         mem=qmode, state=photonic.Create(0))
-        >>> fixed = delay.fix(tol=1e-6, chi=None)
+        >>> fixed = delay.fix(tol=1e-6, max_chi=None)
         >>> assert np.allclose(fixed.density_matrix, [[.5, 0], [0, .5]])
 
         See :doc:`/notebooks/fixpoints` for the semantic diagram, agreement
         map and contraction planning.
         """
-        self.check_fixpoint(tol, chi)
+        self.check_fixpoint(tol, max_chi)
         if not isinstance(max_steps, Integral) \
                 or isinstance(max_steps, bool) or max_steps <= 0:
             raise ValueError("max_steps must be a positive integer.")
         backends = import_module("optyx.core.backends")
         if backend is None:
             backend = backends.QuimbBackend(
-                hyperoptimiser=None if chi is None
+                hyperoptimiser=None if max_chi is None
                 else HyperCompressedOptimizer())
         elif not isinstance(backend, backends.AbstractBackend):
             raise ValueError(
@@ -734,7 +738,8 @@ class Diagram(frobenius.Diagram):
         try:
             certified = self.unroll_certificate(tol, max_steps)
         except NotImplementedError:
-            return self.power_fix(tol, max_steps=max_steps)
+            return self.power_fix(
+                tol, max_steps=max_steps, max_chi=max_chi)
         depth = max_steps if certified is None else certified
         if certified is None:
             warnings.warn(
@@ -744,16 +749,17 @@ class Diagram(frobenius.Diagram):
         network = self.at_time(depth - 1)
 
         needed = max(network.truncation_dimensions(), default=1)
-        if chi is not None and needed > chi:
+        if max_chi is not None and needed > max_chi:
             warnings.warn(
-                f"the contraction needs dimension {needed} but chi={chi}: "
-                "the result is an approximation truncated at chi.",
+                f"the contraction needs dimension {needed} but "
+                f"max_chi={max_chi}: the result is an approximation with "
+                "those bonds truncated down to max_chi.",
                 UserWarning, stacklevel=2)
-        compressible = chi is not None and isinstance(
+        compressible = max_chi is not None and isinstance(
             getattr(backend, "hyperoptimiser", None),
             (ReusableHyperCompressedOptimizer, HyperCompressedOptimizer))
         result = network.eval(
-            backend, **({"max_bond": chi} if compressible else {}))
+            backend, **({"max_bond": max_chi} if compressible else {}))
 
         state = np.asarray(result.density_matrix)
         discarded = Discard(self.cod).double().to_tensor(list(state.shape))
@@ -771,7 +777,8 @@ class Diagram(frobenius.Diagram):
             output_types=self.cod, state_type=backends.StateType.DM)
 
     def power_fix(self, tol: float = 1e-3, n_steps: int = 1,
-                  max_steps: int = DEFAULT_MAX_STEPS):
+                  max_steps: int = DEFAULT_MAX_STEPS,
+                  max_chi: int = MAX_BOND_DIMENSION):
         """
         The stationary state by plain power iteration: contract
         :meth:`at_time` at successive depths from `n_steps`, and stop when
@@ -791,10 +798,15 @@ class Diagram(frobenius.Diagram):
                 which the iteration stops.
             n_steps : The depth the iteration starts from.
             max_steps : The depth at which it gives up and warns.
+            max_chi : The largest bond dimension each contraction keeps,
+                as in :meth:`fix`; a bond past it is truncated down to
+                `max_chi` with a warning, once. `None` contracts exactly.
+                Note a truncated contraction biases the very distances
+                being watched, which is one more reason the criterion is
+                not a certificate.
 
-        There is no backend or `chi` to choose: each state is contracted
-        exactly with the default backend, since a truncated or approximate
-        contraction would corrupt the very distances being watched.
+        There is no backend to choose: every state is contracted with the
+        default one.
 
         >>> from optyx.qubits import Ket, X, Z
         >>> loop = (X(1, 1, .25) >> Z(1, 2)).feedback(
@@ -804,17 +816,30 @@ class Diagram(frobenius.Diagram):
         ...     result.density_matrix,
         ...     loop.eigen_fix().density_matrix, atol=1e-2)
         """
-        self.check_fixpoint(tol)
+        self.check_fixpoint(tol, max_chi)
         for name, value in {
                 "n_steps": n_steps, "max_steps": max_steps}.items():
             if not isinstance(value, Integral) or isinstance(value, bool) \
                     or value <= 0:
                 raise ValueError(f"{name} must be a positive integer.")
         backends = import_module("optyx.core.backends")
-        backend = backends.QuimbBackend()
+        backend = backends.QuimbBackend(
+            hyperoptimiser=None if max_chi is None
+            else HyperCompressedOptimizer())
+        budgets = []
 
         def state_at(depth):
-            result = self.at_time(depth).eval(backend)
+            network = self.at_time(depth)
+            budgets.append(max(network.truncation_dimensions(), default=1))
+            if max_chi is not None and len(budgets) == 1 \
+                    and budgets[0] > max_chi:
+                warnings.warn(
+                    f"the contraction needs dimension {budgets[0]} but "
+                    f"max_chi={max_chi}: the result is an approximation "
+                    "with those bonds truncated down to max_chi.",
+                    UserWarning, stacklevel=3)
+            result = network.eval(backend, **(
+                {"max_bond": max_chi} if max_chi is not None else {}))
             state = np.asarray(result.density_matrix)
             discarded = Discard(self.cod).double().to_tensor(
                 list(state.shape))
@@ -857,7 +882,8 @@ class Diagram(frobenius.Diagram):
                 np.real_if_close(current)),
             output_types=self.cod, state_type=backends.StateType.DM)
 
-    def eigen_fix(self, chi: int = None, tol: float = 1e-6):
+    def eigen_fix(self, tol: float = 1e-6,
+                  max_truncation: int = MAX_TRUNCATION):
         """
         The stationary state obtained by diagonalising the transfer matrix
         which one time step induces on the memory.
@@ -875,14 +901,15 @@ class Diagram(frobenius.Diagram):
         memory, and feeding it through the readout gives the density matrix.
 
         Parameters:
-            chi : The cutoff of each optical memory wire, qubit and bit wires
-                staying at two. Without it the search starts at
-                :meth:`truncation_dimensions`, the budget of a single step,
-                and doubles until the truncation stops losing trace, capped
-                by the public `MAX_TRUNCATION` — the budget is a *lower*
-                bound for a loop, since every step can add another photon,
-                but it is a much better place to start than two.
             tol : The trace a truncation may lose before it is rejected.
+            max_truncation : The cap of the cutoff search. The search starts
+                at :meth:`truncation_dimensions`, the photon budget of a
+                single step — a *lower* bound for a loop, since every step
+                can add another photon, but a much better start than two —
+                and doubles the cutoff of every optical memory wire until
+                the truncation stops losing trace or the cap is reached,
+                qubit and bit wires staying at two. The public
+                `MAX_TRUNCATION` of thirty-two by default.
 
         Fresh photons enlarge the output memory, so it is projected back to
         the cutoff before diagonalising. Measuring the causality of that
@@ -900,10 +927,10 @@ class Diagram(frobenius.Diagram):
         ...     >> Diagram.swap(qmode, qmode)).feedback(
         ...         mem=qmode, state=photonic.Create(0))
         >>> assert np.allclose(
-        ...     delay.eigen_fix(chi=2).density_matrix, [[0, 0], [0, 1]],
+        ...     delay.eigen_fix().density_matrix, [[0, 0], [0, 1]],
         ...     atol=1e-6)
         """
-        self.check_fixpoint(tol, chi)
+        self.check_fixpoint(tol, max_truncation)
         step = self.one_step()
         memory = step.cod[len(self.cod):]
         transfer = step >> Discard(self.cod) @ self.id(memory)
@@ -923,15 +950,15 @@ class Diagram(frobenius.Diagram):
             return dimensions, operator, np.linalg.norm(
                 (operator >> discard).eval().array - discard.eval().array)
 
-        cutoff = max(transfer.truncation_dimensions()) \
-            if chi is None else chi
+        cutoff = min(
+            max(transfer.truncation_dimensions()), max_truncation)
         dimensions, operator, residual = projected(cutoff)
-        while chi is None and residual > tol and cutoff < MAX_TRUNCATION:
-            cutoff = min(2 * cutoff, MAX_TRUNCATION)
+        while residual > tol and cutoff < max_truncation:
+            cutoff = min(2 * cutoff, max_truncation)
             dimensions, operator, residual = projected(cutoff)
         if residual > tol:
             raise ValueError(
-                f"No cutoff below {MAX_TRUNCATION} truncates the transfer "
+                f"No cutoff below {max_truncation} truncates the transfer "
                 f"map without losing trace (residual {residual} at "
                 f"{cutoff}); the tail is too long for this method.")
         matrix = operator.eval().array.reshape(
@@ -944,7 +971,8 @@ class Diagram(frobenius.Diagram):
         if not fixed.size:
             raise ValueError(
                 "The truncated transfer map has no stationary state; "
-                "increase chi or check that the channel is trace "
+                "increase max_truncation or check that the channel is "
+                "trace "
                 "preserving.")
         if len(fixed) != 1:
             raise ValueError(
