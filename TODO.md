@@ -49,7 +49,7 @@ representation is retained.
       `CMap` containing the target, its seven peers and its three constraints;
       close missing message ports with `|+>` states/effects and rerun the
       three-tick ladder.
-- [ ] At the largest affordable local three-tick configuration, compare
+- [WIP] @codex-019fd73e-2026-08-06 19:48 At the largest affordable local three-tick configuration, compare
       conditional depths 8, 16 and 32 under the fixed pilot budget, then scale
       only the held-out winner.
 - [ ] Execute the notebook in a fresh GPU-only kernel, record the limit and
