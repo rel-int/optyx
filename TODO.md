@@ -21,6 +21,15 @@
 > converge. Decide between Jax and PyTorch to differentiate the tensor networks.
 > Run the experiments in the notebook.
 
+> That's bad! I think the reason for this is that the dataset is too small.
+> Check out the sudoku notebook here
+> [discopy/discopy#416](https://github.com/discopy/discopy/pull/416). Do you think
+> we can reach the same dataset sizes? A second thing we can try is changing the
+> ansatz for each box, make 2 other proposals to check. Let's experiment with
+> increasing the dataset size and playing with the ansatz. Keep budgeting before
+> running too big experiments, the tensor contractions will get expensive. Try
+> your best, let's solve these sudokus!
+
 Stacked on #16 and merged with the fixpoint PR #15. Mathematically, a box
 `X -> Y` of a `CMap` now carries three kinds of wires: the message ports
 `X @ Y`, read and written at every step and pairable by edges; a private
@@ -114,6 +123,44 @@ JAX Metal backend fails its basic complex-array contraction (reported as #43).
       stayed at 50%; full-grid solve rate stayed at 0/4. A 96-update sweep
       reduced per-cell accuracy to 25%, so longer training is not assumed to
       help without a better schedule or batching.
+
+## Dataset scale and box ansatz search
+
+The notebook in discopy#416 stores 192 training puzzles and 64 test puzzles,
+but its generator produces only 24 distinct completed grids and 22 of the test
+solution patterns also occur in training. Of its 256 eight-clue puzzles, 69
+admit two or three valid completions. We can match its record count while using
+more information: sample 256 distinct solutions from the complete 288-grid
+corpus, split them 192/64 before masking, and accept only clue masks with one
+completion in that corpus.
+
+All three channel families remain real orthogonal maps with two single-qubit
+rotation layers. The baseline places 16 controlled rotations between the first
+and last four qubits. The first alternative uses both directions of a cyclic
+nearest-neighbour ring, so every message, memory and prediction qubit mixes at
+34--36 parameters per channel. The second uses one controlled rotation for
+every unordered qubit pair, raising the cell/constraint counts to 54/44 while
+leaving their `2 ** 7 x 2 ** 9` and `2 ** 8 x 2 ** 8` tensors unchanged.
+Consequently the recurrent contraction graph and its `chi=4` peak tensors do
+not grow; only construction and differentiation of the local unitary does.
+
+The model-selection pilot is capped at 480 scalar contractions per ansatz: 12
+optimizer updates times four examples times four digits, two-candidate scores
+before and after training on eight validation puzzles, and a final four-way
+decode of their 64 hidden cells. At the measured baseline rate of about 0.20 s
+per contraction, three ansatzes should take about five minutes. Gradients for
+the four-example mini-batch are accumulated one example at a time to keep peak
+memory near the original four-contraction update. Only the winner is allowed
+the remaining 144 train cases and a broader held-out evaluation, budgeted at
+about 1,200 further contractions.
+
+- [ ] Build the disjoint 192/64 uniquely-solvable dataset and compare the
+      bipartite, nearest-neighbour-ring and all-pairs box ansatzes under the
+      fixed pilot budget; scale only the validation winner and record timings,
+      contraction counts, losses, per-cell accuracy and full-grid solve rate.
+- [ ] If none of the three ansatzes beats random per-cell accuracy after the
+      pilot, stop before the scale-up and diagnose the four-way energy and
+      gradient distributions instead of spending the winner budget.
 
 ## Scaling on a Mac Mini
 
