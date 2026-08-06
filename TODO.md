@@ -68,7 +68,7 @@ memories, and the compact closed structure glues along message ports only.
       prediction output of a clue cell is postselected on its digit, free
       cells meet uniform effects at intermediate steps and the candidate
       digit at the last step; pick and document the initial memory state.
-- [ ] Update `unrolled_tensor_map`: internal memory ports connect a box to
+- [WIP] @codex-2026-08-06 15:28 Update `unrolled_tensor_map`: internal memory ports connect a box to
       itself at the next step, prediction ports get one effect per step and
       no read; keep the direct `tensor.CMap` construction without a
       materialised permutation.
