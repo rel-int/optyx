@@ -75,7 +75,7 @@ memories, and the compact closed structure glues along message ports only.
 
 ## Solving the task
 
-- [ ] Replace two-candidate ranking by a per-cell readout: score the four
+- [WIP] @codex-2026-08-06 15:28 Replace two-candidate ranking by a per-cell readout: score the four
       digits of every hidden cell from the last-step prediction amplitudes,
       and report per-cell argmax accuracy and the full-grid solve rate on
       the held-out puzzles, alongside the ranking metric of #16.
