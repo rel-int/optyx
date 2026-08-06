@@ -409,27 +409,34 @@ class Diagram(frobenius.Diagram):
         if n_steps < 0:
             raise ValueError("n_steps must be at least 0.")
         stream_factory = monoidal_stream.Stream[self.factory]
-        ty_factory, loops = stream_factory.ob, []
+        ty_factory = stream_factory.ob
 
-        def ar_map(box):
-            if not isinstance(box, self.feedback_factory):
-                return box
-            loops.append(box)
-            inner = functor(box.arg)
-            return stream_factory(
-                inner.now, dom=ty_factory(box.dom), cod=ty_factory(box.cod),
-                mem=ty_factory(box.mem) @ inner.mem)
+        def to_stream(inside):
+            def ar_map(box):
+                if not isinstance(box, self.feedback_factory):
+                    return box
+                inner = to_stream(box.arg)
+                return stream_factory(
+                    inner.now, dom=ty_factory(box.dom),
+                    cod=ty_factory(box.cod),
+                    mem=ty_factory(box.mem) @ inner.mem)
+            return monoidal.Functor(
+                ob_map=lambda x: x, ar_map=ar_map,
+                dom=self.factory, cod=stream_factory)(inside)
 
-        functor = monoidal.Functor(
-            ob_map=lambda x: x, ar_map=ar_map,
-            dom=self.factory, cod=stream_factory)
-        stream = functor(self)
+        def loops(inside):
+            for box in inside.boxes:
+                if isinstance(box, self.feedback_factory):
+                    yield box
+                    yield from loops(box.arg)
+
+        stream = to_stream(self)
         unrolled = stream.unroll(n_steps).now
         mem = stream.mem.now
         dom = unrolled.dom[:len(unrolled.dom) - len(mem)]
         cod = unrolled.cod[:len(unrolled.cod) - len(mem)]
         initial, final = (self.id(type(mem)()).tensor(*(
-            getattr(loop, attr) for loop in loops))
+            getattr(loop, attr) for loop in loops(self)))
             for attr in ("state", "effect"))
         return self.id(dom) @ initial >> unrolled >> self.id(cod) @ final
 
@@ -450,17 +457,18 @@ class Diagram(frobenius.Diagram):
         >>> assert wait.feedback_factory(step, state=Create(1)).one_step()\\
         ...     == step
         """
-        def ar_map(box):
-            if not isinstance(box, self.feedback_factory):
-                return box
-            return functor(box.arg).feedback(
-                dom=box.dom, cod=box.cod, mem=box.mem,
-                state=self.id(box.mem), effect=self.id(box.mem))
+        def opened(inside):
+            def ar_map(box):
+                if not isinstance(box, self.feedback_factory):
+                    return box
+                return opened(box.arg).feedback(
+                    dom=box.dom, cod=box.cod, mem=box.mem,
+                    state=self.id(box.mem), effect=self.id(box.mem))
+            return frobenius.Functor(
+                ob_map=lambda x: x, ar_map=ar_map,
+                dom=self.factory, cod=self.factory)(inside)
 
-        functor = frobenius.Functor(
-            ob_map=lambda x: x, ar_map=ar_map,
-            dom=self.factory, cod=self.factory)
-        return functor(self).unroll(0)
+        return opened(self).unroll(0)
 
     # pylint: disable=too-many-locals
     def to_tensor(
