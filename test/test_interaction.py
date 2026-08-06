@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import pytest
 
@@ -140,7 +142,8 @@ def test_fix_requires_input_state():
 
 
 def test_fix_reuses_protocol_fixed_point():
-    with pytest.warns(UserWarning, match="certificate does not apply"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         result = fixed_wire().fix(
             Ket(1), Ket(0) @ Ket(0), max_steps=2,
             backend=DiscopyBackend())
@@ -155,7 +158,8 @@ def test_fix_certifies_an_optical_delay():
 
 
 def test_fix_with_internal_memory():
-    with pytest.warns(UserWarning, match="certificate does not apply"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         result = CMap([readout()], []).fix(
             initial_state=Ket(1), max_steps=2, backend=DiscopyBackend())
     assert np.allclose(result.density_matrix, [[0, 0], [0, 1]])
@@ -197,7 +201,8 @@ def delay():
 
 
 def test_closed_fix_needs_no_input_state():
-    with pytest.warns(UserWarning, match="certificate does not apply"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         result = delay().fix(
             initial_state=Ket(0) @ Ket(0), max_steps=2,
             backend=DiscopyBackend())
