@@ -1,194 +1,149 @@
 # TODO
 
-> So we need the tensor contraction and auto diff
+> Check out the PR https://github.com/rel-int/optyx/pull/16. We need to push
+> this model to try to solve the sudoku task. One important concept for the
+> interaction.CMap is that every cell: X -> Y should have additionally a memory
+> type M and a prediction type O, so that the process inside it has type
+> X @ Y @ M -> X @ Y @ M @ O. So we can run the same experiment we were running
+> but such that every cell has 1 qubit internal memory. Make a plan for
+> improvements and tests to solve the sudoku task in the notebook. Write the
+> plan in TODO.md.
 
-> You ran an experiment with MapRNN but that was not the point! We need to simulate learning optyx channels to solve the sudoku, the network is quantum, not a classical NN
+> Why would cod == dom @ predictions? I don't think this is needed. Go ahead
+> and implement the changes to interaction.py. Then give a few more ideas for
+> scaling while keeping the contractions doable on MacMini in the TODO.md
 
-> The sudoku notebook should run a learning experiment on a sudoku dataser, similar to the MapRNN demonstration.
+> Also rebase on the fixpoint PR
 
-> Check out [rel-int/optyx#16](https://github.com/rel-int/optyx/pull/16), let's stack on the fixpoint implementation, we should be able to move on with TODO.md and write the notebook
+Stacked on #16 and merged with the fixpoint PR #15. Mathematically, a box
+`X -> Y` of a `CMap` now carries three kinds of wires: the message ports
+`X @ Y`, read and written at every step and pairable by edges; a private
+memory `M`, a feedback loop from the box to itself that never appears as a
+port of the map; and a prediction `O`, written to the environment at every
+step but never read. The process inside the box is a channel
+`X @ Y @ M -> X @ Y @ M @ O`. The map keeps `dom == cod`, the unpaired
+ports: the predictions are appended to the codomain of the `protocol`
+diagram only, its `mem` is the paired ports followed by the internal
+memories, and the compact closed structure glues along message ports only.
 
-> I have a proposal for a new module in optyx https://github.com/rel-int/optyx/issues/13. Make a plan for implementation.
+## `interaction.Box` with memory and prediction
 
-Solves #13. The module is built on `channel.Diagram.feedback` and `unroll` from
-#12, then stacks on the `channel.Diagram.fix` implementation in #15.
+- [x] Extend `Box(name, dom, cod, channel, memory=Ty(), prediction=Ty())`,
+      type-checking `channel` from `dom @ cod @ memory` to
+      `dom @ cod @ memory @ prediction`; the defaults recover the boxes of
+      #16 so every existing doctest and test stays valid.
+- [x] Route each internal memory as a self-loop in `CMap`: it joins
+      `CMap.memory` after the paired ports, in box order, and is fed back to
+      the same box by `read` and `write`; document the wire-order convention.
+- [x] Make predictions write-only: `CMap.cod` stays equal to `dom` and
+      `CMap.prediction` is appended to the codomain of `protocol` in box
+      order, with `read`, `write`, `step`, `unroll` and the drawings
+      updated; state in the docstring that `glue` and the cups and caps
+      act on message ports only.
+- [x] Update `CMap.fix` to the #15 interface: `input_state` stays of type
+      `dom` and is composed inside the loop so the stationary certificates
+      apply, `initial_state` prepares the paired ports and the internal
+      memories through `feedback(state=...)`, the remaining parameters are
+      `tol`, `loss`, `chi`, `max_steps` and `backend`, and the stationary
+      output includes the predictions.
+- [x] Update `__matmul__`, `glue`, `__repr__`, `__eq__`, `__hash__` and the
+      module docstring for the two new attributes.
 
-Mathematically, `optyx.interaction` is the Int (geometry of interaction)
-construction applied to the feedback category of optyx channels: feedback
-plays the role of a delayed trace, so the result is compact closed up to
-time shifts. A `CMap` is a combinatorial map whose boxes carry channels and
-whose edges pair ports; its semantics is a recurrent protocol, evaluated by
-unrolling to a tensor network.
+## Sudoku with one qubit of cell memory
 
-## Fixed-point stack and notebook round
+- [ ] Rebuild the notebook map: a cell is
+      `Box("cell", qubit ** 3, qubit ** 3, channel, memory=qubit,
+      prediction=qubit ** 2)` — three messages read, three written, one
+      internal memory qubit, two prediction qubits; constraints stay
+      `Box(qubit ** 4, qubit ** 4, channel)` with no memory or prediction.
+- [ ] Cell channels become shared trainable isometries
+      `qubit ** 7 -> qubit ** 9`: a parameterised nine-qubit real unitary
+      applied to the input tensored with two fresh ancillas, keeping the
+      rotation-layer parameterisation and the parameter count comparable
+      to #16; constraint channels keep their eight-qubit unitary.
+- [ ] Check the topology: 96 edges and 192 paired memory wires as in #16,
+      plus 16 internal memory wires (208 total), empty `dom` and a `cod` of
+      32 prediction qubits per step.
+- [ ] Move clue injection entirely to the write side: at every step the
+      prediction output of a clue cell is postselected on its digit, free
+      cells meet uniform effects at intermediate steps and the candidate
+      digit at the last step; pick and document the initial memory state.
+- [ ] Update `unrolled_tensor_map`: internal memory ports connect a box to
+      itself at the next step, prediction ports get one effect per step and
+      no read; keep the direct `tensor.CMap` construction without a
+      materialised permutation.
 
-- [x] Stack this PR on #15, merge its fixed-point
-      implementation into the branch and keep the interaction diff isolated.
-- [x] Define `CMap.fix` by exposing the stationary
-      semantics of the recurrent `protocol`, without duplicating its
-      convergence or backend logic.
-- [x] Write `examples/sudoku.ipynb` as an executable
-      construction of the 16 cell and 12 constraint boxes, finite message
-      passing and the closed-map fixed-point boundary.
-- [x] Add focused tests and run lint, coverage and
-      notebook validation.
+## Solving the task
 
-## Sudoku learning experiment
+- [ ] Replace two-candidate ranking by a per-cell readout: score the four
+      digits of every hidden cell from the last-step prediction amplitudes,
+      and report per-cell argmax accuracy and the full-grid solve rate on
+      the held-out puzzles, alongside the ranking metric of #16.
+- [ ] Batch the contraction over puzzles and candidates as in the
+      neural-sudoku experiment of discopy#416: a batch index threaded
+      through the boundary states and effects, one Cotengra path reused
+      across the batch.
+- [ ] Extend the training budget: more epochs with the held-out probability
+      as stopping criterion, and a small sweep over `n_steps` in {2, 3, 4}
+      and bond dimension in {4, 8, 16}, recording the loss curves.
+- [ ] Ablate the memory: run the same experiment with `memory=Ty()` at a
+      matched parameter count and report whether the qubit of internal
+      memory improves the held-out metrics.
+- [ ] Stretch: probe `CMap.fix` on one cell with its memory qubit, towards
+      reading the number of message-passing steps off the certified depth
+      of the stationary semantics during training.
 
-- [x] Replace the topology-only placeholder with a seeded quantum-channel
-      learning experiment whose recurrent tensor routes come from the Optyx
-      `CMap`.
-- [x] Enumerate the complete 4x4 sudoku corpus, split selected solutions into
-      training and held-out sets, and report conditional completion metrics.
+## Scaling on a Mac Mini
 
-## Quantum learning correction
+- [ ] Replace the dense eight- and nine-qubit unitaries by shared brickwork
+      circuits of two-qubit rotations: every tensor in the network becomes
+      rank four, the compressed contraction cost grows with the gate count
+      rather than `2 ** width`, and the parameter count stays comparable.
+- [ ] Contract the unrolling as a boundary MPS in the time direction: treat
+      each step as an MPO on the memory wires and sweep with truncation at
+      `chi`, so peak memory is set by `chi` and the 208-wire cut, never by
+      the full network; compare against Cotengra's compressed paths.
+- [ ] Exploit locality of the loss: each cell's prediction after three
+      steps only sees its light cone (its three constraints and their
+      cells), so per-cell scores contract sub-networks a fraction of the
+      660-box map; batch the cells that share a light-cone shape.
+- [ ] Slice the Cotengra path over a few high-degree indices
+      (`slicing_opts`) to cap peak memory at a constant factor of the
+      largest sliced tensor, trading a small constant in time.
+- [ ] Curriculum on sub-grids: pre-train the shared cell and constraint
+      channels on a single row or a 2x2 block `CMap` (a handful of boxes),
+      then fine-tune on the full grid; the parameters transfer because
+      every box shares them.
+- [ ] Keep everything real: the rotation ansatz stays orthogonal, halving
+      memory and contraction constants against complex tensors, and
+      `float32` forward passes with `float64` loss accumulation halve them
+      again if the singular-value gradients stay stable.
 
-- [x] Remove the classical MapRNN interpreter and parameterise actual Optyx
-      channel tensors on the sudoku interaction graph.
-- [x] Contract the unrolled quantum network through the backend-neutral tensor
-      routine, backpropagate the sudoku loss and verify non-zero gradients and
-      held-out learning.
+## Tests
 
-## `optyx.interaction` module
+- [x] `test/test_interaction.py`: `Box` rejects a channel whose type is not
+      `dom @ cod @ memory -> dom @ cod @ memory @ prediction`.
+- [x] Protocol types on maps with memory and prediction:
+      `protocol.cod == cod @ prediction`, `protocol.mem` is the paired
+      ports followed by the internal memories, an internal memory with a
+      swapped-out port is a delay line, and a copied memory is predicted
+      without being consumed.
+- [x] Backwards compatibility: default `memory` and `prediction` reproduce
+      the protocol of #16 on its existing examples, updated to the #15
+      boundary conventions (open initial memory, discarded final memory,
+      `n_steps` counts unrollings).
+- [x] `fix` on a box with one memory qubit and a known stationary
+      prediction, and on an optical delay certified without warnings.
+- [x] PyTorch gradient through the memory wire: a rotation on the memory
+      qubit of a two-step readout network, contracted with
+      `contract_tensor`, matches the analytic Born score and gradient.
+- [ ] Notebook assertions: topology counts, non-zero initial gradient,
+      held-out metrics improving over their initial values, fresh-kernel
+      execution.
 
-- [x] `interaction.Ty`: tuples of dimensions, wrapping `channel.Ty`
-      (`bit`, `qubit`, `qmode`) so boxes plug into the existing channel layer
-- [x] `interaction.Box(name, dom, cod, channel)` where `channel` is an
-      `optyx.channel.Diagram` with domain `dom @ cod` and codomain `dom @ cod`,
-      as in the issue: every port is both read and written at each time step
-      (a plain channel `dom -> cod` embeds by initialising / discarding)
-- [x] `CMap`: a set of boxes and a set of edges pairing output ports to input
-      ports, type-checked at construction; unpaired ports are the boundary,
-      giving the domain and codomain of the map
-- [x] `CMap.protocol`: the `channel.Diagram`
-      `(parallel >> perm).feedback(dom, cod, mem)` where `parallel` is the
-      tensor of all box channels, `perm` the permutation given by the edges
-      (boundary ports first, memory last) and `mem` the paired ports
-- [x] `CMap.unroll(n_steps)` = `CMap.protocol.unroll(n_steps)`, a
-      `channel.Diagram` evaluated as a tensor network by the existing backends
-- [ ] compact closed structure: identity and composition glue maps along
-      boundary ports, cups and caps are single edges; document and test which
-      snake equations hold on the nose and which only up to a time delay
-- [x] drawing: reuse `to_drawing` on the protocol so a `CMap` and its
-      unrollings can be rendered
+## Docs and checks
 
-## `CMap.fix`
-
-- [x] `CMap.fix(input_state=None, initial_state=None, **params)` prepares a
-      fixed boundary input at every step, initializes the recurrent memory and
-      delegates the stationary output to `channel.Diagram.fix`, including its
-      power/eigen methods, backends and independent depth/bond refinement
-- [ ] optional exact bound when `mem` is small: mixing time from the second
-      largest eigenvalue modulus of the transfer channel of `protocol`
-- [x] return the `EvalResult` from `channel.Diagram.fix`
-- [ ] expose convergence diagnostics (`n_steps`, `chi`, distances per
-      iteration) from the shared fixed-point implementation
-
-## Differentiability and training
-
-- [x] end-to-end gradients: parametrised box channels, unrolled diagram
-      contracted with torch-backed quimb tensors; test that gradients flow
-      through `contract` and `contract_compressed`
-- [ ] batching over classical inputs and targets as in the neural-sudoku
-      experiment of discopy#416: a batch dimension threaded through
-      evaluation, plus a loss helper against a target distribution
-
-## Notebook
-
-- [x] `examples/sudoku.ipynb`: 4x4 sudoku as a `CMap` with 16 cell
-      boxes and 12 block boxes (4 rows, 4 columns, 4 squares); each cell has
-      3 block neighbours plus 2 prediction qubits (3 ports in, 5 out), each
-      block has its 4 cells as neighbours (4 in, 4 out)
-- [x] demonstrate three-step quantum message passing and define a conditional
-      Born loss on the 2 prediction qubits per cell
-- [x] compile port-addressed recurrence from `CMap.partner` directly to a
-      combinatorial tensor map, avoiding a materialised 224-wire permutation
-- [x] replace identity channels with shared trainable unitary ansatzes and
-      backpropagate through compressed Optyx tensor contraction
-- [ ] stretch: make `n_steps` dynamic, inferred during training via
-      `CMap.fix`
-
-## Tests and docs
-
-- [x] `test/test_interaction.py`: type checking, protocol construction,
-      unrolling against hand-built diagrams
-- [x] `test/test_interaction.py`: `fix` convergence on a small channel with a
-      known stationary state
-- [ ] `test/test_interaction.py`: snake equations and gradients
-- [x] doctests and `docs/api.rst` entry
-- [ ] drawings for the docs
-- [x] `pflake8 optyx` and `coverage run -m pytest` green
-
-> Two problems: 1) I see you added a lot of pylint disables, inline comments are not allowed in optyx as in discopy! remove them and check the pylint, 2) The tensor backend is a large addition, write an issue and open a separate PR directly on main that proposes a new routine for evaluating optyx tensor contractions. The logic needs to be simple and flexible accross quimb, cotengra, jax and pytorch
-
-## Automatic differentiation
-
-- [x] Preserve accelerator arrays and gradients while materialising structural
-      tensors and contracting with a Cotengra path.
-- [x] Test non-zero PyTorch gradients through an Optyx channel tensor rather
-      than testing constant output alone.
-
-## Tensor contraction routine
-
-- [x] Implement issue #20 as one deterministic routine
-      over ``discopy.tensor.Diagram`` for exact NumPy, JAX, PyTorch and Quimb
-      contraction, with arbitrary Cotengra optimizers and optional bond limits.
-- [x] Reuse the routine from the existing Quimb and DisCoPy evaluators, add
-      concise documentation and tests, and run lint, pylint and coverage.
-- [x] Open a draft pull request directly against ``main`` and leave every
-      checklist item complete.
-- [x] Cover structural spider materialisation when the optional JAX and
-      PyTorch test dependencies are unavailable in CI.
-
-> The notebook should be structured in two parts:
-> 1) Boson sampling with feedback
-> Explain the setup of Biriukov and Dyakonov and the two simulation methods implemented.
-> 2) Learning fixpoints
-> Start from a beam splitter 2 -> 2, we feed a photon at every time step to the first
-> input, we feed the second output into the second input. We compute the fixpoint of an
-> example (does it converge? how big is the density matrix?). Now, the beam splitter has
-> two phase parameters (transmittivity, reflexivity) that we can adjust. We tune the
-> parameters to find fixpoints that converge faster, to lower dimensional density matrices.
->
-> Replace this section by a comparison of the complexity of the power method vs the eigen
-> method in terms of the approximation of the stationary distribution.
->
-> These hanging methods should be avoided, aither use inline, or define methods of the
-> existing classes.
->
-> This method could be defined over any optyx diagram without feedback loops, finding the
-> eigenvectors of an operator.
->
-> Isn't this in optyx Ty already?
->
-> The trace can be obtained diagrammatically as the Discard, why do we evaluate it
-> separately from the rest of the tensor contraction machinery? We should hand off the
-> contraction to the backend and formulate everything diagrammatically
->
-> This seems like part of a method about the stationary state and needs to be simplified
-
-## Upstream fixed-point review
-
-- [WIP] @codex-pr15-2026-08-01 06:50 `docs/examples/fixpoints.rst` part 1, boson sampling with feedback: state the
-      Biriukov–Dyakonov setup and say which of its pieces `power` and `eigen` implement
-- [WIP] @codex-pr15-2026-08-01 06:50 part 2, learning fixpoints: a beam splitter `2 -> 2` with one photon into the
-      first input at every step and the second output fed back into the second input;
-      report whether the fixed point converges and how big its density matrix is
-- [WIP] @codex-pr15-2026-08-01 06:50 part 2, tuning: adjust the two beam-splitter phases towards fixed points that
-      converge faster and have lower-dimensional density matrices
-- [WIP] @codex-pr15-2026-08-01 06:50 replace the backend-comparison section with a complexity comparison of `power`
-      against `eigen` as approximations of the stationary distribution
-- [WIP] @codex-pr15-2026-08-01 06:50 drop `doubled_dimensions`: `Ty` already carries its doubled dimensions, so read
-      the cutoff convention off `Ty.double()` rather than reimplementing it
-- [WIP] @codex-pr15-2026-08-01 06:50 `density_trace`: build the trace as a `Discard` diagram and hand it to the
-      backend, instead of `to_tensor` followed by a hand-written `np.tensordot`
-- [WIP] @codex-pr15-2026-08-01 06:50 `stationary_vector`: define it over any optyx diagram without feedback loops, as
-      the eigenvectors of the operator the diagram denotes, not of a superoperator array
-- [WIP] @codex-pr15-2026-08-01 06:50 no hanging module-level functions in `channel.py`: fold `frobenius_distance`,
-      `normalise_density_matrix` and the rest into methods of the existing classes,
-      or inline them at their single call site
-- [WIP] @codex-pr15-2026-08-01 06:50 simplify the normalisation, which reads as part of the stationary-state method
-
-The tuning work depends on differentiable contraction from #21. Landing #21
-first keeps it to a few lines; without it, tuning falls back to a parameter
-sweep.
+- [ ] Module docstring, doctests and `docs/api.rst` updated for the new
+      `Box` signature; a drawing of a cell with memory and prediction wires.
+- [ ] `pflake8 optyx`, `pylint optyx/interaction.py --fail-under=9` and
+      `coverage run -m pytest` green with coverage at least 95%.

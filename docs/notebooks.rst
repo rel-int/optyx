@@ -7,7 +7,7 @@ Here we give examples of using ``optyx``:
 
 .. toctree::
 
-    examples/fixpoints
+    notebooks/fixpoints
     notebooks/feed_forward_example.ipynb
     notebooks/optyx-compilation.ipynb
     notebooks/optyx-vqe-experiment.ipynb
