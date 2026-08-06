@@ -131,7 +131,7 @@ from math import factorial
 import numpy as np
 import perceval as pcvl
 
-from discopy.cat import assert_iscomposable
+from discopy.cat import assert_iscomposable, factory
 from discopy.utils import unbiased
 import discopy.matrix as underlying
 from discopy.tensor import Tensor
@@ -163,6 +163,7 @@ def npperm(matrix):
     return p / 2 ** (n - 1)
 
 
+@factory
 class Matrix(underlying.Matrix):
     """
     Matrix with photon creations and post-selections,

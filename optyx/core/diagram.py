@@ -1102,7 +1102,7 @@ bit = Bit(1)
 mode = Mode(1)
 
 Diagram.hypergraph_factory = Hypergraph
-Diagram.braid_factory, Diagram.spider_factory = Swap, Spider
+Diagram.swap_factory, Diagram.spider_factory = Swap, Spider
 Diagram.ob = Ty
 Diagram.sum_factory = Sum
 Id = Diagram.id
