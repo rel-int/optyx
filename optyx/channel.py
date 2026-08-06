@@ -334,7 +334,6 @@ class Diagram(frobenius.Diagram):
     ob = Ty
     grad = tensor.Diagram.grad
     unroll = diagram.Diagram.unroll
-    with_boundaries = diagram.Diagram.with_boundaries
     one_step = diagram.Diagram.one_step
 
     def feedback(self, dom=None, cod=None, mem=None,
@@ -414,9 +413,20 @@ class Diagram(frobenius.Diagram):
         step = self.one_step()
         memory = step.cod[len(self.cod):]
         readout = step >> self.id(self.cod) @ Discard(memory)
-        opened = self if n_steps == 0 else self >> Discard(self.cod)
-        unrolled = opened.with_boundaries(effect=None).unroll(
-            max(n_steps - 1, 0))
+
+        def ar_map(box):
+            if not isinstance(box, Feedback):
+                return box
+            return functor(box.arg).feedback(
+                dom=box.dom, cod=box.cod, mem=box.mem,
+                state=box.state, effect=self.id(box.mem))
+
+        functor = frobenius.Functor(
+            ob_map=lambda x: x, ar_map=ar_map,
+            dom=Diagram, cod=Diagram)
+        opened = functor(
+            self if n_steps == 0 else self >> Discard(self.cod))
+        unrolled = opened.unroll(max(n_steps - 1, 0))
         iterated = unrolled >> self.id(
             unrolled.cod[:len(unrolled.cod) - len(memory)]) @ (
                 Discard(memory) if n_steps == 0 else readout)

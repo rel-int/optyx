@@ -92,11 +92,10 @@ def test_at_time_needs_a_state():
 
 def test_unroll_takes_only_a_number_of_steps():
     """The boundaries belong to `feedback`, so `unroll` has no other
-    parameter; `one_step` and `at_time` rebuild the loops with
-    `with_boundaries` before unrolling."""
+    parameter; `one_step` and `at_time` rebuild each loop with a fresh
+    `feedback` call before unrolling."""
     with pytest.raises(TypeError):
         source().unroll(1, state=None)
-    assert source().unroll(1) == source().with_boundaries().unroll(1)
 
 
 @pytest.mark.parametrize("solver", ["fix", "eigen_fix"])

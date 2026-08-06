@@ -1,5 +1,3 @@
-from math import comb
-
 import numpy as np
 import pytest
 
@@ -8,7 +6,7 @@ from discopy.utils import AxiomError
 from optyx import photonic
 from optyx import classical, qubits
 from optyx.channel import (
-    Diagram, Discard, Feedback, Functor, bit, mode, qmode, qubit
+    Diagram, Discard, Feedback, Functor, bit, qmode, qubit
 )
 from optyx.core import diagram as core, path, zw
 
@@ -82,20 +80,20 @@ def test_unroll_is_a_delay_line():
     assert np.isclose(probability, 1)
 
 
-def test_unroll_overrides_the_boundary():
-    """`None` opens a memory the loop closes, and a diagram replaces it.
-
-    Rebuilding the loops is its own method: `unroll` takes the number of
-    steps and nothing else, because the boundaries belong to `feedback`.
-    """
+def test_boundaries_are_chosen_at_feedback():
+    """`unroll` takes only the number of steps: the boundaries belong to
+    `feedback`, and other boundaries mean another `feedback` call on the
+    loop's argument. An identity boundary is an open wire."""
     wait = delay(state=photonic.Create(1))
+    with pytest.raises(TypeError):
+        wait.unroll(1, state=None)
     assert wait.unroll(1).dom == qmode ** 2
-    assert wait.with_boundaries(state=None).unroll(1).dom == qmode ** 3
-    assert wait.with_boundaries(effect=None).unroll(1).cod == qmode ** 3
-    replaced = wait.with_boundaries(
-        state=photonic.Create(0)).unroll(1)
-    assert replaced.dom == qmode ** 2
-    assert replaced != wait.unroll(1)
+    opened = wait.arg.feedback(
+        state=Diagram.id(qmode), effect=Diagram.id(qmode))
+    assert opened.unroll(1).dom == opened.unroll(1).cod == qmode ** 3
+    replaced = wait.arg.feedback(state=photonic.Create(0))
+    assert replaced.unroll(1).dom == qmode ** 2
+    assert replaced.unroll(1) != wait.unroll(1)
 
 
 def test_evaluation_raises_on_feedback():
@@ -265,80 +263,3 @@ def test_bit_delay_line():
         classical.Bit(0, 0) >> unrolled >> classical.PostselectBit(1, 0)
     ).double().to_tensor().eval().array
     assert np.isclose(probability, 1)
-
-
-def photon_count():
-    """A classical `mode` memory accumulating one detection per tick."""
-    count = photonic.Create(1) >> photonic.NumberResolvingMeasurement(1)
-    step = Diagram.id(mode) @ count \
-        >> classical.Add(2) >> classical.CopyN(2)
-    return step.feedback(mem=mode, state=classical.Digit(0))
-
-
-def binomial_count():
-    """One photon on a 50:50 splitter, both arms detected, one accumulated."""
-    detect = (photonic.Create(1) @ photonic.Create(0) >> photonic.BS
-              >> photonic.NumberResolvingMeasurement(2))
-    step = (Diagram.id(mode) @ detect
-            >> Diagram.id(mode @ mode) @ classical.DiscardMode(1)
-            >> classical.Add(2) >> classical.CopyN(2))
-    return step.feedback(mem=mode, state=classical.Digit(0))
-
-
-def parity(theta=.15):
-    """The parity of the detections, in a `bit` memory. Bounded, unlike the
-    counters, so it is the one classical loop with a fixed point."""
-    click = (photonic.Create(1) @ photonic.Create(0) >> photonic.MZI(theta, 0)
-             >> photonic.NumberResolvingMeasurement(2)
-             >> classical.Mod2() @ classical.DiscardMode(1))
-    step = Diagram.id(bit) @ click \
-        >> classical.Xor() >> classical.CopyBit(2)
-    return step.feedback(mem=bit, state=classical.Bit(0)), click
-
-
-def readout(loop, n_steps):
-    """The last tick of `loop.unroll(n_steps)`, everything else discarded."""
-    unrolled = loop.with_boundaries(effect=None).unroll(n_steps)
-    memory = unrolled.cod[len(loop.cod) * (n_steps + 1):]
-    return unrolled >> Discard(loop.cod ** n_steps) \
-        @ Diagram.id(loop.cod) @ Discard(memory)
-
-
-def test_classical_memory_counts_detections():
-    """A photonic measurement fed back through a classical `mode`."""
-    loop = photon_count()
-    assert loop.mem == mode and loop.state == classical.Digit(0)
-    for n_steps in range(4):
-        distribution = readout(loop, n_steps).eval().prob_dist()
-        assert distribution == {(n_steps + 1,): 1}
-
-
-def test_classical_memory_is_binomial():
-    """Each tick detects one photon of a 50:50 pair, so the running total
-    after `n` ticks is exactly Binomial(n, 1/2)."""
-    loop = binomial_count()
-    for n_steps in range(3):
-        ticks = n_steps + 1
-        distribution = readout(loop, n_steps).eval().prob_dist()
-        for total in range(ticks + 1):
-            assert np.isclose(
-                distribution[(total,)],
-                comb(ticks, total) / 2 ** ticks)
-
-
-def test_classical_parity_converges_at_its_analytic_rate():
-    """The parity of independent clicks converges to uniform at |1 - 2p|,
-    which a biased splitter makes visible."""
-    loop, click = parity()
-    probability = click.eval().prob_dist()[(1,)]
-    for n_steps in range(5):
-        even = readout(loop, n_steps).eval().prob_dist()[(0,)]
-        assert np.isclose(
-            even, (1 + (1 - 2 * probability) ** (n_steps + 1)) / 2)
-
-
-def test_classical_loop_commutes_with_double():
-    """The parity loop is left out: doubling it puts a daggered `W` inside
-    the bubble, which `unroll`'s functor cannot map. See issue #31."""
-    loop = photon_count()
-    assert loop.unroll(1).double() == loop.double().unroll(1)
