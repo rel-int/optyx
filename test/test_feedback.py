@@ -80,13 +80,17 @@ def test_unroll_is_a_delay_line():
     assert np.isclose(probability, 1)
 
 
-def test_unroll_overrides_the_boundary():
-    """`None` opens a memory the loop closes, and a diagram replaces it."""
+def test_with_boundaries_rebuilds_the_loop():
+    """`unroll` takes only the number of steps: the boundaries belong to
+    `feedback`, and `with_boundaries` rebuilds the loops by calling it
+    again. `None` opens a memory the loop closes, a diagram replaces it."""
     wait = delay(state=photonic.Create(1))
+    with pytest.raises(TypeError):
+        wait.unroll(1, state=None)
     assert wait.unroll(1).dom == qmode ** 2
-    assert wait.unroll(1, state=None).dom == qmode ** 3
-    assert wait.unroll(1, effect=None).cod == qmode ** 3
-    replaced = wait.unroll(1, state=photonic.Create(0))
+    assert wait.with_boundaries(state=None).unroll(1).dom == qmode ** 3
+    assert wait.with_boundaries(effect=None).unroll(1).cod == qmode ** 3
+    replaced = wait.with_boundaries(state=photonic.Create(0)).unroll(1)
     assert replaced.dom == qmode ** 2
     assert replaced != wait.unroll(1)
 

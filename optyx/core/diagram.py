@@ -337,15 +337,40 @@ class Diagram(frobenius.Diagram):
                 :meth:`Feedback.default_effect`, the identity on `mem` here
                 and :class:`optyx.channel.Discard` for a channel diagram.
 
+        The boundaries are set here and nowhere else: :meth:`unroll` takes a
+        number of steps and reads them off the loop, so this is where a
+        caller decides what the memory starts and ends as.
+
         >>> wait = Diagram.swap(mode, mode).feedback()
         >>> assert wait.dom == wait.cod == mode
         >>> assert wait.mem == mode
         >>> assert wait.state == wait.effect == Diagram.id(mode)
+
+        Left as the identity, the memory stays open, so unrolling puts it
+        at the end of the domain and of the codomain — two time steps of one
+        mode each, plus the memory:
+
+        >>> assert wait.unroll(1).dom == wait.unroll(1).cod == mode ** 3
+
+        Give it a state and an effect and unrolling plugs them, closing the
+        memory: the loop becomes a delay line emitting `Create(1)` first.
+
+        >>> from optyx.core.zw import Create, Select
+        >>> delay = Diagram.swap(mode, mode).feedback(
+        ...     state=Create(1), effect=Select(0))
+        >>> assert delay.unroll(1).dom == delay.unroll(1).cod == mode ** 2
+        >>> assert delay.state == Create(1) and delay.effect == Select(0)
+
+        To unroll the same loop against other boundaries, rebuild it with
+        :meth:`with_boundaries` rather than passing them to :meth:`unroll`:
+
+        >>> assert delay.with_boundaries(state=None, effect=None).unroll(1) \\
+        ...     == wait.unroll(1)
         """
         return self.feedback_factory(
             self, dom=dom, cod=cod, mem=mem, state=state, effect=effect)
 
-    def unroll(self, n_steps: int = 1, state=..., effect=...) -> Diagram:
+    def unroll(self, n_steps: int = 1) -> Diagram:
         """
         Unroll the feedback loops of a diagram `n_steps` times, by
         interpreting it as a :class:`discopy.stream.Stream`: every box maps
@@ -358,17 +383,15 @@ class Diagram(frobenius.Diagram):
 
         Each loop's :attr:`Feedback.state` is plugged in its input memory
         before the first time step and its :attr:`Feedback.effect` in its
-        output memory after the last one.
+        output memory after the last one. Both are fixed by :meth:`feedback`,
+        so the number of steps is the only parameter here; to unroll against
+        other boundaries, rebuild the loops with :meth:`with_boundaries`
+        first. A loop whose boundary is the identity on its memory keeps
+        that memory open, at the end of the domain and of the codomain.
 
         Parameters:
             n_steps : The number of unrollings, one fewer than the number of
                 time steps.
-            state : Overrides the boundary plugged in the input memory, over
-                the whole memory rather than one loop at a time. `None`
-                leaves that memory open, at the end of the domain; the
-                default uses each loop's own :attr:`Feedback.state`.
-            effect : Overrides the boundary plugged in the output memory the
-                same way. `None` leaves it open, at the end of the codomain.
 
         A feedback loop over a swap acts as a delay line: it outputs its
         `state` at the first time step, then its previous input.
@@ -382,11 +405,6 @@ class Diagram(frobenius.Diagram):
         ...     ).to_tensor().eval().array
         >>> assert np.isclose(amplitude, 1)
 
-        Overriding with `None` opens the memory again, so the domain and
-        codomain each grow by the memory of the loop:
-
-        >>> open_wires = wait.unroll(1, state=None, effect=None)
-        >>> assert open_wires.dom == open_wires.cod == mode ** 3
         """
         if n_steps < 0:
             raise ValueError("n_steps must be at least 0.")
@@ -413,11 +431,45 @@ class Diagram(frobenius.Diagram):
         initial, final = (self.id(type(mem)()).tensor(*(
             getattr(loop, attr) for loop in loops))
             for attr in ("state", "effect"))
-        if state is not ...:
-            initial = self.id(mem) if state is None else state
-        if effect is not ...:
-            final = self.id(mem) if effect is None else effect
         return self.id(dom) @ initial >> unrolled >> self.id(cod) @ final
+
+    def with_boundaries(self, state=..., effect=...) -> Diagram:
+        """
+        This diagram with every feedback loop rebuilt against these
+        boundaries, so that they are still only ever defined by
+        :meth:`feedback`.
+
+        Parameters:
+            state : Replaces the boundary plugged in each input memory.
+                `None` leaves that memory open, by making the boundary the
+                identity on it; the default `...` keeps each loop's own
+                :attr:`Feedback.state`.
+            effect : Replaces the boundary plugged in each output memory the
+                same way.
+
+        Opening both is what :meth:`one_step` does, and it grows the domain
+        and the codomain by the memory of the loop:
+
+        >>> from optyx.core.zw import Create, Select
+        >>> wait = Diagram.swap(mode, mode).feedback(
+        ...     state=Create(1), effect=Select(0))
+        >>> opened = wait.with_boundaries(state=None, effect=None).unroll(1)
+        >>> assert opened.dom == opened.cod == mode ** 3
+        """
+        def ar_map(box):
+            if not isinstance(box, self.feedback_factory):
+                return box
+            opened = box.arg.id(box.mem)
+            return box.arg.with_boundaries(state, effect).feedback(
+                dom=box.dom, cod=box.cod, mem=box.mem,
+                state=box.state if state is ... else (
+                    opened if state is None else state),
+                effect=box.effect if effect is ... else (
+                    opened if effect is None else effect))
+
+        return frobenius.Functor(
+            ob_map=lambda x: x, ar_map=ar_map,
+            dom=self.factory, cod=self.factory)(self)
 
     def one_step(self) -> Diagram:
         """
@@ -425,9 +477,9 @@ class Diagram(frobenius.Diagram):
         `dom @ mem` to `cod @ mem`, with no :class:`Feedback` box left and
         the memory at the boundary.
 
-        It is `unroll(0, state=None, effect=None)`: zero unrollings is one
-        time step, and opening both boundaries leaves the memory on the
-        wires rather than plugging it.
+        It is `with_boundaries(state=None, effect=None).unroll(0)`: zero
+        unrollings is one time step, and a loop with no boundaries keeps its
+        memory on the wires rather than plugging it.
 
         >>> step = Diagram.swap(mode, mode)
         >>> wait = step.feedback()
@@ -436,7 +488,7 @@ class Diagram(frobenius.Diagram):
         >>> assert wait.feedback_factory(step, state=Create(1)).one_step()\\
         ...     == step
         """
-        return self.unroll(0, state=None, effect=None)
+        return self.with_boundaries(state=None, effect=None).unroll(0)
 
     # pylint: disable=too-many-locals
     def to_tensor(

@@ -252,6 +252,7 @@ class Diagram(frobenius.Diagram):
     grad = tensor.Diagram.grad
     unroll = diagram.Diagram.unroll
     one_step = diagram.Diagram.one_step
+    with_boundaries = diagram.Diagram.with_boundaries
 
     def feedback(self, dom=None, cod=None, mem=None,
                  state=None, effect=None) -> Diagram:
