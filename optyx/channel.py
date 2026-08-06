@@ -88,10 +88,10 @@ diagonalising the transfer matrix of one step:
 .. image:: /_static/at_time.png
     :align: center
 
-:meth:`Diagram.unroll_depth` turns a loss per round trip into a depth which
-is a guarantee rather than a search, and :meth:`Diagram.truncation_dimensions`
-reads each memory wire's photon budget off the diagram, which is the cutoff
-:meth:`Diagram.eigen_fix` diagonalises at.
+:meth:`Diagram.unroll_depth` reads the passive loop block and fresh Fock
+occupation to certify a depth, with or without round-trip loss.
+:meth:`Diagram.truncation_dimensions` reads each memory wire's photon budget
+off the diagram, which is the cutoff :meth:`Diagram.eigen_fix` diagonalises at.
 
 See :doc:`/notebooks/fixpoints` for what each of these returns, and for
 using them to simulate feedback boson sampling.
@@ -336,6 +336,23 @@ def _lossy(memory, loss):
         else Diagram.id(Ty(ob.name)) for ob in memory.inside))
 
 
+def _with_loss(stateful, loss):
+    """Add uniform round-trip loss to every optical feedback memory."""
+    def ar_map(box):
+        if not isinstance(box, Feedback):
+            return box
+        arg = _with_loss(box.arg, loss) \
+            >> Diagram.id(box.cod) @ _lossy(box.mem, loss)
+        return arg.feedback(
+            dom=box.dom, cod=box.cod, mem=box.mem,
+            state=_with_loss(box.state, loss),
+            effect=_with_loss(box.effect, loss))
+
+    return frobenius.Functor(
+        ob_map=lambda x: x, ar_map=ar_map,
+        dom=Diagram, cod=Diagram)(stateful)
+
+
 def unroll_certificate(unitary, loop_modes: int, tol: float = 1e-6,
                        max_photons: int = 1, loss: float = 0,
                        max_steps: int = 10 ** 6) -> int:
@@ -391,8 +408,8 @@ def unroll_certificate(unitary, loop_modes: int, tol: float = 1e-6,
             f"loop_modes must be in [1, {len(matrix)}], the last wires of "
             "the unitary.")
     if not isinstance(max_photons, Integral) \
-            or isinstance(max_photons, bool) or max_photons <= 0:
-        raise ValueError("max_photons must be a positive integer.")
+            or isinstance(max_photons, bool) or max_photons < 0:
+        raise ValueError("max_photons must be a non-negative integer.")
     if not isinstance(tol, Real) or isinstance(tol, bool) \
             or not np.isfinite(tol) or tol <= 0:
         raise ValueError("tol must be a positive finite real number.")
@@ -597,38 +614,91 @@ class Diagram(frobenius.Diagram):
                 "(state >> self).normalisation().")
         return (self >> Discard(self.cod)).double().to_tensor().eval().array
 
-    def unroll_depth(self, tol: float = 1e-6, loss: float = 0):
+    def unroll_depth(
+            self, tol: float = 1e-6, loss: float = 0,
+            max_steps: int = None) -> int | None:
         """
-        The number of time steps at which unrolling approximates the fixed
-        point within `tol`.
+        The smallest number of time steps whose last output is certified
+        within `tol`. Its first `k` steps are the burn-in certified by
 
-        A memory which loses a fraction `loss` of itself per round trip
-        forgets at least that much whatever the rest of the loop does, which
-        bounds the second eigenvalue modulus of the transfer channel by the
-        transmissivity :math:`\\gamma = 1 - loss` uniformly over diagrams —
-        see :doc:`/notebooks/fixpoints`, where the bound is proved and
-        sharpened to an equality. So
+        .. math::
+            \\Gamma(k) = 4 K(\\bar q) \\sum_r \\arcsin^2\\!\\left(
+                (1 - loss)^{k / 2}\\sigma_r(U_{ll}^k)\\right).
 
-        .. math:: n^\\star
-            = \\lceil\\log(tol) / \\log(\\gamma)\\rceil
+        Here `U_ll` is the loop-to-loop block of the one-step passive optical
+        matrix and `qbar` is the largest fresh Fock occupation. The calculation
+        is on `len(mem)` square matrices only; it builds no Fock-space state.
+        It applies with or without loss. One final step reads the output after
+        the certified memory state. If `max_steps` is given, `None` means that
+        its cap was reached before the bound fell below `tol`.
 
-        is a depth rather than a guess, and it does not grow with the memory.
-        Without loss no finite depth is guaranteed here: the gap depends on
-        the diagram and can be arbitrarily close to one. For a
-        linear-optical loop, :func:`unroll_certificate` reads a depth off
-        the loop block of the interferometer instead, with no loss needed
-        (issue #32).
-
-        >>> loop = Diagram.swap(qmode, qmode).feedback()
-        >>> assert loop.unroll_depth(1e-6, loss=.5) == 20
-        >>> assert loop.unroll_depth(1e-6, loss=.05) == 270
+        >>> from optyx import photonic
+        >>> loop = (photonic.Create(1) @ qmode
+        ...     >> Diagram.swap(qmode, qmode)).feedback(
+        ...         mem=qmode, state=photonic.Create(0))
+        >>> assert loop.unroll_depth(1e-6) == 2
         """
-        if not isinstance(loss, Real) or isinstance(loss, bool) \
-                or not 0 < loss < 1:
+        _validate(self, tol, loss, None)
+        if max_steps is not None and (
+                not isinstance(max_steps, Integral)
+                or isinstance(max_steps, bool) or max_steps <= 0):
+            raise ValueError("max_steps must be a positive integer.")
+
+        def loss_depth():
+            """The PR26 fallback when no optical matrix can be read."""
+            if not loss:
+                raise NotImplementedError(
+                    "No lossless depth is certified for this diagram.")
+            depth = int(np.ceil(np.log(tol) / np.log(1 - loss)))
+            return depth if max_steps is None or depth <= max_steps else None
+
+        loops = [box for box in self.boxes if isinstance(box, Feedback)]
+        if len(loops) != 1 or loops[0].dom or any(
+                ob.inside[0].name != "qmode" for ob in loops[0].mem):
+            return loss_depth()
+        loop = loops[0]
+        try:
+            matrix = loop.arg.to_path()
+        except (AssertionError, NotImplementedError, TypeError, ValueError) \
+                as error:
+            try:
+                return loss_depth()
+            except NotImplementedError as unsupported:
+                raise unsupported from error
+        memory, visible = len(loop.mem), len(loop.cod)
+        if matrix.dom != memory or matrix.cod != visible + memory \
+                or matrix.selections:
+            return loss_depth()
+        try:
+            unitary = np.asarray(matrix.array, dtype=complex)
+        except (TypeError, ValueError) as error:
+            try:
+                return loss_depth()
+            except NotImplementedError as unsupported:
+                raise unsupported from error
+        if unitary.shape[0] != unitary.shape[1] or not np.allclose(
+                unitary @ unitary.conjugate().T, np.eye(len(unitary))):
+            return loss_depth()
+        loop_block = unitary[:memory, visible:visible + memory]
+        if not loss and max(
+                abs(np.linalg.eigvals(loop_block)), default=0) >= 1:
+            if max_steps is not None:
+                raise NotImplementedError(
+                    "The lossless loop block does not satisfy rho(U_ll) < 1.")
             raise ValueError(
-                "A depth is only guaranteed for a loss in (0, 1), got "
-                f"loss={loss}.")
-        return int(np.ceil(np.log(tol) / np.log(1 - loss)))
+                "The lossless loop block does not satisfy rho(U_ll) < 1.")
+        last = np.ix_(
+            [*range(memory, len(unitary)), *range(memory)],
+            [*range(visible), *range(visible + memory, len(unitary)),
+             *range(visible, visible + memory)])
+        try:
+            return 1 + unroll_certificate(
+                unitary[last], memory, tol=tol,
+                max_photons=max(matrix.creations, default=0), loss=loss,
+                max_steps=max_steps - 1 if max_steps is not None
+                else 10 ** 6)
+        except ValueError:
+            return None
 
     def truncation_dimensions(self) -> list[int]:
         """
@@ -680,44 +750,41 @@ class Diagram(frobenius.Diagram):
         limit of :meth:`at_time` only when iteration converges; periodic
         channels can have a fixed state while their iterates cycle.
 
-        The depth is the most efficient available: the certificate
-        :meth:`unroll_depth` gives when there is a `loss`, or `max_steps`
-        when there is none or when the certificate is deeper. Each situation
-        where the result is not the fixed point within `tol` has its own
-        warning: a depth no loss certifies, and a `chi` below the dimensions
-        the network needs — read off by :meth:`truncation_dimensions` — which
-        truncates the contraction to an approximation. Where the transfer
-        matrix fits in memory, :meth:`eigen_fix` is exact with no depth at
-        all; it is public and called directly.
+        The depth is the smallest one certified by :meth:`unroll_depth`, with
+        or without loss, capped by `max_steps`. A positive `loss` also inserts
+        that uniform loss on every optical memory wire. Each situation where
+        the result is not certified within `tol` has its own warning: the
+        stationary boson-sampling certificate does not apply, `max_steps`
+        stops before it succeeds, or `chi` is below the dimensions read off by
+        :meth:`truncation_dimensions`. Where the transfer matrix fits in
+        memory, :meth:`eigen_fix` is exact with no depth at all.
 
         Parameters:
             tol : The error the certified depth approximates the fixed point
                 within.
-            loss : The fraction of the memory lost per round trip. A positive
-                loss is what makes the depth a guarantee, see
-                :meth:`unroll_depth`.
+            loss : The fraction lost per round trip, inserted on every optical
+                memory wire. Loss shortens the certificate but is not required
+                when the loop leaks into its visible ports.
             chi : The bond dimension of the contraction. The public
                 `DEFAULT_CHI` of eight by default — what a laptop contracts
                 in seconds. `None` contracts exactly, whatever that costs.
-            max_steps : The number of time steps to unroll when no loss
-                certifies a smaller one — the handle that keeps a lossless
-                loop usable in practice. The public `DEFAULT_MAX_STEPS` of
-                sixty-four by default.
+            max_steps : The maximum number of time steps, including the final
+                readout. The public `DEFAULT_MAX_STEPS` is sixty-four.
             backend : An optional
                 :class:`optyx.core.backends.AbstractBackend`. DisCoPy
                 evaluates with ``tensor.Functor``; Quimb contracts the same
                 doubled network with an optimised path, compressed to `chi`.
 
-        A loop which reprepares its memory at every time step forgets its
-        initial state, so it is its own stationary state; five steps of a
-        half-lossy memory are certified within one percent:
+        A delay whose loop block vanishes forgets its initial state after one
+        step; the following step reads its stationary output:
 
-        >>> from optyx.qubits import Ket
-        >>> source = (Discard(qubit) @ Ket(0) @ Ket(0)).feedback(
-        ...     mem=qubit, state=Ket(1))
-        >>> assert source.unroll_depth(1e-2, loss=.5) == 7
-        >>> fixed = source.fix(tol=1e-2, loss=.5)
-        >>> assert np.allclose(fixed.density_matrix, [[1, 0], [0, 0]])
+        >>> from optyx import photonic
+        >>> delay = (photonic.Create(1) @ qmode
+        ...     >> Diagram.swap(qmode, qmode)).feedback(
+        ...         mem=qmode, state=photonic.Create(0))
+        >>> assert delay.unroll_depth(1e-6, loss=.5) == 2
+        >>> fixed = delay.fix(tol=1e-6, loss=.5, chi=None)
+        >>> assert np.allclose(fixed.density_matrix, [[.5, 0], [0, .5]])
 
         See :doc:`/notebooks/fixpoints` for the semantic diagram, agreement
         map and contraction planning.
@@ -735,20 +802,25 @@ class Diagram(frobenius.Diagram):
             raise ValueError(
                 "backend must implement the AbstractBackend interface.")
 
-        certified = self.unroll_depth(tol, loss) if loss else None
-        depth = max_steps if certified is None \
-            else min(certified, max_steps)
-        network = self.at_time(depth - 1)
-        if certified is None:
+        try:
+            certified = self.unroll_depth(tol, loss, max_steps)
+        except NotImplementedError:
+            certified, unsupported = None, True
+        else:
+            unsupported = False
+        depth = max_steps if certified is None else certified
+        stateful = _with_loss(self, loss) if loss else self
+        network = stateful.at_time(depth - 1)
+        if unsupported:
             warnings.warn(
-                f"no loss certifies {depth} time steps within tol={tol}: "
-                "the result is the finite-time state, exact but not a "
-                "guaranteed fixed point.", UserWarning, stacklevel=2)
-        elif certified > max_steps:
+                "the stationary boson-sampling certificate does not apply: "
+                f"the result after {depth} time steps is not guaranteed "
+                f"within tol={tol}.", UserWarning, stacklevel=2)
+        elif certified is None:
             warnings.warn(
-                f"max_steps={max_steps} stops short of the certified depth "
-                f"{certified}: the result is not guaranteed within "
-                f"tol={tol}.", UserWarning, stacklevel=2)
+                f"max_steps={max_steps} stops before the stationary "
+                f"boson-sampling bound reaches tol={tol}: the result is not "
+                "certified.", UserWarning, stacklevel=2)
 
         needed = max(network.truncation_dimensions(), default=1)
         if chi is not None and needed > chi:
