@@ -52,7 +52,7 @@ representation is retained.
 - [x] At the largest affordable local three-tick configuration, compare
       conditional depths 8, 16 and 32 under the fixed pilot budget, then scale
       only the held-out winner.
-- [ ] Execute the notebook in a fresh GPU-only kernel, record the limit and
+- [WIP] @codex-019fd73e-2026-08-06 19:55 Execute the notebook in a fresh GPU-only kernel, record the limit and
       learning results, and update the conclusions and unchecked suggestions.
 
 The full-map ladder reached all 12,849 parameters without pressure from box
