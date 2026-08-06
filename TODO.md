@@ -158,7 +158,7 @@ about 1,200 further contractions.
       bipartite, nearest-neighbour-ring and all-pairs box ansatzes under the
       fixed pilot budget; scale only the validation winner and record timings,
       contraction counts, losses, per-cell accuracy and full-grid solve rate.
-- [ ] If none of the three ansatzes beats random per-cell accuracy after the
+- [WIP] @Codex-2026-08-06 17:52 If none of the three ansatzes beats random per-cell accuracy after the
       pilot, stop before the scale-up and diagnose the four-way energy and
       gradient distributions instead of spending the winner budget.
 
