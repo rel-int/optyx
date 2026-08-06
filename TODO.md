@@ -154,7 +154,7 @@ memory near the original four-contraction update. Only the winner is allowed
 the remaining 144 train cases and a broader held-out evaluation, budgeted at
 about 1,200 further contractions.
 
-- [ ] Build the disjoint 192/64 uniquely-solvable dataset and compare the
+- [WIP] @Codex-2026-08-06 17:38 Build the disjoint 192/64 uniquely-solvable dataset and compare the
       bipartite, nearest-neighbour-ring and all-pairs box ansatzes under the
       fixed pilot budget; scale only the validation winner and record timings,
       contraction counts, losses, per-cell accuracy and full-grid solve rate.
