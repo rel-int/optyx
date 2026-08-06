@@ -45,7 +45,7 @@ representation is retained.
       `(ticks, chi)`, and add timed MPS-memory diagnostics.
 - [x] Run the increasing GPU contraction ladder over two to four ticks and
       `chi` in `{4, 8, 16}`, respecting the time and memory stop conditions.
-- [ ] Replace the over-budget full-map per-cell loss by the induced local
+- [WIP] @codex-019fd73e-2026-08-06 19:40 Replace the over-budget full-map per-cell loss by the induced local
       `CMap` containing the target, its seven peers and its three constraints;
       close missing message ports with `|+>` states/effects and rerun the
       three-tick ladder.
