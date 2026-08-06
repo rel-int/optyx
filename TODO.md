@@ -43,7 +43,7 @@ representation is retained.
 - [x] Implement the vectorised conditional-rotation ansatz and configurable
       compression rank, cache one deterministic Cotengra path per
       `(ticks, chi)`, and add timed MPS-memory diagnostics.
-- [ ] Run the increasing GPU contraction ladder over two to four ticks and
+- [WIP] @codex-019fd73e-2026-08-06 19:35 Run the increasing GPU contraction ladder over two to four ticks and
       `chi` in `{4, 8, 16}`, respecting the time and memory stop conditions.
 - [ ] At the largest affordable three-tick configuration, compare conditional
       depths 8, 16 and 32 under the fixed pilot budget, then scale only the
