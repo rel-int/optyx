@@ -56,7 +56,7 @@ memories, and the compact closed structure glues along message ports only.
       prediction=qubit ** 2)` — three messages read, three written, one
       internal memory qubit, two prediction qubits; constraints stay
       `Box(qubit ** 4, qubit ** 4, channel)` with no memory or prediction.
-- [ ] Cell channels become shared trainable isometries
+- [WIP] @codex-2026-08-06 15:28 Cell channels become shared trainable isometries
       `qubit ** 7 -> qubit ** 9`: a parameterised nine-qubit real unitary
       applied to the input tensored with two fresh ancillas, keeping the
       rotation-layer parameterisation and the parameter count comparable
