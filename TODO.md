@@ -15,6 +15,12 @@
 
 > Also rebase on the fixpoint PR
 
+> Check out the TODO.md in [rel-int/optyx#16](https://github.com/rel-int/optyx/pull/16).
+> Let's solve these sudokus with recurrent channels! Use at_time with small
+> unroll steps instead of fix in the experiments, as we are not sure it will
+> converge. Decide between Jax and PyTorch to differentiate the tensor networks.
+> Run the experiments in the notebook.
+
 Stacked on #16 and merged with the fixpoint PR #15. Mathematically, a box
 `X -> Y` of a `CMap` now carries three kinds of wires: the message ports
 `X @ Y`, read and written at every step and pairable by edges; a private
@@ -25,6 +31,13 @@ step but never read. The process inside the box is a channel
 ports: the predictions are appended to the codomain of the `protocol`
 diagram only, its `mem` is the paired ports followed by the internal
 memories, and the compact closed structure glues along message ports only.
+
+The experiment below uses the finite semantics of `at_time(1)`, i.e. two
+recurrent ticks, instead of assuming convergence of `fix`. Its direct
+`tensor.CMap` representation keeps the same recurrent index routing without
+materialising the 240-wire permutations. PyTorch was chosen for autodiff:
+compressed gradients pass on this machine, whereas the installed experimental
+JAX Metal backend fails its basic complex-array contraction (reported as #43).
 
 ## `interaction.Box` with memory and prediction
 
@@ -51,31 +64,31 @@ memories, and the compact closed structure glues along message ports only.
 
 ## Sudoku with one qubit of cell memory
 
-- [WIP] @codex-2026-08-06 15:28 Rebuild the notebook map: a cell is
+- [x] Rebuild the notebook map: a cell is
       `Box("cell", qubit ** 3, qubit ** 3, channel, memory=qubit,
       prediction=qubit ** 2)` — three messages read, three written, one
       internal memory qubit, two prediction qubits; constraints stay
       `Box(qubit ** 4, qubit ** 4, channel)` with no memory or prediction.
-- [WIP] @codex-2026-08-06 15:28 Cell channels become shared trainable isometries
+- [x] Cell channels become shared trainable isometries
       `qubit ** 7 -> qubit ** 9`: a parameterised nine-qubit real unitary
       applied to the input tensored with two fresh ancillas, keeping the
       rotation-layer parameterisation and the parameter count comparable
       to #16; constraint channels keep their eight-qubit unitary.
-- [WIP] @codex-2026-08-06 15:28 Check the topology: 96 edges and 192 paired memory wires as in #16,
+- [x] Check the topology: 96 edges and 192 paired memory wires as in #16,
       plus 16 internal memory wires (208 total), empty `dom` and a `cod` of
       32 prediction qubits per step.
-- [WIP] @codex-2026-08-06 15:28 Move clue injection entirely to the write side: at every step the
+- [x] Move clue injection entirely to the write side: at every step the
       prediction output of a clue cell is postselected on its digit, free
       cells meet uniform effects at intermediate steps and the candidate
       digit at the last step; pick and document the initial memory state.
-- [WIP] @codex-2026-08-06 15:28 Update `unrolled_tensor_map`: internal memory ports connect a box to
+- [x] Update `at_time_tensor_map`: internal memory ports connect a box to
       itself at the next step, prediction ports get one effect per step and
       no read; keep the direct `tensor.CMap` construction without a
       materialised permutation.
 
 ## Solving the task
 
-- [WIP] @codex-2026-08-06 15:28 Replace two-candidate ranking by a per-cell readout: score the four
+- [x] Replace two-candidate ranking by a per-cell readout: score the four
       digits of every hidden cell from the last-step prediction amplitudes,
       and report per-cell argmax accuracy and the full-grid solve rate on
       the held-out puzzles, alongside the ranking metric of #16.
@@ -89,9 +102,18 @@ memories, and the compact closed structure glues along message ports only.
 - [ ] Ablate the memory: run the same experiment with `memory=Ty()` at a
       matched parameter count and report whether the qubit of internal
       memory improves the held-out metrics.
-- [ ] Stretch: probe `CMap.fix` on one cell with its memory qubit, towards
-      reading the number of message-passing steps off the certified depth
-      of the stationary semantics during training.
+- [x] Replace the `CMap.fix` probe with `at_time(1)` on one recurrent wire;
+      one unrolling gives two explicit ticks without assuming that the learned
+      channel has converged.
+
+## Executed finite-time experiment
+
+- [x] PyTorch/Cotengra, `unroll_steps=1`, `max_bond=4`, 24 four-way updates:
+      initial gradient norm 6.909; held-out correct-candidate probability
+      0.4984 -> 0.5020; per-cell accuracy 21.9% -> 34.4%; candidate accuracy
+      stayed at 50%; full-grid solve rate stayed at 0/4. A 96-update sweep
+      reduced per-cell accuracy to 25%, so longer training is not assumed to
+      help without a better schedule or batching.
 
 ## Scaling on a Mac Mini
 
@@ -137,7 +159,7 @@ memories, and the compact closed structure glues along message ports only.
 - [x] PyTorch gradient through the memory wire: a rotation on the memory
       qubit of a two-step readout network, contracted with
       `contract_tensor`, matches the analytic Born score and gradient.
-- [WIP] @codex-2026-08-06 15:28 Notebook assertions: topology counts, non-zero initial gradient,
+- [x] Notebook assertions: topology counts, non-zero initial gradient,
       held-out metrics improving over their initial values, fresh-kernel
       execution.
 
