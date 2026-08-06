@@ -432,7 +432,6 @@ class Diagram(frobenius.Diagram):
             for attr in ("state", "effect"))
         return self.id(dom) @ initial >> unrolled >> self.id(cod) @ final
 
-
     def with_boundaries(self, state=..., effect=...) -> Diagram:
         """
         This diagram with every feedback loop rebuilt against these
