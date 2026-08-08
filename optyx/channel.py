@@ -138,7 +138,7 @@ dual-rail encoding. For example, we can create a GHZ state:
 >>> ghz = Z(0, 3)
 >>> ghz_path = ghz.to_dual_rail()
 >>> Equation(ghz >> DualRail(3), ghz_path, \\
-... symbol="$\\mapsto$").draw(figsize=(10, 10), \\
+... symbol="$\\\\mapsto$").draw(figsize=(10, 10), \\
 ... path="docs/_static/ghz_dr.svg")
 
 .. image:: /_static/ghz_dr.svg
