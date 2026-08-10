@@ -30,17 +30,27 @@ def _compare_prob_for_outcome(diagram, outcome):
     return float(d.get(outcome, 0.0))
 
 @pytest.mark.skip(reason="Helper function for testing")
-def chip_mzi(w, l):
+def chip_mzi(w, l, seed=0):
     ansatz = photonic.ansatz(w, l)
-    symbs = list(ansatz.free_symbols)
-    s = [(i, np.random.uniform(0, 1)) for i in symbs]
+    # sorted() makes the parameter order reproducible: free_symbols is a
+    # set, whose iteration order depends on sympy Symbol hashing, which in
+    # turn depends on PYTHONHASHSEED.
+    symbs = sorted(ansatz.free_symbols, key=str)
+    rng = np.random.default_rng(seed)
+    s = [(i, rng.uniform(0, 1)) for i in symbs]
     return ansatz.subs(*s)
+
+# Compression error between the exact and compressed QuimbBackend, e.g. in
+# TestQuimbBackend below, can reach ~1e-3 relative / ~1e-6 absolute on some
+# ansatz draws, see #17. Every other comparison in this module is exact vs
+# exact and keeps dict_allclose's tight default tolerance.
+COMPRESSION_TOL = dict(rel_tol=1e-3, abs_tol=1e-6)
 
 PURE_CIRCUITS_TO_TEST = [
     photonic.BS,
     photonic.Phase(0.2) @ photonic.Phase(0.3) >> photonic.TBS(0.3),
     photonic.MZI(0.2, 0.8),
-    chip_mzi(4, 4)
+    chip_mzi(4, 4, seed=0)
 ]
 
 MIXED_CIRCUITS_TO_TEST = [
@@ -58,7 +68,7 @@ MIXED_CIRCUITS_TO_TEST = [
 
 CIRCUITS_WITH_DISCARDS_TO_TEST = [
     photonic.BS @ photonic.BS >> photonic.Discard(1) @ photonic.qmode**3,
-    chip_mzi(4, 4) >> photonic.Discard(1) @ photonic.qmode**3
+    chip_mzi(4, 4, seed=1) >> photonic.Discard(1) @ photonic.qmode**3
 ]
 
 @pytest.mark.skip(reason="Helper function for testing")
@@ -91,16 +101,20 @@ class TestQuimbBackend:
         assert dict_allclose(
             result_exact.prob_dist(),
             result_approx.prob_dist(),
+            **COMPRESSION_TOL,
         )
 
         assert dict_allclose(
             result_exact.amplitudes(),
             result_approx.amplitudes(),
+            **COMPRESSION_TOL,
         )
 
         assert np.allclose(
             result_exact.tensor.array,
             result_approx.tensor.array,
+            rtol=COMPRESSION_TOL["rel_tol"],
+            atol=COMPRESSION_TOL["abs_tol"],
         )
 
     @pytest.mark.parametrize("circuit", MIXED_CIRCUITS_TO_TEST)
