@@ -15,13 +15,13 @@ optyx#15's `test_adaptive_defaults`, though this fix does not assume that
 flake is fully explained by it). Separately, the function's silent
 zero-filling (`data[data == 0] = epsilon`) was undocumented.
 
-- [ ] Replace the module-level `np.random.normal` call with a local
+- [x] Replace the module-level `np.random.normal` call with a local
       `numpy.random.Generator` (`np.random.default_rng(seed)`) constructed
       fresh inside `preprocess_quimb_tensors_safe`, with an optional
       `seed` keyword argument defaulting to `0` so repeated calls on the
       same input are bit-identical by default, while still letting a
       caller override the seed if ever needed.
-- [ ] Document the zero-filling behaviour in the function's docstring
+- [x] Document the zero-filling behaviour in the function's docstring
       (perturbs rank-deficient 2D tensors and replaces exact zeros with
       `epsilon` before quimb's SVD-based contraction, and why) per
       STYLE.md's "speaks for itself" guideline — no behaviour change.
