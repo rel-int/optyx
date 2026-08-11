@@ -8,7 +8,7 @@ from optyx import classical, qubits
 from optyx.channel import (
     Diagram, Discard, Feedback, Functor, bit, qmode, qubit
 )
-from optyx.core import diagram as core, path, zw
+from optyx.core import diagram as core, path, zw, zx
 
 
 def delay(state=None, effect=None):
@@ -261,3 +261,29 @@ def test_bit_delay_line():
         classical.Bit(0, 0) >> unrolled >> classical.PostselectBit(1, 0)
     ).double().to_tensor().eval().array
     assert np.isclose(probability, 1)
+
+
+def test_simplify_picks_the_diagram_with_fewest_swaps():
+    """The simplified unrolling has the same tensor and fewer swaps,
+    and the spiders survive the round-trip instead of fusing."""
+    cnot = zx.Z(1, 2) @ core.bit \
+        >> core.bit @ zx.X(2, 1) @ core.Scalar(2 ** 0.5)
+    plus = core.Scalar(0.5 ** 0.5) @ zx.Z(0, 1)
+    ladder = (cnot >> core.Diagram.swap(core.bit, core.bit)).feedback(
+        state=plus)
+    unrolled = ladder.unroll(2)
+    simplified = unrolled.simplify()
+
+    def n_swaps(diagram):
+        return sum(isinstance(box, core.Swap) for box in diagram.boxes)
+
+    assert n_swaps(simplified) < n_swaps(unrolled)
+    assert sorted(
+        box.name for box in simplified.boxes
+        if not isinstance(box, core.Swap)) == sorted(
+        box.name for box in unrolled.boxes
+        if not isinstance(box, core.Swap))
+    assert np.allclose(
+        simplified.to_tensor().eval().array,
+        unrolled.to_tensor().eval().array)
+    assert ladder.simplify() == ladder

@@ -488,6 +488,33 @@ class Diagram(frobenius.Diagram):
         """
         return self.unroll(0, state=False, effect=False)
 
+    def simplify(self) -> Diagram:
+        """
+        Reduce the number of swaps by translating back and forth to
+        :class:`Hypergraph`, scanning once from each boundary and picking
+        the diagram with the fewest swaps — the diagram itself in case of
+        a tie, so simplifying never adds a crossing.
+
+        The scan from the codomain goes through the dagger, so a diagram
+        with a box that has none (e.g. a feedback loop) is only scanned
+        from the domain.
+
+        >>> swaps = Diagram.swap(bit, bit) >> Diagram.swap(bit, bit)
+        >>> assert swaps.simplify() == Diagram.id(bit @ bit)
+        """
+        def n_swaps(diagram):
+            return sum(
+                isinstance(box, self.braid_factory) for box in diagram.boxes)
+
+        graph = self.hypergraph_factory[self.factory]
+        candidates = [self, graph.from_diagram(self).to_diagram()]
+        try:
+            candidates.append(
+                graph.from_diagram(self.dagger()).to_diagram().dagger())
+        except NotImplementedError:
+            pass
+        return min(candidates, key=n_swaps)
+
     # pylint: disable=too-many-locals
     def to_tensor(
         self, input_dims: list = None
@@ -1293,8 +1320,8 @@ class Feedback(monoidal.Bubble, Box):
     >>> cnot = Z(1, 2) @ bit >> bit @ X(2, 1) @ Scalar(2 ** 0.5)
     >>> plus = Scalar(0.5 ** 0.5) @ Z(0, 1)
     >>> ladder = (cnot >> Diagram.swap(bit, bit)).feedback(state=plus)
-    >>> Equation(ladder, ladder.unroll(2), symbol="$\\mapsto$").draw(
-    ...     path="docs/_static/cnot_ladder.svg")
+    >>> Equation(ladder, ladder.unroll(2).simplify(), symbol="$\\mapsto$"
+    ...     ).draw(path="docs/_static/cnot_ladder.svg")
 
     .. image:: /_static/cnot_ladder.svg
         :align: center
@@ -1413,8 +1440,14 @@ class Functor(frobenius.Functor):
         return super().__call__(other)
 
 
-class Hypergraph(hypergraph.Hypergraph):  # pragma: no cover
-    functor = Functor
+class Hypergraph(hypergraph.Hypergraph):
+    """
+    A hypergraph whose functor keeps spiders as boxes: `bit` carries two
+    frobenius structures — :class:`optyx.core.zx.Z` and
+    :class:`optyx.core.zx.X` — so neither can dissolve into the wiring,
+    only the symmetric structure of the swaps does.
+    """
+    functor = symmetric.Functor
 
 
 bit = Bit(1)
