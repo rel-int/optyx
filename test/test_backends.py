@@ -10,11 +10,13 @@ from optyx.core.backends import (
     PermanentBackend,
     PercevalEvalConfig
 )
+from optyx.utils.misc import preprocess_quimb_tensors_safe
 import numpy as np
 import math
 from itertools import chain
 import perceval as pcvl
 import discopy.tensor as discopy_tensor
+from quimb.tensor import Tensor, TensorNetwork
 
 unitary_circuit = photonic.BS
 non_unitary_circuit = (
@@ -76,6 +78,21 @@ def dict_allclose(d1: dict, d2: dict, *, rel_tol=1e-05, abs_tol=1e-10) -> bool:
         if not math.isclose(v1, v2, rel_tol=rel_tol, abs_tol=abs_tol):
             return False
     return True
+
+def test_preprocess_quimb_tensors_safe_is_deterministic():
+    # Regression test for optyx#19: the rank-deficiency perturbation used
+    # to draw from the global unseeded RNG, so two calls on the same
+    # rank-deficient tensor could return different, non-reproducible data.
+    rank_deficient = np.array([[1.0, 2.0], [2.0, 4.0]])
+
+    def _preprocessed():
+        tn = TensorNetwork(
+            [Tensor(rank_deficient.copy(), inds=('a', 'b'), tags={'A'})]
+        )
+        preprocess_quimb_tensors_safe(tn)
+        return tn['A'].data.copy()
+
+    assert np.array_equal(_preprocessed(), _preprocessed())
 
 class TestQuimbBackend:
     # compare exact and approx backends

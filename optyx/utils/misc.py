@@ -320,7 +320,21 @@ class BasisTransition(NamedTuple):
     amp: Number
 
 
-def preprocess_quimb_tensors_safe(tn, epsilon=1e-12, value_limit=1e10):
+def preprocess_quimb_tensors_safe(tn, epsilon=1e-12, value_limit=1e10,
+                                  seed=0):
+    """Prepare a quimb tensor network for compressed (SVD-based)
+    contraction.
+
+    Rank-deficient 2D tensors are perturbed by a small amount of noise so
+    that quimb's SVD-based compression has full rank to work with; the
+    noise is drawn from a `numpy.random.Generator` seeded with `seed`
+    (default `0`) rather than the global numpy RNG, so that repeated calls
+    on the same input are bit-identical. Every exact zero is then replaced
+    by `epsilon`, since structural zeros would otherwise be amplified by
+    the compressed contraction; pass a `seed` to reproduce a specific
+    perturbation, e.g. when comparing against another deterministic run.
+    """
+    rng = np.random.default_rng(seed)
     for t in tn:
         data = t.data
 
@@ -331,7 +345,7 @@ def preprocess_quimb_tensors_safe(tn, epsilon=1e-12, value_limit=1e10):
             continue
 
         if data.ndim == 2 and np.linalg.matrix_rank(data) < min(data.shape):
-            data += np.random.normal(0, epsilon, size=data.shape)
+            data += rng.normal(0, epsilon, size=data.shape)
 
         if np.any(data == 0):
             data[data == 0] = epsilon
