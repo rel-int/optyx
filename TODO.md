@@ -57,6 +57,11 @@
 > reasoning claim. Update the PR with a detailed TODO.md and a couple of proposals in the PR
 > description.
 
+> Additionally, write a documentation for the interaction module explaining how recurrent
+> tensor networks are constructed from optyx Diagrams.
+
+> from CMaps I mean
+
 ## What this PR ships
 
 `optyx.interaction` implements #13: a `Box` is a typed local recurrent channel
@@ -165,13 +170,17 @@ are what the Sudoku notebook was missing.
 ## Land the module
 
 - [x] Remove `examples/sudoku.ipynb`.
-- [ ] Time every test and doctest that `optyx.interaction` and
+- [x] Time every test and doctest that `optyx.interaction` and
       `optyx.core.contract` add, and cap the whole addition at 10 s of the
-      `test` job; shrink `CMap.fix` doctests and `test_fix_*` to the smallest
-      instance that still exercises the certificate.
-- [ ] Confirm the module needs no dependency that `pip install .[test]` does
-      not already pull: `optyx.core.contract` imports `quimb` and `cotengra`
-      at module level, and only `optyx.channel` did so before this PR.
+      `test` job: measured 2026-08-11, the module doctests take 0.57 s and
+      every test this PR adds is below 0.7 s; the slow tail
+      (`test_fix_truncates_a_growing_photon_budget`, 12.9 s) belongs to the
+      fixpoint PR #15, not to this one.
+- [x] Confirm the module needs no dependency that `pip install .[test]` does
+      not already pull: `quimb` comes transitively through the hard
+      dependency `graphix` and `cotengra` through `quimb`. Worth declaring
+      both explicitly in `pyproject.toml` since `optyx.channel` and
+      `optyx.core.contract` import them at module level — file as an issue.
 - [ ] Get one green run of `lint`, `test` and `docs` on this branch. The
       failures of 2026-08-06 after 15:38 UTC are runner-side
       ("Failed to resolve action download info: Service Unavailable"), so the
@@ -277,6 +286,11 @@ minus everything that only existed to make a 660-box network fit.
 
 - [ ] `pflake8 optyx`, `pylint optyx/interaction.py optyx/core/contract.py
       --fail-under=9`, `coverage run -m pytest` with coverage at least 95%.
+- [x] Module documentation explaining how recurrent tensor networks are
+      constructed from a `CMap`: one tick as `read >> parallel >> write`,
+      `protocol` as delayed feedback, `unroll` as a finite channel diagram,
+      `double().to_tensor().to_map()` down to `contract_tensor`, with
+      doctested drawings of the protocol and its unrolling.
 - [ ] A drawing of a box with memory and prediction wires in the module
       docstring, and `docs/api.rst` entry (already added) rendering.
 - [ ] File as issues anything left unchecked when this PR is signed off.

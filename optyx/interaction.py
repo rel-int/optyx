@@ -1,4 +1,7 @@
 """
+Overview
+--------
+
 Combinatorial maps of recurrent channels.
 
 A :class:`CMap` is a combinatorial map: a list of :class:`Box` carrying
@@ -8,10 +11,10 @@ with a feedback loop on the paired ports. It has finite stream semantics
 through :meth:`CMap.unroll` and stationary semantics through
 :meth:`CMap.fix`.
 
-This is the Int (geometry of interaction) construction applied to the
-feedback category of channels: :meth:`optyx.channel.Diagram.feedback` plays
-the role of a delayed trace, so the structure is compact closed up to time
-shifts.
+This is the Int (geometry of interaction) construction of Joyal, Street
+and Verity applied to the feedback category of channels:
+:meth:`optyx.channel.Diagram.feedback` plays the role of a delayed trace,
+so the structure is compact closed up to time shifts.
 
 Every port of a box is both read and written at each time step, so a box
 :code:`x -> y` carries a channel from :code:`x @ y` to :code:`x @ y` and an
@@ -42,6 +45,97 @@ protocol. A box that copies its memory predicts it without consuming it:
 >>> assert cmap.dom == cmap.cod == Ty()
 >>> assert cmap.memory == cmap.prediction == qubit
 >>> assert cmap.protocol.cod == qubit
+
+Recurrent tensor networks
+-------------------------
+
+A :class:`CMap` turns into a tensor network in two orthogonal directions:
+*space* — its boxes and edges — and *time* — the unrolled ticks. Each stage
+of the construction is a diagram the user can inspect and draw.
+
+**One tick is a channel diagram.** :attr:`CMap.step` composes three
+diagrams: :attr:`CMap.read`, a permutation routing :code:`dom @ memory`
+onto the inputs of the boxes, then :attr:`CMap.parallel`, the tensor
+product of the local channels, then :attr:`CMap.write`, a permutation
+routing their outputs to :code:`cod @ prediction @ memory` — each paired
+port to the memory read by its partner at the next tick, each internal
+memory back to its own box. The permutations carry no data: all the
+computation sits in the boxes, as in a premonoidal normal form.
+
+>>> wait = Box("wait", Ty(), qubit,
+...     Diagram.swap(qubit, qubit), memory=qubit)
+>>> delay = CMap([wait], [])
+>>> assert delay.step \\
+...     == delay.read >> delay.parallel >> delay.write
+
+**Feedback closes the time loop.** :attr:`CMap.protocol` applies
+:meth:`optyx.channel.Diagram.feedback` to the step, closing
+:attr:`CMap.memory` — the paired ports followed by the internal memories —
+onto itself with a one-tick delay. The memory is a *delay*, which makes
+the protocol the feedback of a monoidal stream (Di Lavore, de Felice and
+Román, LICS 2022) rather than a trace: nothing is computed yet, the loop
+is syntax.
+
+>>> delay.protocol.draw(figsize=(3, 3),
+...     path="docs/_static/interaction_protocol.png")
+
+.. image:: /_static/interaction_protocol.png
+    :align: center
+
+**Unrolling gives a finite diagram.** :meth:`CMap.unroll` composes
+:code:`n_steps + 1` copies of the step, threading the memory from each
+tick to the next; the result is an ordinary
+:class:`optyx.channel.Diagram` whose width is the memory cut and whose
+depth is the number of ticks.
+
+>>> delay.unroll(1).draw(figsize=(4, 4),
+...     path="docs/_static/interaction_unroll.png")
+
+.. image:: /_static/interaction_unroll.png
+    :align: center
+
+**Doubling gives the tensors.** From here the standard optyx pipeline
+applies. :meth:`optyx.channel.Diagram.double` maps the unrolled channel
+diagram to its Kraus map beside the conjugate, and :code:`to_tensor()`
+translates it to a :class:`discopy.tensor.Diagram` whose wires carry
+dimensions and whose boxes carry arrays. Its :code:`to_map()` is again a
+combinatorial map — this time :class:`discopy.tensor.CMap`, boxes and
+port pairings at the array level — mirroring in space the structure this
+module describes in time, without materialising the global permutations
+of :attr:`CMap.read` and :attr:`CMap.write` as explicit swap layers.
+
+**Contraction is a functor away.** The network is evaluated by
+:func:`optyx.core.contract.contract_tensor`: exactly with NumPy or Quimb,
+differentiably with JAX or PyTorch arrays, with any Cotengra path
+optimizer, and approximately through compressed contraction with
+:code:`max_bond`. The cost is controlled by the three sizes fixed above:
+the number of ticks, the local dimension of the wires and the bond
+dimension of the contraction.
+
+>>> import numpy as np
+>>> from optyx.qubits import Ket
+>>> from optyx.core.contract import contract_tensor
+>>> unrolled = Ket(1) >> CMap([readout], []).unroll(1)
+>>> network = unrolled.double().to_tensor()
+>>> result = contract_tensor(network.to_map(), backend="numpy")
+>>> expected = (Ket(1) @ Ket(1)).double().to_tensor().eval()
+>>> assert np.allclose(
+...     np.asarray(result.array).flatten(), expected.array.flatten())
+
+The stationary semantics :meth:`CMap.fix` closes the time direction the
+other way, by an approximate fixed point instead of a finite unrolling;
+see :doc:`/notebooks/fixpoints` for the certificates behind it.
+
+Types and diagrams
+------------------
+
+.. autosummary::
+    :template: class.rst
+    :nosignatures:
+    :toctree:
+
+    Box
+    CMap
 """
 
 from __future__ import annotations
