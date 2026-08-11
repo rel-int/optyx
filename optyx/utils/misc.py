@@ -321,7 +321,7 @@ class BasisTransition(NamedTuple):
 
 
 def preprocess_quimb_tensors_safe(tn, epsilon=1e-12, value_limit=1e10,
-                                   seed=0):
+                                  seed=0):
     """Prepare a quimb tensor network for compressed (SVD-based)
     contraction.
 
