@@ -1,326 +1,282 @@
 # TODO
 
-> Then it makes sense that the MapGNN performs much better. Let's try to
-> increase the number of parameters
+> I have a proposal for a new module in optyx https://github.com/rel-int/optyx/issues/13.
+> Make a plan for implementation.
 
-> Try again, allocating more compute to each box, and following the unchecked
-> suggestions in the TODO.md to make it efficient. Let's run a few experiments
-> in sequence on the GPU and test its limits for contraction
+> Check out [rel-int/optyx#16](https://github.com/rel-int/optyx/pull/16), let's stack on the
+> fixpoint implementation, we should be able to move on with TODO.md and write the notebook
 
-## GPU contraction-limit retry
+> So we need the tensor contraction and auto diff
 
-Increase capacity without widening the recurrent graph.  A conditional
-rotation on target qubit `q` partitions the computational basis into
-`2 ** (w - 1)` pairs that differ only at `q`, and gives every pair an
-independent real rotation angle.  Cycling the target through the qubits yields
-an orthogonal, near-identity box ansatz whose whole layer is applied by one
-vectorised row-pair update.  With product rotations before, between and after
-these conditional layers, a depth-`d` cell has `265d + 9` parameters and a
-constraint has `136d + 8`, or `401d + 17` shared parameters in total.  Depths
-8, 16 and 32 therefore have 3,225, 6,433 and 12,849 parameters; the largest is
-within 1.1% of the 12,980-parameter MapGNN in discopy#416.  Parameters remain
-shared over boxes and time.  Depth only changes vectorised construction of the
-dense local arrays; tensor-map indices are unchanged.  Ticks and compressed
-bond dimension are benchmarked separately, using configuration records with
-`depth`, `ticks`, `chi`, elapsed seconds, scalar-contraction count and live MPS
-memory.
+> You ran an experiment with MapRNN but that was not the point! We need to simulate learning
+> optyx channels to solve the sudoku, the network is quantum, not a classical NN
 
-The GPU probes are capped at 48 scalar contractions: three four-way capacity
-probes at depths 8, 16 and 32, followed by one four-way loss and backward pass
-for ticks in `{2, 3, 4}` and `chi` in `{4, 8, 16}`, in increasing order.  The
-ladder stops before the next configuration if a probe takes more than 30
-seconds, holds more than 6 GiB of live MPS tensors, or raises an unsupported or
-out-of-memory error.  Capacity pilots use at most 384 further contractions:
-three depths times 64 training, 32 candidate-ranking and 32 targeted-readout
-contractions.  Only the winner may use another 448 contractions: 192 for
-training, 128 for all held-out candidate rankings and 128 for exact readout on
-four grids.  Total experiment cost is at most 880 scalar contractions.  A
-configuration is eligible for training only if its measured time projects the
-whole training study below 15 minutes.  MPS is asserted, CPU fallback remains
-fatal, paths are reused per `(ticks, chi)`, and the existing real `float32`
-representation is retained.
+> The sudoku notebook should run a learning experiment on a sudoku dataser, similar to the
+> MapRNN demonstration.
 
-- [x] Implement the vectorised conditional-rotation ansatz and configurable
-      compression rank, cache one deterministic Cotengra path per
-      `(ticks, chi)`, and add timed MPS-memory diagnostics.
-- [x] Run the increasing GPU contraction ladder over two to four ticks and
-      `chi` in `{4, 8, 16}`, respecting the time and memory stop conditions.
-- [x] Replace the over-budget full-map per-cell loss by the induced local
-      `CMap` containing the target, its seven peers and its three constraints;
-      close missing message ports with `|+>` states/effects and rerun the
-      three-tick ladder.
-- [x] At the largest affordable local three-tick configuration, compare
-      conditional depths 8, 16 and 32 under the fixed pilot budget, then scale
-      only the held-out winner.
-- [WIP] @codex-019fd73e-2026-08-06 19:55 Execute the notebook in a fresh GPU-only kernel, record the limit and
-      learning results, and update the conclusions and unchecked suggestions.
+> Check out the PR https://github.com/rel-int/optyx/pull/16. We need to push this model to try
+> to solve the sudoku task. One important concept for the interaction.CMap is that every cell:
+> X -> Y should have additionally a memory type M and a prediction type O, so that the process
+> inside it has type X @ Y @ M -> X @ Y @ M @ O. So we can run the same experiment we were
+> running but such that every cell has 1 qubit internal memory. Make a plan for improvements
+> and tests to solve the sudoku task in the notebook. Write the plan in TODO.md.
 
-The full-map ladder reached all 12,849 parameters without pressure from box
-construction: at two ticks, `chi=4`, `8` and `16` took 1.76, 8.54 and 25.11
-seconds for a four-way forward/backward and held 0.67, 1.71 and 4.72 GiB of
-live MPS tensors.  Three ticks at `chi=4` then took 117.33 seconds and held
-10.37 GiB live (11.33 GiB including the MPS driver), crossing both stop limits;
-higher three-tick bonds and all four-tick probes were skipped.  The next run
-therefore uses the local-loss suggestion rather than training an over-budget
-full map.
-
-The local map has 8 cells, 3 constraints, 24 paired edges, 24 open boundary
-wires and 56 recurrent wires.  At three ticks it reduces the tensor network
-from 596 boxes / 1,856 ports to 337 boxes / 832 ports.  The 12,849-parameter
-model completed `chi=4`, `8` and `16` four-way gradients in 3.27, 2.36 and
-2.97 seconds using at most 0.58 GiB live MPS memory.  Four ticks completed
-through `chi=8` in 4.71 seconds and 2.28 GiB, while `chi=16` hit the MPS
-high-water mark after 82.18 seconds.  Thus three ticks at `chi=16` is the
-largest configuration eligible for the 15-minute learning budget; four ticks
-at `chi=16` is the measured local contraction limit.
-
-The depth-8, depth-16 and depth-32 pilots used 128 contractions each.  Their
-targeted held-out cell accuracies were 12.5%, 0% and 37.5%, and their final
-candidate probabilities were 0.600, 0.386 and 0.535, so the 12,849-parameter
-depth-32 model won and received the remaining 448 contractions.  After 32
-updates / 64 training examples it reached 31.25% exact hidden-cell accuracy on
-four grids and solved 0/4.  Across all 64 held-out candidate pairs it assigned
-the correct grid probability 0.493 and ranked it first 46.9% of the time.  The
-validation candidate probability remained above its 0.246 initial value at
-0.481, but the mean loss rose from 3.03 over the first eight updates to 3.95
-over the last eight.  More parameters expose a stronger pilot signal, not a
-stable solver under this clipped 0.003 learning-rate schedule.
-
-> Check out the PR https://github.com/rel-int/optyx/pull/16. We need to push
-> this model to try to solve the sudoku task. One important concept for the
-> interaction.CMap is that every cell: X -> Y should have additionally a memory
-> type M and a prediction type O, so that the process inside it has type
-> X @ Y @ M -> X @ Y @ M @ O. So we can run the same experiment we were running
-> but such that every cell has 1 qubit internal memory. Make a plan for
-> improvements and tests to solve the sudoku task in the notebook. Write the
-> plan in TODO.md.
-
-> Why would cod == dom @ predictions? I don't think this is needed. Go ahead
-> and implement the changes to interaction.py. Then give a few more ideas for
-> scaling while keeping the contractions doable on MacMini in the TODO.md
+> Why would cod == dom @ predictions? I don't think this is needed. Go ahead and implement the
+> changes to interaction.py. Then give a few more ideas for scaling while keeping the
+> contractions doable on MacMini in the TODO.md
 
 > Also rebase on the fixpoint PR
 
-> Check out the TODO.md in [rel-int/optyx#16](https://github.com/rel-int/optyx/pull/16).
-> Let's solve these sudokus with recurrent channels! Use at_time with small
-> unroll steps instead of fix in the experiments, as we are not sure it will
-> converge. Decide between Jax and PyTorch to differentiate the tensor networks.
-> Run the experiments in the notebook.
+> Check out the TODO.md in [rel-int/optyx#16](https://github.com/rel-int/optyx/pull/16). Let's
+> solve these sudokus with recurrent channels! Use at_time with small unroll steps instead of
+> fix in the experiments, as we are not sure it will converge. Decide between Jax and PyTorch
+> to differentiate the tensor networks. Run the experiments in the notebook.
 
-> That's bad! I think the reason for this is that the dataset is too small.
-> Check out the sudoku notebook here
-> [discopy/discopy#416](https://github.com/discopy/discopy/pull/416). Do you think
-> we can reach the same dataset sizes? A second thing we can try is changing the
-> ansatz for each box, make 2 other proposals to check. Let's experiment with
-> increasing the dataset size and playing with the ansatz. Keep budgeting before
-> running too big experiments, the tensor contractions will get expensive. Try
-> your best, let's solve these sudokus!
+> That's bad! I think the reason for this is that the dataset is too small. Check out the
+> sudoku notebook here [discopy/discopy#416](https://github.com/discopy/discopy/pull/416). Do
+> you think we can reach the same dataset sizes? A second thing we can try is changing the
+> ansatz for each box, make 2 other proposals to check. Let's experiment with increasing the
+> dataset size and playing with the ansatz. Keep budgeting before running too big experiments,
+> the tensor contractions will get expensive. Try your best, let's solve these sudokus!
 
-> make sure you run your experiments on the GPU, there's another agent running
-> some experiments on the CPU
+> Then it makes sense that the MapGNN performs much better. Let's try to increase the number
+> of parameters
 
-Stacked on #16 and merged with the fixpoint PR #15. Mathematically, a box
-`X -> Y` of a `CMap` now carries three kinds of wires: the message ports
-`X @ Y`, read and written at every step and pairable by edges; a private
-memory `M`, a feedback loop from the box to itself that never appears as a
-port of the map; and a prediction `O`, written to the environment at every
-step but never read. The process inside the box is a channel
-`X @ Y @ M -> X @ Y @ M @ O`. The map keeps `dom == cod`, the unpaired
-ports: the predictions are appended to the codomain of the `protocol`
-diagram only, its `mem` is the paired ports followed by the internal
-memories, and the compact closed structure glues along message ports only.
+> Try again, allocating more compute to each box, and following the unchecked suggestions in
+> the TODO.md to make it efficient. Let's run a few experiments in sequence on the GPU and test
+> its limits for contraction
 
-The experiment below uses the finite semantics of `at_time(1)`, i.e. two
-recurrent ticks, instead of assuming convergence of `fix`. Its direct
-`tensor.CMap` representation keeps the same recurrent index routing without
-materialising the 240-wire permutations. PyTorch was chosen for autodiff:
-compressed gradients pass on this machine, whereas the installed experimental
-JAX Metal backend fails its basic complex-array contraction (reported as #43).
+> make sure you run your experiments on the GPU, there's another agent running some experiments
+> on the CPU
 
-## `interaction.Box` with memory and prediction
+> Check out the interaction PR https://github.com/rel-int/optyx/pull/16. CI is failing, we
+> should avoid introducing heavy tests, let's remove the sudoku notebook entirely, I think it's
+> beyond the reach of the current of the tensor contractions we can do. Make a plan with
+> proposals for smaller, generated datasets that demonstrates the reasoning capabilities of
+> photonic networks. Make sure that the method is linked to the literature and establishes the
+> reasoning claim. Update the PR with a detailed TODO.md and a couple of proposals in the PR
+> description.
 
-- [x] Extend `Box(name, dom, cod, channel, memory=Ty(), prediction=Ty())`,
-      type-checking `channel` from `dom @ cod @ memory` to
-      `dom @ cod @ memory @ prediction`; the defaults recover the boxes of
-      #16 so every existing doctest and test stays valid.
-- [x] Route each internal memory as a self-loop in `CMap`: it joins
-      `CMap.memory` after the paired ports, in box order, and is fed back to
-      the same box by `read` and `write`; document the wire-order convention.
-- [x] Make predictions write-only: `CMap.cod` stays equal to `dom` and
-      `CMap.prediction` is appended to the codomain of `protocol` in box
-      order, with `read`, `write`, `step`, `unroll` and the drawings
-      updated; state in the docstring that `glue` and the cups and caps
-      act on message ports only.
-- [x] Update `CMap.fix` to the #15 interface: `input_state` stays of type
-      `dom` and is composed inside the loop so the stationary certificates
-      apply, `initial_state` prepares the paired ports and the internal
-      memories through `feedback(state=...)`, the remaining parameters are
-      `tol`, `loss`, `chi`, `max_steps` and `backend`, and the stationary
-      output includes the predictions.
-- [x] Update `__matmul__`, `glue`, `__repr__`, `__eq__`, `__hash__` and the
-      module docstring for the two new attributes.
+## What this PR ships
 
-## Sudoku with one qubit of cell memory
+`optyx.interaction` implements #13: a `Box` is a typed local recurrent channel
+`X @ Y @ M -> X @ Y @ M @ O` — message ports `X @ Y` read and written at every
+tick, a private memory `M` fed back to the box itself, a prediction `O` written
+to the environment and never read. A `CMap` is a list of boxes plus a pairing of
+their ports; its semantics is `protocol`, an `optyx.channel.Diagram` with
+feedback on the paired ports, with finite semantics `unroll` and stationary
+semantics `fix`. This is the Int-construction of Joyal–Street–Verity applied to
+the feedback category of channels, so `@` and `glue` are the compact closed
+structure. `optyx.core.contract.contract_tensor` (from #21) evaluates the
+resulting network on NumPy, Quimb, JAX or PyTorch, differentiably, with
+Cotengra paths and optional compressed bonds.
 
-- [x] Rebuild the notebook map: a cell is
-      `Box("cell", qubit ** 3, qubit ** 3, channel, memory=qubit,
-      prediction=qubit ** 2)` — three messages read, three written, one
-      internal memory qubit, two prediction qubits; constraints stay
-      `Box(qubit ** 4, qubit ** 4, channel)` with no memory or prediction.
-- [x] Cell channels become shared trainable isometries
-      `qubit ** 7 -> qubit ** 9`: a parameterised nine-qubit real unitary
-      applied to the input tensored with two fresh ancillas, keeping the
-      rotation-layer parameterisation and the parameter count comparable
-      to #16; constraint channels keep their eight-qubit unitary.
-- [x] Check the topology: 96 edges and 192 paired memory wires as in #16,
-      plus 16 internal memory wires (208 total), empty `dom` and a `cod` of
-      32 prediction qubits per step.
-- [x] Move clue injection entirely to the write side: at every step the
-      prediction output of a clue cell is postselected on its digit, free
-      cells meet uniform effects at intermediate steps and the candidate
-      digit at the last step; pick and document the initial memory state.
-- [x] Update `at_time_tensor_map`: internal memory ports connect a box to
-      itself at the next step, prediction ports get one effect per step and
-      no read; keep the direct `tensor.CMap` construction without a
-      materialised permutation.
+## Why the Sudoku notebook is gone
 
-## Solving the task
+Kept here as the measured reason, not as work to resume.
 
-- [x] Replace two-candidate ranking by a per-cell readout: score the four
-      digits of every hidden cell from the last-step prediction amplitudes,
-      and report per-cell argmax accuracy and the full-grid solve rate on
-      the held-out puzzles, alongside the ranking metric of #16.
-- [ ] Batch the contraction over puzzles and candidates as in the
-      neural-sudoku experiment of discopy#416: a batch index threaded
-      through the boundary states and effects, one Cotengra path reused
-      across the batch.
-- [ ] Extend the training budget: more epochs with the held-out probability
-      as stopping criterion, and a small sweep over `n_steps` in {2, 3, 4}
-      and bond dimension in {4, 8, 16}, recording the loss curves.
-- [ ] Ablate the memory: run the same experiment with `memory=Ty()` at a
-      matched parameter count and report whether the qubit of internal
-      memory improves the held-out metrics.
-- [x] Replace the `CMap.fix` probe with `at_time(1)` on one recurrent wire;
-      one unrolling gives two explicit ticks without assuming that the learned
-      channel has converged.
+4x4 Sudoku needs 16 cell boxes and 12 constraint boxes with 8- and 9-qubit
+local channels, giving a three-tick network of ~660 tensor boxes and ~1,920
+ports. Measured on the full map: three ticks at `chi=4` took 117 s per four-way
+forward/backward and held 10.4 GiB of live MPS tensors; four ticks did not fit
+at any bond. Restricting the loss to one cell's light cone brought this down to
+337 boxes and 3 s per gradient, and three ansatzes were compared at
+12,849 shared parameters. The best (nearest-neighbour ring) reached 26.6%
+hidden-cell accuracy on held-out grids — the random baseline is 25% — and
+solved 0 of 16 grids. Unclipped gradient norms spanned 88.8 to 227,061.
 
-## Executed finite-time experiment
+Two things are wrong and neither is fixed by more compute. The local channels
+are dense `2 ** 8 x 2 ** 8` and `2 ** 7 x 2 ** 9` maps, so the tensor network
+is expensive before any propagation happens; and 4x4 Sudoku needs constraints
+to travel four hops in three ticks, which the trained map never learned, so
+there is no signal separating "learned to propagate" from "learned the digit
+marginals". A benchmark that cannot fail informatively is not evidence.
 
-- [x] PyTorch/Cotengra, `unroll_steps=1`, `max_bond=4`, 24 four-way updates:
-      initial gradient norm 6.909; held-out correct-candidate probability
-      0.4984 -> 0.5020; per-cell accuracy 21.9% -> 34.4%; candidate accuracy
-      stayed at 50%; full-grid solve rate stayed at 0/4. A 96-update sweep
-      reduced per-cell accuracy to 25%, so longer training is not assumed to
-      help without a better schedule or batching.
+Nothing about `optyx.interaction` depends on the notebook: the module, its
+doctests and `test/test_interaction.py` stand on their own.
 
-## Dataset scale and box ansatz search
+## What counts as evidence of reasoning
 
-The notebook in discopy#416 stores 192 training puzzles and 64 test puzzles,
-but its generator produces only 24 distinct completed grids and 22 of the test
-solution patterns also occur in training. Of its 256 eight-clue puzzles, 69
-admit two or three valid completions. We can match its record count while using
-more information: sample 256 distinct solutions from the complete 288-grid
-corpus, split them 192/64 before masking, and accept only clue masks with one
-completion in that corpus.
+Every experiment below is held to the same protocol, so that a positive result
+means propagation and a negative result is informative. The last three items
+are what the Sudoku notebook was missing.
 
-All three channel families remain real orthogonal maps with two single-qubit
-rotation layers. The baseline places 16 controlled rotations between the first
-and last four qubits. The first alternative uses both directions of a cyclic
-nearest-neighbour ring, so every message, memory and prediction qubit mixes at
-34--36 parameters per channel. The second uses one controlled rotation for
-every unordered qubit pair, raising the cell/constraint counts to 54/44 while
-leaving their `2 ** 7 x 2 ** 9` and `2 ** 8 x 2 ** 8` tensors unchanged.
-Consequently the recurrent contraction graph and its `chi=4` peak tensors do
-not grow; only construction and differentiation of the local unitary does.
+- **Exact verifier.** Accuracy is measured against a checkable certificate
+  (a parity, a distance, an isomorphism invariant), never partial credit.
+- **Held-out by solution.** The split is disjoint in the *solution*, not just
+  the instance, so a memorised answer table cannot transfer.
+- **Out-of-distribution size.** Train on the small sizes, test on strictly
+  larger ones. Box parameters are shared across boxes and ticks, so the same
+  `CMap` weights apply verbatim at any size — this is the property that makes
+  the test meaningful and that a fixed-width circuit ansatz does not have.
+- **Test-time recurrence.** Train at `T_train` ticks, evaluate `unroll(T)` for
+  `T > T_train` and plot accuracy against `T`. A propagating map improves with
+  extra ticks and shows a knee at `T ~ diameter`; a pattern matcher is flat.
+  This is the NeuroSAT and easy-to-hard signature and it is the single
+  cheapest discriminating measurement we have.
+- **Ablations that must fail.** `T = 1`; edges rewired at random; `memory=Ty()`;
+  labels shuffled. Any ablation that still succeeds voids the claim.
+- **Matched classical baseline.** The same `CMap` with `bit` wires instead of
+  `qubit`/`qmode` wires, at matched parameter count. optyx types classical and
+  quantum wires in one category, so this is a one-line change of encoding and
+  isolates exactly what the quantum channel buys.
+- **Pre-registered budget.** Contraction count and wall-clock cap stated before
+  the run; negative results reported rather than re-tuned away.
 
-The model-selection pilot is capped at 480 scalar contractions per ansatz: 12
-optimizer updates times four examples times four digits, two-candidate scores
-before and after training on eight validation puzzles, and a final four-way
-decode of their 64 hidden cells. At the measured baseline rate of about 0.20 s
-per contraction, three ansatzes should take about five minutes. Gradients for
-the four-example mini-batch are accumulated one example at a time to keep peak
-memory near the original four-contraction update. Only the winner is allowed
-the remaining 144 train cases and a broader held-out evaluation, budgeted at
-about 1,200 further contractions.
+### Literature
 
-The rerun uses PyTorch MPS in `float32` with
-`PYTORCH_ENABLE_MPS_FALLBACK=0`, and the notebook asserts the device. Apple's
-backend does not implement `torch.linalg.svd`; allowing its default fallback
-would silently contend for the CPU. Compressed bonds therefore use a
-deterministic rank-four range projection followed by MPS-native QR. This keeps
-the same `chi=4` topology and makes an unsupported GPU operation fail instead
-of migrating it to the other agent's CPU.
+- D. Selsam et al., *Learning a SAT Solver from Single-Bit Supervision*,
+  ICLR 2019, [arXiv:1802.03685](https://arxiv.org/abs/1802.03685) — message
+  passing on a constraint graph trained on one bit of supervision, solving
+  larger instances at test time "by simply running for more iterations".
+- R. B. Palm, U. Paquet, O. Winther, *Recurrent Relational Networks*,
+  NeurIPS 2018, [arXiv:1711.08028](https://arxiv.org/abs/1711.08028) — the
+  recurrent message-passing formulation of Sudoku that discopy#416 reproduces.
+- A. Schwarzschild et al., *Can You Learn an Algorithm? Generalizing from Easy
+  to Hard Problems with Recurrent Networks*, NeurIPS 2021,
+  [arXiv:2106.04537](https://arxiv.org/abs/2106.04537) — prefix sums and mazes;
+  the accuracy-versus-recurrence protocol used above.
+- P. Veličković, C. Blundell, *Neural Algorithmic Reasoning*, Patterns 2021,
+  [arXiv:2105.02761](https://arxiv.org/abs/2105.02761), and the CLRS benchmark,
+  ICML 2022, [arXiv:2205.15659](https://arxiv.org/abs/2205.15659) — step-wise
+  hint supervision and size generalisation as the standard of evidence.
+- K. Xu et al., *How Powerful are Graph Neural Networks?*, ICLR 2019,
+  [arXiv:1810.00826](https://arxiv.org/abs/1810.00826); C. Morris et al., AAAI
+  2019, [arXiv:1810.02244](https://arxiv.org/abs/1810.02244) — message passing
+  is bounded by 1-WL.
+- K. Brádler, S. Friedland, J. Izaac, N. Killoran, D. Su, *Graph isomorphism
+  and Gaussian boson sampling*, Special Matrices 9:166–196, 2021,
+  [arXiv:1810.10644](https://arxiv.org/abs/1810.10644); M. Schuld et al.,
+  *Measuring the similarity of graphs with a Gaussian boson sampler*,
+  Phys. Rev. A 101, 032314 (2020),
+  [arXiv:1905.12646](https://arxiv.org/abs/1905.12646) — photon-counting
+  statistics of a graph-encoded interferometer are graph invariants beyond
+  1-WL.
+- P. L. McMahon et al., *A fully programmable 100-spin coherent Ising machine
+  with all-to-all connections*, Science 354:614–617 (2016),
+  [doi:10.1126/science.aah5178](https://doi.org/10.1126/science.aah5178) — a
+  photonic network that solves constraint problems by recurrent measurement
+  feedback, i.e. the physical reading of `CMap.protocol`.
+- E. Knill, R. Laflamme, G. J. Milburn, *A scheme for efficient quantum
+  computation with linear optics*, Nature 409:46–52 (2001) — why the
+  nonlinearity that makes these maps expressive is measurement and feedback,
+  which is what a `CMap` tick is.
 
-- [x] Build the disjoint 192/64 uniquely-solvable dataset and compare the
-      bipartite, nearest-neighbour-ring and all-pairs box ansatzes under the
-      fixed pilot budget; scale only the validation winner and record timings,
-      contraction counts, losses, per-cell accuracy and full-grid solve rate.
-- [x] If none of the three ansatzes beats random per-cell accuracy after the
-      pilot, stop before the scale-up and diagnose the four-way energy and
-      gradient distributions instead of spending the winner budget.
+## Land the module
 
-The final GPU-only run used exactly 2,656 contractions. The bipartite, ring and
-all-pairs pilots reached 18.8%, 29.7% and 20.3% validation cell accuracy, so
-the ring ansatz beat the 25% random baseline and received the scale-up. After
-one 192-example pass, it assigned the correct completion 0.581 mean
-probability over all 64 held-out puzzles and ranked it first 59.4% of the time.
-Exact four-way decoding reached 26.6% hidden-cell accuracy on 16 held-out
-puzzles and solved 0/16 full grids. Median training target probability was
-0.040, median target margin was -3.02 and unclipped gradient norms ranged from
-88.8 to 227,061, so the channel learns a weak constraint signal but the local
-readout remains unstable even with clipping.
+- [x] Remove `examples/sudoku.ipynb`.
+- [ ] Time every test and doctest that `optyx.interaction` and
+      `optyx.core.contract` add, and cap the whole addition at 10 s of the
+      `test` job; shrink `CMap.fix` doctests and `test_fix_*` to the smallest
+      instance that still exercises the certificate.
+- [ ] Confirm the module needs no dependency that `pip install .[test]` does
+      not already pull: `optyx.core.contract` imports `quimb` and `cotengra`
+      at module level, and only `optyx.channel` did so before this PR.
+- [ ] Get one green run of `lint`, `test` and `docs` on this branch. The
+      failures of 2026-08-06 after 15:38 UTC are runner-side
+      ("Failed to resolve action download info: Service Unavailable"), so the
+      first job is to distinguish them from ours by rerunning.
+- [ ] Merge the target branch in (never rebase, per RULES.md) and rerun.
 
-## Scaling on a Mac Mini
+## Proposal A — XOR chains: propagation over a distance
 
-- [ ] Replace the dense eight- and nine-qubit unitaries by shared brickwork
-      circuits of two-qubit rotations: every tensor in the network becomes
-      rank four, the compressed contraction cost grows with the gate count
-      rather than `2 ** width`, and the parameter count stays comparable.
-- [ ] Contract the unrolling as a boundary MPS in the time direction: treat
-      each step as an MPO on the memory wires and sweep with truncation at
-      `chi`, so peak memory is set by `chi` and the 208-wire cut, never by
-      the full network; compare against Cotengra's compressed paths.
-- [ ] Exploit locality of the loss: each cell's prediction after three
-      steps only sees its light cone (its three constraints and their
-      cells), so per-cell scores contract sub-networks a fraction of the
-      660-box map; batch the cells that share a light-cone shape.
-- [ ] Slice the Cotengra path over a few high-degree indices
-      (`slicing_opts`) to cap peak memory at a constant factor of the
-      largest sliced tensor, trading a small constant in time.
-- [ ] Curriculum on sub-grids: pre-train the shared cell and constraint
-      channels on a single row or a 2x2 block `CMap` (a handful of boxes),
-      then fine-tune on the full grid; the parameters transfer because
-      every box shares them.
-- [ ] Keep everything real: the rotation ansatz stays orthogonal, halving
-      memory and contraction constants against complex tensors, and
-      `float32` forward passes with `float64` loss accumulation halve them
-      again if the singular-value gradients stay stable.
+The smallest task whose answer provably needs `n` rounds of message passing.
+`n` variables in a chain, constraints `b_i` with `x_i XOR x_{i+1} = b_i`, one
+endpoint clamped, predict the other endpoint: the answer is the parity of all
+`b_i`, so no local rule and no bounded number of ticks can produce it. This is
+the prefix-sum task of Schwarzschild et al. in constraint form, and the
+propagation core of NeuroSAT.
 
-## Tests
+`CMap`: one `Box(f"v{i}", qubit, qubit, channel, memory=qubit ** 2,
+prediction=qubit)` per variable, `edges = [((i, 1), (i + 1, 0))]`, so the
+boundary is the two chain endpoints — the clamp is the `input_state`. The two
+memory qubits hold the running estimate and the constraint bit `b_i`, prepared
+by `initial_state`. Local channel is `qubit ** 4 -> qubit ** 5`, a
+512-entry Kraus tensor; contracted at Kraus level with postselection, a 16-box
+24-tick network is ~400 tensors of bond 2. No compression, no GPU.
 
-- [x] `test/test_interaction.py`: `Box` rejects a channel whose type is not
-      `dom @ cod @ memory -> dom @ cod @ memory @ prediction`.
-- [x] Protocol types on maps with memory and prediction:
-      `protocol.cod == cod @ prediction`, `protocol.mem` is the paired
-      ports followed by the internal memories, an internal memory with a
-      swapped-out port is a delay line, and a copied memory is predicted
-      without being consumed.
-- [x] Backwards compatibility: default `memory` and `prediction` reproduce
-      the protocol of #16 on its existing examples, updated to the #15
-      boundary conventions (open initial memory, discarded final memory,
-      `n_steps` counts unrollings).
-- [x] `fix` on a box with one memory qubit and a known stationary
-      prediction, and on an optical delay certified without warnings.
-- [x] PyTorch gradient through the memory wire: a rotation on the memory
-      qubit of a two-step readout network, contracted with
-      `contract_tensor`, matches the analytic Born score and gradient.
-- [x] Notebook assertions: topology counts, non-zero initial gradient,
-      held-out metrics improving over their initial values, fresh-kernel
-      execution.
+- [ ] Generator in `test/fixtures` (or a small module the notebook imports):
+      `xor_chain(n, rng)` returning constraints, clamp and certified answer;
+      at `n = 4` enumerate the whole 16-instance space so the split is exact.
+- [ ] Shared box ansatz: real orthogonal, two single-qubit rotation layers and
+      a nearest-neighbour ring of controlled rotations — the ansatz that won
+      the Sudoku pilot — at ~40 parameters per box, shared over boxes and ticks.
+- [ ] Train at `n = 4`, `T_train = 4`, PyTorch autodiff through
+      `contract_tensor`, budget 2,000 scalar contractions and 5 minutes CPU.
+- [ ] Evaluate at `n = 8, 12, 16, 24` with `T = n`, and produce the
+      accuracy-versus-`T` curve at fixed `n = 16` for `T = 1 .. 32`.
+- [ ] Run the four ablations and the matched `bit`-wire classical baseline.
+- [ ] Photonic encoding: repeat with single-rail `qmode` messages truncated at
+      one photon, boxes built from `photonic.BS` and phase shifters with a
+      heralded ancilla, so the trained object is a linear-optical network with
+      measurement feedback rather than an abstract unitary. Report both
+      encodings; state the local dimension and contraction count for each.
+- [ ] Probe `CMap.fix` on the trained map: a chain that has propagated has a
+      stationary state, so the fixed point should agree with `unroll(T)` for
+      large `T`. This is the one place the stationary semantics of #15 is
+      tested against something with a known answer.
+
+## Proposal B — Photonic interference beyond 1-WL
+
+A separation rather than a benchmark: exhibit graphs that no classical
+message-passing scheme can tell apart and that a photonic `CMap` does. The
+minimal generated pair is `C_6 + C_6` against `C_12` — both 2-regular, so 1-WL
+assigns identical colours forever — followed by decalin against bicyclopentyl
+(10 vertices) and, if those are too easy, the 4x4 rook's graph against the
+Shrikhande graph (16 vertices, indistinguishable even by 3-WL).
+
+`CMap`: one box per vertex with one `qmode` port per incident edge, a single
+photon injected, boxes built from beam splitters and phase shifters, readout
+from the photon-number statistics on the prediction wires after `T = 2 .. 4`
+ticks. Two ports per box on the 2-regular pair: a 12-box, 4-tick network with
+local dimension 3 truncated at one photon.
+
+The claim has a proof obligation and an experiment. Classical message passing
+on these pairs is provably constant (Xu et al., Morris et al.); the photonic
+readout is a sum over closed walks with interference phases, and at the level
+of Fock statistics is a permanent/hafnian of the adjacency matrix, which
+Brádler et al. show is a complete set of graph invariants. Running the same
+`CMap` with `bit` wires is the controlled ablation and must sit at chance.
+
+- [ ] Generator for the three 1-WL-equivalent pairs plus a 1-WL check, so the
+      indistinguishability is asserted rather than asserted-in-prose.
+- [ ] Encode a graph as a `CMap` and read out photon-number statistics;
+      report the separation margin against shot noise for a stated sample
+      count, not just the exact amplitude.
+- [ ] Classical `bit`-wire ablation at chance, and a randomly rewired control.
+- [ ] Say plainly in the notebook what this does and does not show: it is a
+      separation on graph invariants, related to walk and matching counts, not
+      evidence of constraint propagation. Proposal A carries that claim.
+
+## Proposal C — Mazes, if A and B land
+
+The natural scale-up, and the one place the module meets an existing benchmark
+without inventing a dataset: grid mazes from Schwarzschild et al., generated
+locally. One box per cell with four `qmode` ports plus memory and prediction;
+train on 3x3 with `T_train = 4`, test on 5x5 and 7x7 with `T = 12`, reading the
+same accuracy-versus-`T` curve. Held for after A, because it costs an order of
+magnitude more contraction and answers the same question.
+
+- [ ] Only start this once A has a positive accuracy-versus-`T` knee.
+
+## Contraction work these need
+
+Carried over from the Sudoku plan because the new experiments still want them,
+minus everything that only existed to make a 660-box network fit.
+
+- [ ] Batch the contraction over instances: one batch index through the
+      boundary states and effects, one Cotengra path reused across the batch.
+- [ ] Contract the unrolling as a boundary MPS in the time direction, each
+      tick an MPO on the memory wires, so peak memory is set by `chi` and the
+      memory cut rather than by the whole network; compare with Cotengra's
+      compressed paths.
+- [ ] Keep everything real: orthogonal ansatz, `float32` forward with `float64`
+      loss accumulation.
 
 ## Docs and checks
 
-- [ ] Module docstring, doctests and `docs/api.rst` updated for the new
-      `Box` signature; a drawing of a cell with memory and prediction wires.
-- [ ] `pflake8 optyx`, `pylint optyx/interaction.py --fail-under=9` and
-      `coverage run -m pytest` green with coverage at least 95%.
+- [ ] `pflake8 optyx`, `pylint optyx/interaction.py optyx/core/contract.py
+      --fail-under=9`, `coverage run -m pytest` with coverage at least 95%.
+- [ ] A drawing of a box with memory and prediction wires in the module
+      docstring, and `docs/api.rst` entry (already added) rendering.
+- [ ] File as issues anything left unchecked when this PR is signed off.
