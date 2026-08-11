@@ -8,7 +8,7 @@ from optyx import classical, qubits
 from optyx.channel import (
     Diagram, Discard, Feedback, Functor, bit, qmode, qubit
 )
-from optyx.core import diagram as core, path, zw
+from optyx.core import diagram as core, path, zw, zx
 
 
 def delay(state=None, effect=None):
@@ -80,20 +80,18 @@ def test_unroll_is_a_delay_line():
     assert np.isclose(probability, 1)
 
 
-def test_boundaries_are_chosen_at_feedback():
-    """`unroll` takes only the number of steps: the boundaries belong to
-    `feedback`, and other boundaries mean another `feedback` call on the
-    loop's argument. An identity boundary is an open wire."""
+def test_unroll_overrides_the_boundary():
+    """The boundaries are chosen at `feedback` and read back by
+    `boundary`, so `unroll` can override them per call: `None` keeps the
+    loop's own, `False` opens the memory, a diagram replaces it."""
     wait = delay(state=photonic.Create(1))
-    with pytest.raises(TypeError):
-        wait.unroll(1, state=None)
+    assert wait.boundary() == (photonic.Create(1), Discard(qmode))
     assert wait.unroll(1).dom == qmode ** 2
-    opened = wait.arg.feedback(
-        state=Diagram.id(qmode), effect=Diagram.id(qmode))
-    assert opened.unroll(1).dom == opened.unroll(1).cod == qmode ** 3
-    replaced = wait.arg.feedback(state=photonic.Create(0))
-    assert replaced.unroll(1).dom == qmode ** 2
-    assert replaced.unroll(1) != wait.unroll(1)
+    assert wait.unroll(1, state=False).dom == qmode ** 3
+    assert wait.unroll(1, effect=False).cod == qmode ** 3
+    replaced = wait.unroll(1, state=photonic.Create(0))
+    assert replaced.dom == qmode ** 2
+    assert replaced != wait.unroll(1)
 
 
 def test_evaluation_raises_on_feedback():
@@ -263,3 +261,29 @@ def test_bit_delay_line():
         classical.Bit(0, 0) >> unrolled >> classical.PostselectBit(1, 0)
     ).double().to_tensor().eval().array
     assert np.isclose(probability, 1)
+
+
+def test_simplify_picks_the_diagram_with_fewest_swaps():
+    """The simplified unrolling has the same tensor and fewer swaps,
+    and the spiders survive the round-trip instead of fusing."""
+    cnot = zx.Z(1, 2) @ core.bit \
+        >> core.bit @ zx.X(2, 1) @ core.Scalar(2 ** 0.5)
+    plus = core.Scalar(0.5 ** 0.5) @ zx.Z(0, 1)
+    ladder = (cnot >> core.Diagram.swap(core.bit, core.bit)).feedback(
+        state=plus)
+    unrolled = ladder.unroll(2)
+    simplified = unrolled.simplify()
+
+    def n_swaps(diagram):
+        return sum(isinstance(box, core.Swap) for box in diagram.boxes)
+
+    assert n_swaps(simplified) < n_swaps(unrolled)
+    assert sorted(
+        box.name for box in simplified.boxes
+        if not isinstance(box, core.Swap)) == sorted(
+        box.name for box in unrolled.boxes
+        if not isinstance(box, core.Swap))
+    assert np.allclose(
+        simplified.to_tensor().eval().array,
+        unrolled.to_tensor().eval().array)
+    assert ladder.simplify() == ladder

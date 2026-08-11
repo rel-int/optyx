@@ -337,9 +337,9 @@ class Diagram(frobenius.Diagram):
                 :meth:`Feedback.default_effect`, the identity on `mem` here
                 and :class:`optyx.channel.Discard` for a channel diagram.
 
-        The boundaries are set here and nowhere else: :meth:`unroll` takes a
-        number of steps and reads them off the loop, so this is where a
-        caller decides what the memory starts and ends as.
+        The boundaries are set here and read back by :meth:`boundary`:
+        :meth:`unroll` plugs them by default and can override them per
+        call, since they are extracted either way.
 
         >>> wait = Diagram.swap(mode, mode).feedback()
         >>> assert wait.dom == wait.cod == mode
@@ -361,16 +361,44 @@ class Diagram(frobenius.Diagram):
         >>> assert delay.unroll(1).dom == delay.unroll(1).cod == mode ** 2
         >>> assert delay.state == Create(1) and delay.effect == Select(0)
 
-        To unroll the same loop against other boundaries, call
-        :meth:`feedback` again with them — the argument is an attribute of
-        the loop:
+        To unroll the same loop against other boundaries, override them at
+        :meth:`unroll` — `False` opens the memory again:
 
-        >>> assert delay.arg.feedback().unroll(1) == wait.unroll(1)
+        >>> assert delay.unroll(1, state=False, effect=False) \\
+        ...     == wait.unroll(1)
         """
         return self.feedback_factory(
             self, dom=dom, cod=cod, mem=mem, state=state, effect=effect)
 
-    def unroll(self, n_steps: int = 1) -> Diagram:
+    def boundary(self):
+        """
+        The initial state and final effect of a stateful diagram: the pair
+        of tensors of each feedback loop's :attr:`Feedback.state` and
+        :attr:`Feedback.effect`, in memory order — a loop's own memory
+        before its nested loops', layers left to right. A diagram with no
+        loop has the empty boundary.
+
+        >>> from optyx.core.zw import Create, Select
+        >>> delay = Diagram.swap(mode, mode).feedback(
+        ...     state=Create(1), effect=Select(0))
+        >>> assert delay.boundary() == (Create(1), Select(0))
+        >>> assert Diagram.id(mode).boundary() \\
+        ...     == (Diagram.id(Ty()), Diagram.id(Ty()))
+        """
+        def loops(inside):
+            for box in inside.boxes:
+                if isinstance(box, self.feedback_factory):
+                    yield box
+                    yield from loops(box.arg)
+
+        collected = tuple(loops(self))
+        empty = self.id(type(self.dom)())
+        return tuple(
+            empty.tensor(*(getattr(loop, attr) for loop in collected))
+            for attr in ("state", "effect"))
+
+    def unroll(self, n_steps: int = 1, state=None, effect=None) \
+            -> Diagram:
         """
         Unroll the feedback loops of a diagram `n_steps` times, by
         interpreting it as a :class:`discopy.stream.Stream`: every box maps
@@ -383,15 +411,20 @@ class Diagram(frobenius.Diagram):
 
         Each loop's :attr:`Feedback.state` is plugged in its input memory
         before the first time step and its :attr:`Feedback.effect` in its
-        output memory after the last one. Both are fixed by :meth:`feedback`,
-        so the number of steps is the only parameter here; other boundaries
-        mean another :meth:`feedback` call. A loop whose boundary is the
-        identity on its memory keeps that memory open, at the end of the
-        domain and of the codomain.
+        output memory after the last one, read off by :meth:`boundary` —
+        and, since they are extracted anyway, overridable per call at no
+        cost. A memory whose boundary is the identity stays open, at the
+        end of the domain and of the codomain.
 
         Parameters:
             n_steps : The number of unrollings, one fewer than the number of
                 time steps.
+            state : The initial state plugged in the input memory. `None`
+                uses the loops' own from :meth:`boundary`, `False` the
+                identity, which leaves the memory open, and a diagram with
+                `cod == mem` replaces it, over the whole memory.
+            effect : The final effect plugged in the output memory the same
+                way, a diagram with `dom == mem`.
 
         A feedback loop over a swap acts as a delay line: it outputs its
         `state` at the first time step, then its previous input.
@@ -409,28 +442,31 @@ class Diagram(frobenius.Diagram):
         if n_steps < 0:
             raise ValueError("n_steps must be at least 0.")
         stream_factory = monoidal_stream.Stream[self.factory]
-        ty_factory, loops = stream_factory.ob, []
+        ty_factory = stream_factory.ob
 
-        def ar_map(box):
-            if not isinstance(box, self.feedback_factory):
-                return box
-            loops.append(box)
-            inner = functor(box.arg)
-            return stream_factory(
-                inner.now, dom=ty_factory(box.dom), cod=ty_factory(box.cod),
-                mem=ty_factory(box.mem) @ inner.mem)
+        def to_stream(inside):
+            def ar_map(box):
+                if not isinstance(box, self.feedback_factory):
+                    return box
+                inner = to_stream(box.arg)
+                return stream_factory(
+                    inner.now, dom=ty_factory(box.dom),
+                    cod=ty_factory(box.cod),
+                    mem=ty_factory(box.mem) @ inner.mem)
+            return monoidal.Functor(
+                ob_map=lambda x: x, ar_map=ar_map,
+                dom=self.factory, cod=stream_factory)(inside)
 
-        functor = monoidal.Functor(
-            ob_map=lambda x: x, ar_map=ar_map,
-            dom=self.factory, cod=stream_factory)
-        stream = functor(self)
+        stream = to_stream(self)
         unrolled = stream.unroll(n_steps).now
         mem = stream.mem.now
         dom = unrolled.dom[:len(unrolled.dom) - len(mem)]
         cod = unrolled.cod[:len(unrolled.cod) - len(mem)]
-        initial, final = (self.id(type(mem)()).tensor(*(
-            getattr(loop, attr) for loop in loops))
-            for attr in ("state", "effect"))
+        initial, final = self.boundary()
+        if state is not None:
+            initial = self.id(mem) if state is False else state
+        if effect is not None:
+            final = self.id(mem) if effect is False else effect
         return self.id(dom) @ initial >> unrolled >> self.id(cod) @ final
 
     def one_step(self) -> Diagram:
@@ -439,9 +475,9 @@ class Diagram(frobenius.Diagram):
         `dom @ mem` to `cod @ mem`, with no :class:`Feedback` box left and
         the memory at the boundary.
 
-        Each loop is rebuilt by calling :meth:`feedback` again with the
-        identity on its memory as both boundaries — an identity boundary is
-        an open wire — then unrolled zero times, which is one time step.
+        It is `unroll(0, state=False, effect=False)`: zero unrollings is
+        one time step, and `False` opens both boundaries, leaving the
+        memory on the wires rather than plugging it.
 
         >>> step = Diagram.swap(mode, mode)
         >>> wait = step.feedback()
@@ -450,17 +486,34 @@ class Diagram(frobenius.Diagram):
         >>> assert wait.feedback_factory(step, state=Create(1)).one_step()\\
         ...     == step
         """
-        def ar_map(box):
-            if not isinstance(box, self.feedback_factory):
-                return box
-            return functor(box.arg).feedback(
-                dom=box.dom, cod=box.cod, mem=box.mem,
-                state=self.id(box.mem), effect=self.id(box.mem))
+        return self.unroll(0, state=False, effect=False)
 
-        functor = frobenius.Functor(
-            ob_map=lambda x: x, ar_map=ar_map,
-            dom=self.factory, cod=self.factory)
-        return functor(self).unroll(0)
+    def simplify(self) -> Diagram:
+        """
+        Reduce the number of swaps by translating back and forth to
+        :class:`Hypergraph`, scanning once from each boundary and picking
+        the diagram with the fewest swaps — the diagram itself in case of
+        a tie, so simplifying never adds a crossing.
+
+        The scan from the codomain goes through the dagger, so a diagram
+        with a box that has none (e.g. a feedback loop) is only scanned
+        from the domain.
+
+        >>> swaps = Diagram.swap(bit, bit) >> Diagram.swap(bit, bit)
+        >>> assert swaps.simplify() == Diagram.id(bit @ bit)
+        """
+        def n_swaps(diagram):
+            return sum(
+                isinstance(box, self.braid_factory) for box in diagram.boxes)
+
+        graph = self.hypergraph_factory[self.factory]
+        candidates = [self, graph.from_diagram(self).to_diagram()]
+        try:
+            candidates.append(
+                graph.from_diagram(self.dagger()).to_diagram().dagger())
+        except NotImplementedError:
+            pass
+        return min(candidates, key=n_swaps)
 
     # pylint: disable=too-many-locals
     def to_tensor(
@@ -1267,8 +1320,8 @@ class Feedback(monoidal.Bubble, Box):
     >>> cnot = Z(1, 2) @ bit >> bit @ X(2, 1) @ Scalar(2 ** 0.5)
     >>> plus = Scalar(0.5 ** 0.5) @ Z(0, 1)
     >>> ladder = (cnot >> Diagram.swap(bit, bit)).feedback(state=plus)
-    >>> Equation(ladder, ladder.unroll(2), symbol="$\\mapsto$").draw(
-    ...     path="docs/_static/cnot_ladder.svg")
+    >>> Equation(ladder, ladder.unroll(2).simplify(), symbol="$\\mapsto$"
+    ...     ).draw(path="docs/_static/cnot_ladder.svg")
 
     .. image:: /_static/cnot_ladder.svg
         :align: center
@@ -1323,15 +1376,29 @@ class Feedback(monoidal.Bubble, Box):
                 args += f", {attr}={repr(boundary)}"
         return f"{type(self).__name__}({args})"
 
-    def truncation(self, input_dims=None, output_dims=None):
-        """A feedback loop has no tensor or path semantics until unrolled."""
+    def to_path(self, dtype: type = complex):
+        """A feedback loop has no path matrix until unrolled."""
         raise ValueError(
-            "The diagram contains a feedback loop "
-            "which must be unrolled before evaluation.")
+            "A feedback loop has no path matrix: "
+            "unroll the diagram before calling to_path.")
 
-    determine_output_dimensions = truncation
-    photon_number_transform = truncation
-    to_path = truncation
+    def truncation(self, input_dims=None, output_dims=None):
+        """A feedback loop has no truncation tensor until unrolled."""
+        raise ValueError(
+            "A feedback loop has no truncation tensor: "
+            "unroll the diagram before calling to_tensor.")
+
+    def determine_output_dimensions(self, input_dims=None):
+        """A feedback loop has no output dimensions until unrolled."""
+        raise ValueError(
+            "A feedback loop has no output dimensions: "
+            "unroll the diagram before propagating the photon budget.")
+
+    def photon_number_transform(self, dims_in=None, dims_out=None):
+        """A feedback loop transforms no photon numbers until unrolled."""
+        raise ValueError(
+            "A feedback loop transforms no photon numbers: "
+            "unroll the diagram before building the tensor network.")
 
     def conjugate(self):
         return self.arg.conjugate().feedback(
@@ -1373,8 +1440,14 @@ class Functor(frobenius.Functor):
         return super().__call__(other)
 
 
-class Hypergraph(hypergraph.Hypergraph):  # pragma: no cover
-    functor = Functor
+class Hypergraph(hypergraph.Hypergraph):
+    """
+    A hypergraph whose functor keeps spiders as boxes: `bit` carries two
+    frobenius structures — :class:`optyx.core.zx.Z` and
+    :class:`optyx.core.zx.X` — so neither can dissolve into the wiring,
+    only the symmetric structure of the swaps does.
+    """
+    functor = symmetric.Functor
 
 
 bit = Bit(1)

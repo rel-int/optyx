@@ -88,10 +88,11 @@ diagonalising the transfer matrix of one step:
 .. image:: /_static/at_time.png
     :align: center
 
-:meth:`Diagram.unroll_depth` reads the passive loop block and fresh Fock
-occupation to certify a depth, with or without round-trip loss.
-:meth:`Diagram.truncation_dimensions` reads each memory wire's photon budget
-off the diagram, which is the cutoff :meth:`Diagram.eigen_fix` diagonalises at.
+:meth:`Diagram.unroll_certificate` certifies a depth from the loop block of
+the one-step optical matrix, loss channels included, and
+:meth:`Diagram.power_fix` iterates where no bound applies.
+:meth:`Diagram.truncation_dimensions` reads each wire's photon budget off the
+diagram, which is where the cutoff search of :meth:`Diagram.eigen_fix` starts.
 
 See :doc:`/notebooks/fixpoints` for what each of these returns, and for
 using them to simulate feedback boson sampling.
@@ -333,6 +334,7 @@ class Diagram(frobenius.Diagram):
 
     ob = Ty
     grad = tensor.Diagram.grad
+    boundary = diagram.Diagram.boundary
     unroll = diagram.Diagram.unroll
     one_step = diagram.Diagram.one_step
 
@@ -389,19 +391,24 @@ class Diagram(frobenius.Diagram):
         accumulating `n_steps` outputs to throw away, which is what
         :meth:`fix` contracts.
 
-        The last tick is the `effect` of that unrolling: :meth:`one_step`
-        with the memory discarded instead of the output, so it reads out
-        rather than continuing.
+        The last tick is the `effect` of that unrolling, overridden at
+        :meth:`unroll`: :meth:`one_step` with the memory discarded instead
+        of the output, so it reads out rather than continuing.
 
         The diagram must be a state and so must every loop, i.e. each
         :attr:`Feedback.state` needs an empty domain rather than the open
         wire it defaults to.
 
+        A loop that reprepares `Ket(0)` each tick reads out `Ket(0)` at
+        every time, whatever its memory started as:
+
         >>> from optyx.qubits import Ket
         >>> source = (Discard(qubit) @ Ket(0) @ Ket(0)).feedback(
         ...     mem=qubit, state=Ket(1))
-        >>> assert source.at_time(2).dom == Ty()
-        >>> assert source.at_time(2).cod == qubit
+        >>> assert (source.at_time(2).dom, source.at_time(2).cod) \\
+        ...     == (Ty(), qubit)
+        >>> assert np.allclose(
+        ...     source.at_time(2).eval().density_matrix, [[1, 0], [0, 0]])
         """
         if self.dom:
             raise ValueError(
@@ -413,23 +420,9 @@ class Diagram(frobenius.Diagram):
         step = self.one_step()
         memory = step.cod[len(self.cod):]
         readout = step >> self.id(self.cod) @ Discard(memory)
-
-        def ar_map(box):
-            if not isinstance(box, Feedback):
-                return box
-            return functor(box.arg).feedback(
-                dom=box.dom, cod=box.cod, mem=box.mem,
-                state=box.state, effect=self.id(box.mem))
-
-        functor = frobenius.Functor(
-            ob_map=lambda x: x, ar_map=ar_map,
-            dom=Diagram, cod=Diagram)
-        opened = functor(
-            self if n_steps == 0 else self >> Discard(self.cod))
-        unrolled = opened.unroll(max(n_steps - 1, 0))
-        iterated = unrolled >> self.id(
-            unrolled.cod[:len(unrolled.cod) - len(memory)]) @ (
-                Discard(memory) if n_steps == 0 else readout)
+        iterated = self.unroll(0, effect=Discard(memory)) if n_steps == 0 \
+            else (self >> Discard(self.cod)).unroll(
+                n_steps - 1, effect=readout)
         if iterated.dom:
             raise ValueError(
                 "Every feedback loop needs a state, got an open memory of "
@@ -483,15 +476,8 @@ class Diagram(frobenius.Diagram):
         >>> try:
         ...     Diagram.id(qubit).normalisation()
         ... except ValueError as error:
-        ...     assert str(error) == (
-        ...         "normalisation is the trace of a state, but dom=qubit; "
-        ...         "provide a state over it and take "
-        ...         "(state >> self).normalisation().")
+        ...     assert "provide a state over it" in str(error)
         >>> assert np.isclose((Ket(0) >> Diagram.id(qubit)).normalisation(), 1)
-
-        The dimensions are read off the diagram rather than passed in: every
-        wire carries the photon budget :meth:`truncation_dimensions` already
-        computes.
         """
         if self.dom != Ty():
             raise ValueError(
@@ -513,8 +499,13 @@ class Diagram(frobenius.Diagram):
         identity and whose environment is everything, so discarded wires
         simply move to the end.
 
+        The dilation of a loss channel is the beam splitter it is: one
+        mode in, system and environment out, split by the transmissivity.
+
         >>> from optyx.photonic import PhotonLoss
-        >>> assert PhotonLoss(.8).dilate().cod == diagram.Ty("mode", "mode")
+        >>> assert np.allclose(np.abs(np.asarray(
+        ...     PhotonLoss(.8).dilate().to_path().array,
+        ...     dtype=complex)) ** 2, [[.8, .2]])
         >>> assert Discard(qmode).dilate().cod == diagram.Ty("mode")
 
         The dilation of a pure diagram is its Kraus map:
@@ -580,13 +571,15 @@ class Diagram(frobenius.Diagram):
         ...         mem=qmode, state=photonic.Create(0))
         >>> assert loop.unroll_certificate(1e-6) == 2
 
-        A lossy loop is certified through the same matrix, with no loss
-        parameter anywhere:
+        A loss channel in the loop enters the same matrix — no loss
+        parameter anywhere — and certifies a shorter depth:
 
-        >>> lossy = (photonic.Create(1) @ qmode >> photonic.BS
-        ...     >> qmode @ photonic.PhotonLoss(.5)).feedback(
-        ...         mem=qmode, state=photonic.Create(0))
-        >>> assert lossy.unroll_certificate(1e-2) is not None
+        >>> step = photonic.Create(1) @ qmode >> photonic.BS
+        >>> lossless = step.feedback(mem=qmode, state=photonic.Create(0))
+        >>> lossy = (step >> qmode @ photonic.PhotonLoss(.5)).feedback(
+        ...     mem=qmode, state=photonic.Create(0))
+        >>> assert lossless.unroll_certificate(1e-2) == 13
+        >>> assert lossy.unroll_certificate(1e-2) == 7
         """
         self.check_fixpoint(tol)
         if max_steps is not None and (
