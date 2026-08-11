@@ -25,7 +25,7 @@ zero-filling (`data[data == 0] = epsilon`) was undocumented.
       (perturbs rank-deficient 2D tensors and replaces exact zeros with
       `epsilon` before quimb's SVD-based contraction, and why) per
       STYLE.md's "speaks for itself" guideline — no behaviour change.
-- [ ] Add a regression test proving determinism: call
+- [x] Add a regression test proving determinism: call
       `preprocess_quimb_tensors_safe` twice on the same rank-deficient
       quimb tensor network and assert the results are bit-identical.
 - [ ] `pytest test/test_backends.py`: run and report pass/fail counts.
