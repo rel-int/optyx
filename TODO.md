@@ -10,7 +10,7 @@ calculations. Passive unitaries and loop blocks are NumPy arrays; exact low-phot
 use an independent Fock-basis simulator; each mathematical claim becomes a deterministic
 pytest assertion. Wiki-specific execution and local-workspace discovery do not belong here.
 
-- [ ] Port the independent Fock simulator and reduction/certificate checks into Optyx tests.
+- [WIP] @codex-root-2026-08-11 20:01 Port the independent Fock simulator and reduction/certificate checks into Optyx tests.
 - [ ] Port the Haar/structured-family and repeated-truncation checks into Optyx tests.
 - [ ] Remove wiki-only runners and expose one documented pytest entry point.
 - [ ] Run `pflake8 optyx` and `coverage run -m pytest`.
