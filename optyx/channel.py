@@ -287,15 +287,14 @@ MAX_BOND_DIMENSION = 8
 class FixpointPreflight:
     """Result of :meth:`Diagram.fixpoint_preflight`.
 
-        ``verdict`` is one of ``"feasible"``, ``"impossible"`` or
-        ``"undetermined"``. A feasible result alone carries a ``burn_in`` and
-        total ``steps`` that are certified before any contraction starts.
+    ``verdict`` is one of ``"feasible"``, ``"impossible"`` or
+    ``"undetermined"``. A feasible result alone carries a ``burn_in`` and
+    total ``steps`` that are certified before any contraction starts.
 
-        ``max_occupation`` is a total photon cutoff, whereas ``fock_dimension``
-        is the resulting Hilbert-space dimension
-        :math:`\binom{N_{max} + L}{L}`. It is not a tensor-network bond
-        dimension and is intentionally separate from :meth:`fix`'s
-        ``max_chi``.
+    ``max_occupation`` is a total photon cutoff, whereas ``fock_dimension``
+    is the resulting Hilbert-space dimension
+    :math:`\binom{N_{max} + L}{L}`. It is not a tensor-network bond dimension
+    and is intentionally separate from :meth:`fix`'s ``max_chi``.
     """
 
     verdict: str
@@ -604,11 +603,12 @@ class Diagram(frobenius.Diagram):
         return loop_block, injection, tuple(matrix.creations)
 
     @staticmethod
-    def _sbs_gamma(loop_block, burn_in, max_occupation):
+    def _sbs_gamma(loop_block, burn_in, max_injected_occupation):
         """Evaluate the finite-depth trace-norm certificate."""
-        constant = (max_occupation + 1) * (
-            np.sqrt(6 * max_occupation * (max_occupation + 1))
-            + max_occupation)
+        constant = (max_injected_occupation + 1) * (
+            np.sqrt(6 * max_injected_occupation
+                    * (max_injected_occupation + 1))
+            + max_injected_occupation)
         power = np.linalg.matrix_power(loop_block, burn_in)
         singular = np.clip(np.linalg.svd(power, compute_uv=False), 0, 1)
         return float(4 * constant * np.sum(np.arcsin(singular) ** 2))

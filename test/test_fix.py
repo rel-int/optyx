@@ -400,6 +400,16 @@ def test_fixpoint_preflight_has_three_rigorous_verdicts():
     assert unknown.burn_in is unknown.steps is None
 
 
+def test_fixpoint_preflight_lyapunov_respects_mode_ordering():
+    """The cycle stores one fresh photon in each of its two memory modes.
+    Its stationary mean is therefore exactly two; the asymmetric block
+    catches an accidental transpose in either optical convention."""
+    result = asymmetric_sampler().fixpoint_preflight(
+        tol=.5, max_occupation=20, max_steps=10)
+    assert result.stationary_mean == 2
+    assert (result.verdict, result.steps) == ("feasible", 3)
+
+
 @pytest.mark.parametrize(("kwargs", "message"), [
     ({"tol": 0, "max_occupation": 1, "max_steps": 2}, "tol"),
     ({"tol": 2, "max_occupation": 1, "max_steps": 2}, "trace-norm"),
