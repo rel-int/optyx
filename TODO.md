@@ -14,7 +14,7 @@ pytest assertion. Wiki-specific execution and local-workspace discovery do not b
 - [x] Port the Haar/structured-family and repeated-truncation checks into Optyx tests.
 - [x] Remove wiki-only runners and expose one documented pytest entry point.
 - [x] Run `pflake8 optyx` and `coverage run -m pytest`.
-- [ ] Prepare the Optyx PR and update wiki-content links to stable Optyx code.
+- [x] Prepare the Optyx PR and update wiki-content links to stable Optyx code.
 
 Have you finished?
 
@@ -30,5 +30,5 @@ equation, and sufficient/necessary cutoff bounds. A frozen result records one of
 verdicts without constructing a Fock state or starting a contraction.
 
 - [x] Add the three-way fixpoint preflight API and focused tests.
-- [WIP] @codex-root-2026-08-12 14:40 Validate every photonic wiki-content page and the rendered experiment notebook.
-- [ ] Run the complete Optyx checks and open a draft PR stacked on PR #15.
+- [x] Validate every photonic wiki-content page and the rendered experiment notebook.
+- [x] Run the complete Optyx checks and open a draft PR stacked on PR #15.
