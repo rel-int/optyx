@@ -402,6 +402,7 @@ def test_fixpoint_preflight_has_three_rigorous_verdicts():
 
 @pytest.mark.parametrize(("kwargs", "message"), [
     ({"tol": 0, "max_occupation": 1, "max_steps": 2}, "tol"),
+    ({"tol": 2, "max_occupation": 1, "max_steps": 2}, "trace-norm"),
     ({"tol": .1, "max_occupation": -1, "max_steps": 2},
      "max_occupation"),
     ({"tol": .1, "max_occupation": 1, "max_steps": 0}, "max_steps"),

@@ -11,6 +11,7 @@ from optyx.channel import (
     Discard,
     Encode,
     Measure,
+    FixpointPreflight,
     Diagram,
     Swap,
     Spider,

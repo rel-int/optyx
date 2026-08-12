@@ -122,6 +122,7 @@ Generators and diagrams
     Encode
     Discard
     Feedback
+    FixpointPreflight
 
 Examples
 --------
@@ -696,10 +697,12 @@ class Diagram(frobenius.Diagram):
         ...     >> Diagram.swap(qmode, qmode))
         >>> loop = step.feedback(mem=qmode, state=photonic.Create(0))
         >>> result = loop.fixpoint_preflight(.1, 0, 2)
-        >>> assert (result.verdict, result.burn_in, result.steps) \
-        ...     == ("feasible", 1, 2)
+        >>> assert (result.verdict, result.burn_in, result.steps) == (
+        ...     "feasible", 1, 2)
         """
         self.check_fixpoint(tol)
+        if tol >= 2:
+            raise ValueError("tol must be smaller than the trace-norm cap 2.")
         if not isinstance(max_occupation, Integral) \
                 or isinstance(max_occupation, bool) or max_occupation < 0:
             raise ValueError(
