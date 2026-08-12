@@ -367,6 +367,61 @@ def test_loss_in_the_diagram_shortens_the_certificate():
         isometry @ isometry.conjugate().T, np.eye(len(isometry)))
 
 
+def test_fixpoint_preflight_certifies_without_a_contraction():
+    """A vacuum delay forgets its memory in one tick. The preflight returns
+    its exact resource pair and uses the total loop cutoff, whose Fock-space
+    dimension is combinatorial, without calling either evaluation route."""
+    vacuum_delay = (
+        photonic.Create(0) @ qmode >> Diagram.swap(qmode, qmode)
+    ).feedback(mem=qmode, state=photonic.Create(0))
+    result = vacuum_delay.fixpoint_preflight(
+        tol=1e-6, max_occupation=3, max_steps=4, output_windows=2)
+    assert result.verdict == "feasible"
+    assert (result.burn_in, result.steps) == (1, 3)
+    assert result.gamma == result.truncation_bound == result.error_bound == 0
+    assert result.stationary_mean == 0
+    assert result.fock_dimension == 4
+
+
+def test_fixpoint_preflight_has_three_rigorous_verdicts():
+    feasible = sampler(loss=.5).fixpoint_preflight(
+        tol=.5, max_occupation=20, max_steps=20)
+    assert feasible.verdict == "feasible"
+    assert feasible.error_bound <= feasible.tolerance
+
+    impossible = sampler(loss=.5).fixpoint_preflight(
+        tol=.01, max_occupation=0, max_steps=2)
+    assert impossible.verdict == "impossible"
+    assert impossible.lower_bound > impossible.tolerance
+
+    unknown = sampler().fixpoint_preflight(
+        tol=1e-6, max_occupation=2, max_steps=5)
+    assert unknown.verdict == "undetermined"
+    assert unknown.burn_in is unknown.steps is None
+
+
+@pytest.mark.parametrize(("kwargs", "message"), [
+    ({"tol": 0, "max_occupation": 1, "max_steps": 2}, "tol"),
+    ({"tol": .1, "max_occupation": -1, "max_steps": 2},
+     "max_occupation"),
+    ({"tol": .1, "max_occupation": 1, "max_steps": 0}, "max_steps"),
+    ({"tol": .1, "max_occupation": 1, "max_steps": 2,
+      "output_windows": 2}, "burn-in"),
+])
+def test_fixpoint_preflight_validates_resources(kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        sampler().fixpoint_preflight(**kwargs)
+
+
+def test_fixpoint_preflight_refuses_unsupported_geometry():
+    with pytest.raises(NotImplementedError, match="optical modes"):
+        source().fixpoint_preflight(.1, 2, 4)
+    closed = Diagram.id(qmode).feedback(state=photonic.Create(0))
+    result = closed.fixpoint_preflight(.1, 2, 4)
+    assert result.verdict == "undetermined"
+    assert "rho" in result.reason
+
+
 def test_certificate_refuses_what_it_cannot_certify():
     """Qubit memories, several loops and undamped loop blocks all raise
     `NotImplementedError`, which is what sends `fix` to `power_fix`."""

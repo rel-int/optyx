@@ -219,7 +219,9 @@ dual-rail encoding. For example, we can create a GHZ state:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from importlib import import_module
+from math import comb
 import warnings
 from numbers import Integral, Real
 
@@ -228,6 +230,7 @@ from cotengra import (
     ReusableHyperCompressedOptimizer,
 )
 import numpy as np
+from scipy.linalg import solve_discrete_lyapunov
 from discopy import tensor
 from discopy import monoidal, symmetric, frobenius, hypergraph
 from discopy.cat import factory
@@ -277,6 +280,37 @@ class Ob(frobenius.Ob):
 DEFAULT_MAX_STEPS = 64
 MAX_TRUNCATION = 32
 MAX_BOND_DIMENSION = 8
+
+
+@dataclass(frozen=True)
+class FixpointPreflight:
+    """Result of :meth:`Diagram.fixpoint_preflight`.
+
+        ``verdict`` is one of ``"feasible"``, ``"impossible"`` or
+        ``"undetermined"``. A feasible result alone carries a ``burn_in`` and
+        total ``steps`` that are certified before any contraction starts.
+
+        ``max_occupation`` is a total photon cutoff, whereas ``fock_dimension``
+        is the resulting Hilbert-space dimension
+        :math:`\binom{N_{max} + L}{L}`. It is not a tensor-network bond
+        dimension and is intentionally separate from :meth:`fix`'s
+        ``max_chi``.
+    """
+
+    verdict: str
+    tolerance: float
+    max_occupation: int
+    max_steps: int
+    output_windows: int
+    stationary_mean: float
+    lower_bound: float
+    fock_dimension: int
+    burn_in: int | None = None
+    steps: int | None = None
+    gamma: float | None = None
+    truncation_bound: float | None = None
+    error_bound: float | None = None
+    reason: str = ""
 
 
 @factory
@@ -535,6 +569,49 @@ class Diagram(frobenius.Diagram):
             env = env @ box_env
         return kraus
 
+    def _sbs_geometry(self):
+        """Return the loop block, fresh-to-loop block and occupations."""
+        loops = [box for box in self.boxes if isinstance(box, Feedback)]
+        if len(loops) != 1 or loops[0].dom or any(
+                ob.inside[0].name != "qmode" for ob in loops[0].mem):
+            raise NotImplementedError(
+                "The certificate needs a single feedback loop over "
+                "optical modes.")
+        loop = loops[0]
+        try:
+            matrix = loop.arg.dilate().to_path()
+            isometry = np.asarray(matrix.array, dtype=complex)
+        except (AssertionError, AttributeError, NotImplementedError,
+                TypeError, ValueError) as error:
+            raise NotImplementedError(
+                "The loop has no one-step optical matrix.") from error
+        memory = len(loop.mem.single())
+        visible = len(loop.cod.single())
+        if matrix.dom != memory or matrix.cod < visible + memory \
+                or matrix.selections:
+            raise NotImplementedError(
+                "The loop's optical matrix does not split into visible, "
+                "memory and environment modes.")
+        if isometry.shape != (memory + len(matrix.creations), matrix.cod) \
+                or not np.allclose(
+                    isometry @ isometry.conjugate().T,
+                    np.eye(len(isometry))):
+            raise NotImplementedError(
+                "The loop's optical matrix is not an isometry.")
+        loop_block = isometry[:memory, visible:visible + memory]
+        injection = isometry[memory:, visible:visible + memory]
+        return loop_block, injection, tuple(matrix.creations)
+
+    @staticmethod
+    def _sbs_gamma(loop_block, burn_in, max_occupation):
+        """Evaluate the finite-depth trace-norm certificate."""
+        constant = (max_occupation + 1) * (
+            np.sqrt(6 * max_occupation * (max_occupation + 1))
+            + max_occupation)
+        power = np.linalg.matrix_power(loop_block, burn_in)
+        singular = np.clip(np.linalg.svd(power, compute_uv=False), 0, 1)
+        return float(4 * constant * np.sum(np.arcsin(singular) ** 2))
+
     def unroll_certificate(
             self, tol: float = 1e-6, max_steps: int = None) -> int | None:
         """
@@ -586,49 +663,140 @@ class Diagram(frobenius.Diagram):
                 not isinstance(max_steps, Integral)
                 or isinstance(max_steps, bool) or max_steps <= 0):
             raise ValueError("max_steps must be a positive integer.")
-        loops = [box for box in self.boxes if isinstance(box, Feedback)]
-        if len(loops) != 1 or loops[0].dom or any(
-                ob.inside[0].name != "qmode" for ob in loops[0].mem):
-            raise NotImplementedError(
-                "The certificate needs a single feedback loop over "
-                "optical modes.")
-        loop = loops[0]
-        try:
-            matrix = loop.arg.dilate().to_path()
-            isometry = np.asarray(matrix.array, dtype=complex)
-        except (AssertionError, AttributeError, NotImplementedError,
-                TypeError, ValueError) as error:
-            raise NotImplementedError(
-                "The loop has no one-step optical matrix.") from error
-        memory = len(loop.mem.single())
-        visible = len(loop.cod.single())
-        if matrix.dom != memory or matrix.cod < visible + memory \
-                or matrix.selections:
-            raise NotImplementedError(
-                "The loop's optical matrix does not split into visible, "
-                "memory and environment modes.")
-        if isometry.shape != (memory + len(matrix.creations), matrix.cod) \
-                or not np.allclose(
-                    isometry @ isometry.conjugate().T,
-                    np.eye(len(isometry))):
-            raise NotImplementedError(
-                "The loop's optical matrix is not an isometry.")
-        block = isometry[:memory, visible:visible + memory]
+        block, _, occupations = self._sbs_geometry()
         if max(abs(np.linalg.eigvals(block)), default=0) >= 1:
             raise NotImplementedError(
                 "The loop block does not satisfy rho(V_ll) < 1: nothing "
                 "ever leaves the loop, so no depth is certified.")
-        qbar = max(matrix.creations, default=0)
-        constant = (qbar + 1) * (
-            np.sqrt(6 * qbar * (qbar + 1)) + qbar)
-        power, burn_in = np.eye(memory), 0
+        qbar = max(occupations, default=0)
+        burn_in = 0
         while max_steps is None or burn_in < max_steps - 1:
-            power, burn_in = block @ power, burn_in + 1
-            singular = np.clip(
-                np.linalg.svd(power, compute_uv=False), 0, 1)
-            if 4 * constant * np.sum(np.arcsin(singular) ** 2) <= tol:
+            burn_in += 1
+            if self._sbs_gamma(block, burn_in, qbar) <= tol:
                 return burn_in + 1
         return None
+
+    def fixpoint_preflight(
+            self, tol: float, max_occupation: int, max_steps: int,
+            output_windows: int = 1) -> FixpointPreflight:
+        """Certify fixpoint feasibility before contracting the diagram.
+
+        The user supplies a trace-norm tolerance, a cutoff on the *total*
+        loop occupation and a total step budget. The result is deliberately
+        three-valued: ``feasible`` and ``impossible`` are rigorous, while
+        ``undetermined`` says that the available bounds do not meet.
+
+        Only powers, singular values and a Lyapunov equation for the optical
+        loop block are evaluated. No Fock state or tensor network is built.
+        A feasible result carries the smallest certified burn-in at the
+        supplied cutoff; ``steps`` includes the requested output windows.
+
+        >>> from optyx import photonic
+        >>> step = (photonic.Create(0) @ qmode
+        ...     >> Diagram.swap(qmode, qmode))
+        >>> loop = step.feedback(mem=qmode, state=photonic.Create(0))
+        >>> result = loop.fixpoint_preflight(.1, 0, 2)
+        >>> assert (result.verdict, result.burn_in, result.steps) \
+        ...     == ("feasible", 1, 2)
+        """
+        self.check_fixpoint(tol)
+        if not isinstance(max_occupation, Integral) \
+                or isinstance(max_occupation, bool) or max_occupation < 0:
+            raise ValueError(
+                "max_occupation must be a non-negative integer.")
+        if not isinstance(max_steps, Integral) \
+                or isinstance(max_steps, bool) or max_steps <= 0:
+            raise ValueError("max_steps must be a positive integer.")
+        if not isinstance(output_windows, Integral) \
+                or isinstance(output_windows, bool) or output_windows <= 0:
+            raise ValueError("output_windows must be a positive integer.")
+        if output_windows >= max_steps:
+            raise ValueError(
+                "max_steps must leave at least one burn-in step before "
+                "the output windows.")
+
+        block, injection, occupations = self._sbs_geometry()
+        memory = len(block)
+        dimension = comb(max_occupation + memory, memory)
+        max_burn_in = max_steps - output_windows
+        qbar = max(occupations, default=0)
+        total_injected = sum(occupations)
+        spectral_radius = max(abs(np.linalg.eigvals(block)), default=0)
+        if spectral_radius >= 1:
+            return FixpointPreflight(
+                "undetermined", tol, max_occupation, max_steps,
+                output_windows, np.inf, 0, dimension,
+                reason="the loop block does not satisfy rho(V_ll) < 1")
+
+        conventional_block = block.T
+        conventional_injection = injection.T
+        lyapunov = solve_discrete_lyapunov(
+            conventional_block.conjugate().T, np.eye(memory))
+        correlations = conventional_injection.conjugate().T \
+            @ lyapunov @ conventional_injection
+        stationary_mean = float(np.real(sum(
+            occupation * correlations[index, index]
+            for index, occupation in enumerate(occupations))))
+        stationary_mean = max(0., stationary_mean)
+
+        reachable = min(max_occupation, max_burn_in * total_injected)
+        lower_bound = 0. if stationary_mean == 0 else float(
+            2 * max(0., stationary_mean - reachable) ** 2
+            / (2 * stationary_mean ** 2 + stationary_mean))
+        common = dict(
+            tolerance=tol, max_occupation=max_occupation,
+            max_steps=max_steps, output_windows=output_windows,
+            stationary_mean=stationary_mean, lower_bound=lower_bound,
+            fock_dimension=dimension)
+        if lower_bound > tol:
+            return FixpointPreflight(
+                "impossible", **common,
+                reason="the necessary occupation-tail bound exceeds tol")
+
+        endpoint = self._sbs_gamma(block, max_burn_in, qbar)
+        if endpoint > tol:
+            return FixpointPreflight(
+                "undetermined", **common, gamma=endpoint,
+                reason="the finite-depth certificate exceeds tol at "
+                       "max_steps")
+
+        low, high = 1, max_burn_in
+        while low < high:
+            middle = (low + high) // 2
+            if self._sbs_gamma(block, middle, qbar) <= tol:
+                high = middle
+            else:
+                low = middle + 1
+        mixing_depth = low
+
+        truncation_cap = max_burn_in
+        if stationary_mean:
+            truncation_cap = min(
+                truncation_cap,
+                int(np.floor(tol * (max_occupation + 1)
+                             / (2 * stationary_mean))))
+        last_gamma = self._sbs_gamma(block, mixing_depth, qbar)
+        last_truncation = min(
+            1., mixing_depth * stationary_mean / (max_occupation + 1))
+        for burn_in in range(mixing_depth, truncation_cap + 1):
+            gamma = self._sbs_gamma(block, burn_in, qbar)
+            truncation = min(
+                1., burn_in * stationary_mean / (max_occupation + 1))
+            error = min(2., gamma + 2 * truncation)
+            last_gamma, last_truncation = gamma, truncation
+            if error <= tol:
+                return FixpointPreflight(
+                    "feasible", **common, burn_in=burn_in,
+                    steps=burn_in + output_windows, gamma=gamma,
+                    truncation_bound=truncation, error_bound=error,
+                    reason="the finite-depth and truncation upper bound "
+                           "is within tol")
+        return FixpointPreflight(
+            "undetermined", **common, gamma=last_gamma,
+            truncation_bound=last_truncation,
+            error_bound=min(2., last_gamma + 2 * last_truncation),
+            reason="the sufficient depth-and-truncation bound does not "
+                   "fit the supplied resources")
 
     def truncation_dimensions(self) -> list[int]:
         """
