@@ -1,0 +1,8 @@
+[
+  {"family": "square", "bond": 6, "feedback": 1, "ticks": 2, "n_steps": 800, "eval_every": 100},
+  {"family": "square", "bond": 6, "feedback": 4, "ticks": 2, "n_steps": 800, "eval_every": 100},
+  {"family": "exp", "bond": 6, "feedback": 1, "ticks": 2, "n_steps": 800, "eval_every": 100},
+  {"family": "exp", "bond": 6, "feedback": 4, "ticks": 2, "n_steps": 800, "eval_every": 100},
+  {"family": "signed", "bond": 6, "feedback": 4, "ticks": 2, "n_steps": 800, "eval_every": 100},
+  {"family": "born", "depth": 32, "ticks": 2, "n_steps": 800, "eval_every": 100}
+]

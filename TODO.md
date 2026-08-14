@@ -36,3 +36,25 @@
 - [ ] Commit the experiment scripts and a results report, open the draft
       PR "sudoku experiment" stacked on #16 and report the results in its
       description.
+
+> That's good but I want the experiment to be genuinely quantum. The
+> classical stochastic channel should be learnable with a quantum model
+> too.
+
+> Do fill in an issue for the bug you found
+
+- [x] File the `Channel.double()` bug on plain array kraus boxes:
+      `Box.conjugate()` swaps dom and cod, and classical doubling
+      mis-assembles when dom and cod arity differ
+      ([#51](https://github.com/rel-int/optyx/issues/51)).
+- [ ] Make the leading ansatz genuinely quantum: every box parameterised
+      by orthogonal-circuit angles -- cells as ten-qubit circuits with a
+      coherent two-qubit memory, measured digit messages and predictions,
+      constraints as nine-qubit measure-and-prepare channels with a
+      measured verdict register -- so that the classical stochastic
+      solver is contained in the quantum family as permutation circuits
+      (Stinespring) and the classical family becomes its
+      decohered-ablation baseline at matched parameter counts.
+- [ ] Certify quantum expressivity the same way as classical: the
+      hand-written permutation circuits must decode held-out puzzles
+      exactly through the doubled contraction with coherent memory.
