@@ -1,0 +1,707 @@
+[
+  {
+    "config": {
+      "family": "quantum",
+      "cell_depth": 10,
+      "cons_depth": 4,
+      "feedback": 2,
+      "ticks": 2,
+      "init": "cells",
+      "n_steps": 2000,
+      "eval_every": 200,
+      "learning_rate": 0.003
+    },
+    "n_parameters": 6331,
+    "history": [
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 200,
+        "loss": 0.0019610662793289454,
+        "seconds": 771.9771820689999
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 400,
+        "loss": 0.0009330960264263939,
+        "seconds": 903.774785465
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 600,
+        "loss": 0.0003006498637532498,
+        "seconds": 1035.670429506
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 800,
+        "loss": 0.00020230258940581654,
+        "seconds": 1167.559935357
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1000,
+        "loss": 0.0002233940966786377,
+        "seconds": 1299.421318435
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1200,
+        "loss": 0.00015380224300783226,
+        "seconds": 1431.2925880120001
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1400,
+        "loss": 9.101138354116695e-05,
+        "seconds": 1563.167375739
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1600,
+        "loss": 7.18738730391806e-05,
+        "seconds": 1695.011118884
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1800,
+        "loss": 5.971185099649173e-05,
+        "seconds": 1826.8723229439997
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 2000,
+        "loss": 4.63913015350174e-05,
+        "seconds": 1958.751402538
+      }
+    ],
+    "final": {
+      "cell_accuracy": 1.0,
+      "solve_rate": 1.0,
+      "step": 2000,
+      "loss": 4.63913015350174e-05,
+      "seconds": 1958.751402538
+    }
+  },
+  {
+    "config": {
+      "family": "quantum",
+      "cell_depth": 10,
+      "cons_depth": 4,
+      "feedback": 2,
+      "ticks": 2,
+      "init": "cells",
+      "n_steps": 2000,
+      "eval_every": 200,
+      "learning_rate": 0.01
+    },
+    "n_parameters": 6331,
+    "history": [
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 200,
+        "loss": 0.00012826320626393664,
+        "seconds": 564.0845178120001
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 400,
+        "loss": 0.00020195410185972347,
+        "seconds": 701.8656610540002
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 600,
+        "loss": 3.2104901458340344e-05,
+        "seconds": 839.561123812
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 800,
+        "loss": 2.257300088931857e-05,
+        "seconds": 977.1845457869999
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1000,
+        "loss": 3.0331392149128428e-05,
+        "seconds": 1115.024571343
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1200,
+        "loss": 1.954375780487748e-05,
+        "seconds": 1252.842998139
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1400,
+        "loss": 1.1302207981096915e-05,
+        "seconds": 1390.702430966
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1600,
+        "loss": 6.496815540444217e-05,
+        "seconds": 1528.523718959
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1800,
+        "loss": 5.5532999332602546e-05,
+        "seconds": 1666.379430662
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 2000,
+        "loss": 6.504459841252398e-05,
+        "seconds": 1804.239549279
+      }
+    ],
+    "final": {
+      "cell_accuracy": 1.0,
+      "solve_rate": 1.0,
+      "step": 2000,
+      "loss": 6.504459841252398e-05,
+      "seconds": 1804.239549279
+    }
+  },
+  {
+    "config": {
+      "family": "quantum",
+      "cell_depth": 10,
+      "cons_depth": 1,
+      "feedback": 2,
+      "ticks": 2,
+      "init": "cells",
+      "n_steps": 2000,
+      "eval_every": 200,
+      "learning_rate": 0.01
+    },
+    "n_parameters": 5536,
+    "history": [
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 200,
+        "loss": 0.00015209491886495537,
+        "seconds": 855.370823558
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 400,
+        "loss": 0.00018999646400889815,
+        "seconds": 990.8416197409999
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 600,
+        "loss": 3.2359493166468654e-05,
+        "seconds": 1126.458606221
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 800,
+        "loss": 1.69165277536522e-05,
+        "seconds": 1262.115789743
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1000,
+        "loss": 3.109773733951204e-05,
+        "seconds": 1397.7810420089997
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1200,
+        "loss": 2.632000921746704e-05,
+        "seconds": 1533.3896583550002
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1400,
+        "loss": 1.061175236300195e-05,
+        "seconds": 1668.979638437
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1600,
+        "loss": 1.039837660282152e-05,
+        "seconds": 1804.583815695
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1800,
+        "loss": 1.0776223180098776e-05,
+        "seconds": 1940.1551362399998
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 2000,
+        "loss": 3.718139975155445e-05,
+        "seconds": 2075.751629908
+      }
+    ],
+    "final": {
+      "cell_accuracy": 1.0,
+      "solve_rate": 1.0,
+      "step": 2000,
+      "loss": 3.718139975155445e-05,
+      "seconds": 2075.751629908
+    }
+  },
+  {
+    "config": {
+      "family": "quantum",
+      "cell_depth": 10,
+      "cons_depth": 4,
+      "feedback": 2,
+      "ticks": 2,
+      "init": "solver",
+      "noise": 0.1,
+      "n_steps": 1000,
+      "eval_every": 200,
+      "learning_rate": 0.003
+    },
+    "n_parameters": 6331,
+    "history": [
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 200,
+        "loss": 0.0004366275200018744,
+        "seconds": 835.8180344499999
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 400,
+        "loss": 0.00013686532142106664,
+        "seconds": 969.7945081949999
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 600,
+        "loss": 3.599238907297378e-05,
+        "seconds": 1103.775993368
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 800,
+        "loss": 1.574541010369687e-05,
+        "seconds": 1237.734295087
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1000,
+        "loss": 2.191897899921434e-05,
+        "seconds": 1371.7279177589999
+      }
+    ],
+    "final": {
+      "cell_accuracy": 1.0,
+      "solve_rate": 1.0,
+      "step": 1000,
+      "loss": 2.191897899921434e-05,
+      "seconds": 1371.7279177589999
+    }
+  },
+  {
+    "config": {
+      "family": "square",
+      "bond": 6,
+      "feedback": 2,
+      "ticks": 2,
+      "init": "cells",
+      "n_steps": 2000,
+      "eval_every": 200,
+      "learning_rate": 0.01
+    },
+    "n_parameters": 2240,
+    "history": [
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 200,
+        "loss": 0.001038580463572776,
+        "seconds": 454.6988506
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 400,
+        "loss": 9.941102183047005e-05,
+        "seconds": 582.7050351590001
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 600,
+        "loss": 0.00017990174608210495,
+        "seconds": 711.0311391110001
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 800,
+        "loss": 7.269693274163349e-05,
+        "seconds": 839.215617928
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1000,
+        "loss": 7.262783192218641e-05,
+        "seconds": 967.436370438
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1200,
+        "loss": 0.00014021778588353017,
+        "seconds": 1095.656241755
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1400,
+        "loss": 6.972507880865856e-05,
+        "seconds": 1223.876181654
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1600,
+        "loss": 2.0653942349276005e-05,
+        "seconds": 1352.1032957720001
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 1800,
+        "loss": 3.775696311469628e-05,
+        "seconds": 1480.2659321110002
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 2000,
+        "loss": 0.00010731285166790445,
+        "seconds": 1608.488356313
+      }
+    ],
+    "final": {
+      "cell_accuracy": 1.0,
+      "solve_rate": 1.0,
+      "step": 2000,
+      "loss": 0.00010731285166790445,
+      "seconds": 1608.488356313
+    }
+  },
+  {
+    "config": {
+      "family": "exp",
+      "bond": 6,
+      "feedback": 2,
+      "ticks": 2,
+      "init": "cells",
+      "n_steps": 2000,
+      "eval_every": 200,
+      "learning_rate": 0.01
+    },
+    "n_parameters": 2240,
+    "history": [
+      {
+        "cell_accuracy": 0.23046875,
+        "solve_rate": 0.0,
+        "step": 200,
+        "loss": 1.3844809751906402,
+        "seconds": 691.7895856460001
+      },
+      {
+        "cell_accuracy": 0.232421875,
+        "solve_rate": 0.0,
+        "step": 400,
+        "loss": 1.3852302976333228,
+        "seconds": 818.8805153930001
+      },
+      {
+        "cell_accuracy": 0.5,
+        "solve_rate": 0.0,
+        "step": 600,
+        "loss": 0.882850220584297,
+        "seconds": 946.047272082
+      },
+      {
+        "cell_accuracy": 0.515625,
+        "solve_rate": 0.0,
+        "step": 800,
+        "loss": 0.8604784941746143,
+        "seconds": 1073.396989451
+      },
+      {
+        "cell_accuracy": 0.509765625,
+        "solve_rate": 0.0,
+        "step": 1000,
+        "loss": 0.7953882069521818,
+        "seconds": 1200.782796981
+      },
+      {
+        "cell_accuracy": 0.51171875,
+        "solve_rate": 0.0,
+        "step": 1200,
+        "loss": 0.8119117489337082,
+        "seconds": 1328.1720817750002
+      },
+      {
+        "cell_accuracy": 0.4921875,
+        "solve_rate": 0.0,
+        "step": 1400,
+        "loss": 0.8140386426458017,
+        "seconds": 1455.5582186369998
+      },
+      {
+        "cell_accuracy": 0.482421875,
+        "solve_rate": 0.0,
+        "step": 1600,
+        "loss": 0.8586381561825525,
+        "seconds": 1582.935227864
+      },
+      {
+        "cell_accuracy": 0.505859375,
+        "solve_rate": 0.0,
+        "step": 1800,
+        "loss": 0.8208988226319653,
+        "seconds": 1710.3016605090002
+      },
+      {
+        "cell_accuracy": 0.494140625,
+        "solve_rate": 0.0,
+        "step": 2000,
+        "loss": 0.856761579095151,
+        "seconds": 1837.6899605190001
+      }
+    ],
+    "final": {
+      "cell_accuracy": 0.494140625,
+      "solve_rate": 0.0,
+      "step": 2000,
+      "loss": 0.856761579095151,
+      "seconds": 1837.6899605190001
+    }
+  },
+  {
+    "config": {
+      "family": "exp",
+      "bond": 6,
+      "feedback": 2,
+      "ticks": 2,
+      "init": "cells",
+      "n_steps": 2000,
+      "eval_every": 200,
+      "learning_rate": 0.003
+    },
+    "n_parameters": 2240,
+    "history": [
+      {
+        "cell_accuracy": 0.234375,
+        "solve_rate": 0.0,
+        "step": 200,
+        "loss": 1.3858429189844885,
+        "seconds": 429.43757478399993
+      },
+      {
+        "cell_accuracy": 0.240234375,
+        "solve_rate": 0.0,
+        "step": 400,
+        "loss": 1.3864655194492734,
+        "seconds": 561.7024858259999
+      },
+      {
+        "cell_accuracy": 0.228515625,
+        "solve_rate": 0.0,
+        "step": 600,
+        "loss": 1.3793814127075876,
+        "seconds": 693.9795724129999
+      },
+      {
+        "cell_accuracy": 0.228515625,
+        "solve_rate": 0.0,
+        "step": 800,
+        "loss": 1.3861485145105146,
+        "seconds": 826.3921021680001
+      },
+      {
+        "cell_accuracy": 0.236328125,
+        "solve_rate": 0.0,
+        "step": 1000,
+        "loss": 1.3789316786791865,
+        "seconds": 958.7835895139999
+      },
+      {
+        "cell_accuracy": 0.22265625,
+        "solve_rate": 0.0,
+        "step": 1200,
+        "loss": 1.380415327470316,
+        "seconds": 1091.063581051
+      },
+      {
+        "cell_accuracy": 0.283203125,
+        "solve_rate": 0.0,
+        "step": 1400,
+        "loss": 1.3665309875643072,
+        "seconds": 1223.390900779
+      },
+      {
+        "cell_accuracy": 0.4375,
+        "solve_rate": 0.0,
+        "step": 1600,
+        "loss": 1.2163983651269505,
+        "seconds": 1355.741882299
+      },
+      {
+        "cell_accuracy": 0.5,
+        "solve_rate": 0.0,
+        "step": 1800,
+        "loss": 0.87706532717258,
+        "seconds": 1488.280427785
+      },
+      {
+        "cell_accuracy": 0.486328125,
+        "solve_rate": 0.0,
+        "step": 2000,
+        "loss": 0.8800071096549735,
+        "seconds": 1620.8507897260001
+      }
+    ],
+    "final": {
+      "cell_accuracy": 0.486328125,
+      "solve_rate": 0.0,
+      "step": 2000,
+      "loss": 0.8800071096549735,
+      "seconds": 1620.8507897260001
+    }
+  },
+  {
+    "config": {
+      "family": "exp",
+      "bond": 6,
+      "feedback": 2,
+      "ticks": 2,
+      "n_steps": 3000,
+      "eval_every": 300,
+      "learning_rate": 0.01
+    },
+    "n_parameters": 2240,
+    "history": [
+      {
+        "cell_accuracy": 0.2421875,
+        "solve_rate": 0.0,
+        "step": 300,
+        "loss": 1.3786446589701948,
+        "seconds": 793.1491141119999
+      },
+      {
+        "cell_accuracy": 0.220703125,
+        "solve_rate": 0.0,
+        "step": 600,
+        "loss": 1.3750355626392485,
+        "seconds": 984.875445001
+      },
+      {
+        "cell_accuracy": 0.234375,
+        "solve_rate": 0.0,
+        "step": 900,
+        "loss": 1.3707254321784843,
+        "seconds": 1176.7407469700001
+      },
+      {
+        "cell_accuracy": 0.228515625,
+        "solve_rate": 0.0,
+        "step": 1200,
+        "loss": 1.3752080589044524,
+        "seconds": 1368.59568769
+      },
+      {
+        "cell_accuracy": 0.216796875,
+        "solve_rate": 0.0,
+        "step": 1500,
+        "loss": 1.37645606374266,
+        "seconds": 1560.512186257
+      },
+      {
+        "cell_accuracy": 0.291015625,
+        "solve_rate": 0.0,
+        "step": 1800,
+        "loss": 1.310794137335349,
+        "seconds": 1752.4370103680003
+      },
+      {
+        "cell_accuracy": 0.392578125,
+        "solve_rate": 0.0,
+        "step": 2100,
+        "loss": 1.2028599023108884,
+        "seconds": 1944.3484243010003
+      },
+      {
+        "cell_accuracy": 0.39453125,
+        "solve_rate": 0.0,
+        "step": 2400,
+        "loss": 1.2013625755572654,
+        "seconds": 2136.442893371
+      },
+      {
+        "cell_accuracy": 0.37890625,
+        "solve_rate": 0.0,
+        "step": 2700,
+        "loss": 1.1858959006569072,
+        "seconds": 2328.36584886
+      },
+      {
+        "cell_accuracy": 0.375,
+        "solve_rate": 0.0,
+        "step": 3000,
+        "loss": 1.1465035953358065,
+        "seconds": 2520.281814556
+      }
+    ],
+    "final": {
+      "cell_accuracy": 0.375,
+      "solve_rate": 0.0,
+      "step": 3000,
+      "loss": 1.1465035953358065,
+      "seconds": 2520.281814556
+    }
+  }
+]

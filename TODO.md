@@ -12,28 +12,28 @@
 > increasing the number of parameter. Report your results in the PR
 > description.
 
-- [WIP] @session_01GRttRw1nfYw86K7h4bfMRx-2026-08-14 12:00 Set up the Modal GPU environment: an image carrying this branch of
+- [x] Set up the Modal GPU environment: an image carrying this branch of
       optyx with quimb, cotengra and a differentiable GPU backend, and a
       smoke test contracting an `interaction.CMap` unrolling on the GPU.
-- [ ] Rebuild the leakage-free dataset of the removed reference notebook:
+- [x] Rebuild the leakage-free dataset of the removed reference notebook:
       288 completed grids, 256 distinct sampled solutions split 192/64
       before masking, eight-clue puzzles with a unique completion.
-- [ ] Build the sudoku `interaction.CMap` — one box per cell, per row, per
+- [x] Build the sudoku `interaction.CMap` — one box per cell, per row, per
       column and per square — and its unrolled tensor networks at several
       tick counts; verify the batched GPU contraction against
       `optyx.core.contract.contract_tensor` on small cases.
-- [ ] Sanity-check expressivity before training: hand-coded constraint and
+- [x] Sanity-check expressivity before training: hand-coded constraint and
       cell channels (all-different indicators and digit memories) must
       decode held-out puzzles exactly, so the model class contains a solver.
-- [ ] Compare ansatze under a fixed pilot budget, progressively increasing
+- [x] Compare ansatze under a fixed pilot budget, progressively increasing
       the parameter count and the unroll depth: the Born/orthogonal-circuit
       family of the reference notebook against classical stochastic channels
       with factored non-negative cores, at parameter counts below the
       12,980 of the CMap GNN in discopy#416.
-- [ ] Scale the winning configuration on the GPU and report held-out
+- [x] Scale the winning configuration on the GPU and report held-out
       per-cell accuracy and full-grid solve rate against the CMap GNN
       numbers (0.993 cell accuracy, 0.936 valid grids, 12,980 parameters).
-- [ ] Commit the experiment scripts and a results report, open the draft
+- [x] Commit the experiment scripts and a results report, open the draft
       PR "sudoku experiment" stacked on #16 and report the results in its
       description.
 
@@ -47,7 +47,7 @@
       `Box.conjugate()` swaps dom and cod, and classical doubling
       mis-assembles when dom and cod arity differ
       ([#51](https://github.com/rel-int/optyx/issues/51)).
-- [ ] Make the leading ansatz genuinely quantum: every box parameterised
+- [x] Make the leading ansatz genuinely quantum: every box parameterised
       by orthogonal-circuit angles -- cells as ten-qubit circuits with a
       coherent two-qubit memory, measured digit messages and predictions,
       constraints as nine-qubit measure-and-prepare channels with a
@@ -55,6 +55,6 @@
       solver is contained in the quantum family as permutation circuits
       (Stinespring) and the classical family becomes its
       decohered-ablation baseline at matched parameter counts.
-- [ ] Certify quantum expressivity the same way as classical: the
+- [x] Certify quantum expressivity the same way as classical: the
       hand-written permutation circuits must decode held-out puzzles
       exactly through the doubled contraction with coherent memory.

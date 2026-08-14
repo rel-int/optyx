@@ -291,6 +291,7 @@ def init_stochastic_structured(bond, feedback, seed, family, noise=0.05):
     """Solver plumbing plus noise for the classical families: cell cores
     start at the digit-memory broadcast of ``solver_cores`` (padded to
     the requested bond with noise), the constraint logic stays random."""
+    assert bond >= 4, "the digit-memory plumbing needs bond at least four"
     random = np.random.default_rng(seed)
     solver_cell, _, _ = solver_cores()
     cell_shapes, read_shapes, write_shapes = stochastic_shapes(
@@ -431,7 +432,7 @@ def solver_angles(cell_depth, cons_depth, feedback=2):
     generalised multi-controlled flip -- so the measured verdict is the
     flag. Signs from the rotations square away in the doubled channel.
     """
-    assert cell_depth >= 10 and cons_depth >= 1 and feedback == 2
+    assert cell_depth >= 8 and cons_depth >= 1 and feedback == 2
     cell = np.zeros(born_parameter_count(10, cell_depth))
     rotations = (cell_depth + 1) * 10
     for layer in range(10):

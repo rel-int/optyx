@@ -1,0 +1,451 @@
+[
+  {
+    "config": {
+      "family": "square",
+      "bond": 4,
+      "feedback": 2,
+      "ticks": 2,
+      "init": "cells",
+      "learning_rate": 0.01,
+      "n_steps": 800,
+      "eval_every": 200
+    },
+    "n_parameters": 1056,
+    "history": [
+      {
+        "cell_accuracy": 0.671875,
+        "solve_rate": 0.03125,
+        "step": 200,
+        "loss": 0.4452866035763213,
+        "seconds": 449.41344913699993
+      },
+      {
+        "cell_accuracy": 0.650390625,
+        "solve_rate": 0.03125,
+        "step": 400,
+        "loss": 0.4498852198665707,
+        "seconds": 577.707270153
+      },
+      {
+        "cell_accuracy": 0.677734375,
+        "solve_rate": 0.046875,
+        "step": 600,
+        "loss": 0.4558137588696851,
+        "seconds": 706.1805811739999
+      },
+      {
+        "cell_accuracy": 0.638671875,
+        "solve_rate": 0.03125,
+        "step": 800,
+        "loss": 0.4472544483776411,
+        "seconds": 834.7003010510001
+      }
+    ],
+    "final": {
+      "cell_accuracy": 0.638671875,
+      "solve_rate": 0.03125,
+      "step": 800,
+      "loss": 0.4472544483776411,
+      "seconds": 834.7003010510001
+    }
+  },
+  {
+    "config": {
+      "family": "square",
+      "bond": 5,
+      "feedback": 2,
+      "ticks": 2,
+      "init": "cells",
+      "learning_rate": 0.01,
+      "n_steps": 800,
+      "eval_every": 200
+    },
+    "n_parameters": 1592,
+    "history": [
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 200,
+        "loss": 0.0003885900729835675,
+        "seconds": 672.184078773
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 400,
+        "loss": 0.00011632823405691408,
+        "seconds": 800.1343274809999
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 600,
+        "loss": 2.0511488665057746e-05,
+        "seconds": 928.233054112
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 800,
+        "loss": 8.902402316714352e-05,
+        "seconds": 1056.355791746
+      }
+    ],
+    "final": {
+      "cell_accuracy": 1.0,
+      "solve_rate": 1.0,
+      "step": 800,
+      "loss": 8.902402316714352e-05,
+      "seconds": 1056.355791746
+    }
+  },
+  {
+    "config": {
+      "family": "square",
+      "bond": 6,
+      "feedback": 2,
+      "ticks": 2,
+      "init": "cells",
+      "learning_rate": 0.01,
+      "n_steps": 800,
+      "eval_every": 200,
+      "seed": 8
+    },
+    "n_parameters": 2240,
+    "history": [
+      {
+        "cell_accuracy": 0.744140625,
+        "solve_rate": 0.03125,
+        "step": 200,
+        "loss": 0.35263342106730855,
+        "seconds": 411.668576907
+      },
+      {
+        "cell_accuracy": 0.71484375,
+        "solve_rate": 0.046875,
+        "step": 400,
+        "loss": 0.3445456626860681,
+        "seconds": 541.2712921329999
+      },
+      {
+        "cell_accuracy": 0.73046875,
+        "solve_rate": 0.0625,
+        "step": 600,
+        "loss": 0.35915473900167044,
+        "seconds": 671.1640250959999
+      },
+      {
+        "cell_accuracy": 0.705078125,
+        "solve_rate": 0.125,
+        "step": 800,
+        "loss": 0.33700887012080516,
+        "seconds": 801.055180784
+      }
+    ],
+    "final": {
+      "cell_accuracy": 0.705078125,
+      "solve_rate": 0.125,
+      "step": 800,
+      "loss": 0.33700887012080516,
+      "seconds": 801.055180784
+    }
+  },
+  {
+    "config": {
+      "family": "square",
+      "bond": 6,
+      "feedback": 2,
+      "ticks": 2,
+      "init": "cells",
+      "learning_rate": 0.01,
+      "n_steps": 800,
+      "eval_every": 200,
+      "seed": 9
+    },
+    "n_parameters": 2240,
+    "history": [
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 200,
+        "loss": 0.0004699425940063931,
+        "seconds": 689.394017534
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 400,
+        "loss": 9.719047195495798e-05,
+        "seconds": 816.0528237249999
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 600,
+        "loss": 7.898957737152383e-05,
+        "seconds": 942.929153019
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 800,
+        "loss": 5.146434809925491e-05,
+        "seconds": 1069.8798037289998
+      }
+    ],
+    "final": {
+      "cell_accuracy": 1.0,
+      "solve_rate": 1.0,
+      "step": 800,
+      "loss": 5.146434809925491e-05,
+      "seconds": 1069.8798037289998
+    }
+  },
+  {
+    "config": {
+      "family": "quantum",
+      "cell_depth": 10,
+      "cons_depth": 1,
+      "feedback": 2,
+      "ticks": 2,
+      "init": "cells",
+      "learning_rate": 0.01,
+      "n_steps": 800,
+      "eval_every": 200,
+      "seed": 8
+    },
+    "n_parameters": 5536,
+    "history": [
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 200,
+        "loss": 6.076347299210061e-05,
+        "seconds": 904.5058523150001
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 400,
+        "loss": 2.694083215325037e-05,
+        "seconds": 1036.331058665
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 600,
+        "loss": 1.4789363417120846e-05,
+        "seconds": 1168.246950685
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 800,
+        "loss": 3.0150780758705396e-05,
+        "seconds": 1300.215369841
+      }
+    ],
+    "final": {
+      "cell_accuracy": 1.0,
+      "solve_rate": 1.0,
+      "step": 800,
+      "loss": 3.0150780758705396e-05,
+      "seconds": 1300.215369841
+    }
+  },
+  {
+    "config": {
+      "family": "quantum",
+      "cell_depth": 10,
+      "cons_depth": 1,
+      "feedback": 2,
+      "ticks": 2,
+      "init": "cells",
+      "learning_rate": 0.01,
+      "n_steps": 800,
+      "eval_every": 200,
+      "seed": 9
+    },
+    "n_parameters": 5536,
+    "history": [
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 200,
+        "loss": 9.529230744867673e-05,
+        "seconds": 782.9805194430002
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 400,
+        "loss": 3.182700684702577e-05,
+        "seconds": 916.4127232940001
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 600,
+        "loss": 1.7326353995250803e-05,
+        "seconds": 1049.896505576
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 800,
+        "loss": 1.2863202629752121e-05,
+        "seconds": 1183.38215683
+      }
+    ],
+    "final": {
+      "cell_accuracy": 1.0,
+      "solve_rate": 1.0,
+      "step": 800,
+      "loss": 1.2863202629752121e-05,
+      "seconds": 1183.38215683
+    }
+  },
+  {
+    "config": {
+      "family": "quantum",
+      "cell_depth": 8,
+      "cons_depth": 1,
+      "feedback": 2,
+      "ticks": 2,
+      "init": "cells",
+      "learning_rate": 0.01,
+      "n_steps": 800,
+      "eval_every": 200
+    },
+    "n_parameters": 4492,
+    "history": [
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 200,
+        "loss": 7.970880204641466e-05,
+        "seconds": 514.1694787780001
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 400,
+        "loss": 7.767412644215499e-05,
+        "seconds": 647.190769273
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 600,
+        "loss": 1.6612127237409803e-05,
+        "seconds": 780.6318853710001
+      },
+      {
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0,
+        "step": 800,
+        "loss": 1.2334175702160294e-05,
+        "seconds": 914.1770005929999
+      }
+    ],
+    "final": {
+      "cell_accuracy": 1.0,
+      "solve_rate": 1.0,
+      "step": 800,
+      "loss": 1.2334175702160294e-05,
+      "seconds": 914.1770005929999
+    }
+  },
+  {
+    "config": {
+      "family": "quantum",
+      "cell_depth": 8,
+      "cons_depth": 8,
+      "feedback": 2,
+      "ticks": 2,
+      "learning_rate": 0.01,
+      "n_steps": 4000,
+      "eval_every": 400
+    },
+    "n_parameters": 6347,
+    "history": [
+      {
+        "cell_accuracy": 0.697265625,
+        "solve_rate": 0.125,
+        "step": 400,
+        "loss": 0.5094060721494825,
+        "seconds": 955.3048165509999
+      },
+      {
+        "cell_accuracy": 0.8046875,
+        "solve_rate": 0.421875,
+        "step": 800,
+        "loss": 0.2509787308880004,
+        "seconds": 1215.86916582
+      },
+      {
+        "cell_accuracy": 0.8046875,
+        "solve_rate": 0.390625,
+        "step": 1200,
+        "loss": 0.3159114763420148,
+        "seconds": 1476.3334022129998
+      },
+      {
+        "cell_accuracy": 0.876953125,
+        "solve_rate": 0.65625,
+        "step": 1600,
+        "loss": 0.15878197355814166,
+        "seconds": 1736.7730675910002
+      },
+      {
+        "cell_accuracy": 0.91796875,
+        "solve_rate": 0.734375,
+        "step": 2000,
+        "loss": 0.08412418478879773,
+        "seconds": 1997.2840543460002
+      },
+      {
+        "cell_accuracy": 0.951171875,
+        "solve_rate": 0.84375,
+        "step": 2400,
+        "loss": 0.09357043611631645,
+        "seconds": 2257.852424614
+      },
+      {
+        "cell_accuracy": 0.951171875,
+        "solve_rate": 0.84375,
+        "step": 2800,
+        "loss": 0.08688281815433185,
+        "seconds": 2518.434608375
+      },
+      {
+        "cell_accuracy": 0.951171875,
+        "solve_rate": 0.859375,
+        "step": 3200,
+        "loss": 0.06775727764034847,
+        "seconds": 2779.045449664
+      },
+      {
+        "cell_accuracy": 0.943359375,
+        "solve_rate": 0.8125,
+        "step": 3600,
+        "loss": 0.07029659293981355,
+        "seconds": 3039.600043576
+      },
+      {
+        "cell_accuracy": 0.951171875,
+        "solve_rate": 0.84375,
+        "step": 4000,
+        "loss": 0.06859760743857918,
+        "seconds": 3300.138373675
+      }
+    ],
+    "final": {
+      "cell_accuracy": 0.951171875,
+      "solve_rate": 0.84375,
+      "step": 4000,
+      "loss": 0.06859760743857918,
+      "seconds": 3300.138373675
+    }
+  }
+]
