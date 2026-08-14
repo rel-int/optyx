@@ -287,6 +287,29 @@ def init_stochastic(bond, feedback, seed, scale=0.3):
         for group in stochastic_shapes(bond, feedback))
 
 
+def init_stochastic_structured(bond, feedback, seed, family, noise=0.05):
+    """Solver plumbing plus noise for the classical families: cell cores
+    start at the digit-memory broadcast of ``solver_cores`` (padded to
+    the requested bond with noise), the constraint logic stays random."""
+    random = np.random.default_rng(seed)
+    solver_cell, _, _ = solver_cores()
+    cell_shapes, read_shapes, write_shapes = stochastic_shapes(
+        bond, feedback)
+    cell = []
+    for core, shape in zip(solver_cell, cell_shapes):
+        padded = np.zeros(shape)
+        padded[tuple(slice(0, s) for s in core.shape)] = core
+        if family == "square":
+            theta = np.sqrt(padded) + noise * random.normal(size=shape)
+        else:
+            theta = np.log(padded + 0.02) + noise * random.normal(
+                size=shape)
+        cell.append(theta)
+    read = [random.normal(0, 0.3, shape) for shape in read_shapes]
+    write = [random.normal(0, 0.3, shape) for shape in write_shapes]
+    return cell, read, write
+
+
 def solver_cores():
     """Hand-written exact-solver cores in the stochastic family.
 
@@ -381,13 +404,75 @@ def solver_quantum():
     constraint = np.zeros((2 ** 9, 2 ** 9))
     for basis in range(2 ** 9):
         claims = [(basis >> (7 - 2 * p)) & 3 for p in range(4)]
-        ancilla = basis & 1
         passing = len(set(claims)) == 4 or claims == [0, 0, 0, 0]
-        flag = (0 if passing else 1) ^ ancilla   # zero: the initial claim
-        target = (flag << 8) | (basis >> 1)      # verdict, then junk
-        constraint[target, basis] = 1
+        flag = 0 if passing else 1               # zero: the initial claim
+        constraint[basis ^ flag, basis] = 1      # verdict is the low bit
     writes = np.zeros((4, 2, 4))
     writes[:, 0, 0] = 1                          # verdict ok: echo zero
+    return cell, constraint, writes
+
+
+def solver_flag(claims):
+    passing = len(set(claims)) == 4 or claims == [0, 0, 0, 0]
+    return 0 if passing else 1
+
+
+def solver_angles(cell_depth, cons_depth, feedback=2):
+    """The exact solver as conditional-rotation angles, inside the
+    trainable quantum ansatz.
+
+    The cell circuit is an XOR ladder: the first ten conditional layers
+    flip each message and prediction bit conditioned on the matching
+    memory bit (angle ``pi/2`` where the control is one), so the cell
+    broadcasts its memory digit and predicts it; deeper layers are
+    idle. The constraint circuit computes the all-different flag of its
+    four claims into the fresh ancilla with a single conditional layer
+    -- one independent angle per claim configuration is exactly a
+    generalised multi-controlled flip -- so the measured verdict is the
+    flag. Signs from the rotations square away in the doubled channel.
+    """
+    assert cell_depth >= 10 and cons_depth >= 1 and feedback == 2
+    cell = np.zeros(born_parameter_count(10, cell_depth))
+    rotations = (cell_depth + 1) * 10
+    for layer in range(10):
+        target = layer % 10
+        if target >= 8:
+            continue                             # memory bits persist
+        control = 9 if target % 2 else 8
+        basis = np.arange(2 ** 10)
+        lower = basis[((basis >> target) & 1) == 0]
+        angles = np.where((lower >> control) & 1, np.pi / 2, 0.)
+        offset = rotations + layer * 2 ** 9
+        cell[offset:offset + 2 ** 9] = angles
+    constraint = np.zeros(born_parameter_count(9, cons_depth))
+    rotations = (cons_depth + 1) * 9
+    lower = np.arange(2 ** 8)                    # ancilla-zero states
+    flags = np.array([solver_flag([
+        (claims >> 6) & 3, (claims >> 4) & 3,
+        (claims >> 2) & 3, claims & 3]) for claims in lower])
+    constraint[rotations:rotations + 2 ** 8] = np.where(
+        flags, np.pi / 2, 0.)
+    writes = np.zeros((4, 2, 4))
+    writes[:, 0, 0] = 1                          # ok: echo digit zero
+    return cell, constraint, writes
+
+
+def init_quantum_structured(cell_depth, cons_depth, feedback, seed,
+                            noise=0.05, logic="random"):
+    """Solver plumbing plus noise: the cell keeps its broadcast ladder,
+    the constraint logic is ``"solver"`` plus noise or ``"random"``."""
+    random = np.random.default_rng(seed)
+    cell, constraint, writes = solver_angles(
+        cell_depth, cons_depth, feedback)
+    cell = cell + noise * random.normal(size=cell.shape)
+    if logic == "solver":
+        constraint = constraint + noise * random.normal(
+            size=constraint.shape)
+        writes = writes + noise * np.abs(
+            random.normal(size=writes.shape))
+    else:
+        constraint = 0.1 * random.normal(size=constraint.shape)
+        writes = random.normal(1, 0.3, size=writes.shape)
     return cell, constraint, writes
 
 

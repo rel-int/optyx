@@ -22,6 +22,11 @@ def solver_tensors(family):
             "constraint_write": jnp.stack(
                 [jnp.asarray(c) for c in constraint_write]),
         }, 1
+    if family == "angles":
+        params = tuple(map(jnp.asarray, ex.solver_angles(10, 1)))
+        tensors_fn = co.make_tensors_fn(
+            "quantum", {"cell_depth": 10, "cons_depth": 1, "feedback": 2})
+        return tensors_fn(params), 2
     assert family == "quantum"
     cell_unitary, constraint_unitary, writes = ex.solver_quantum()
     kraus = jnp.asarray(
@@ -31,8 +36,8 @@ def solver_tensors(family):
         "MABCPuabc,NABCPvabc->abcuvABCMNP", kraus, kraus
     ).reshape(4, 4, 4, 16, 4, 4, 4, 16, 4)
     vkraus = jnp.asarray(
-        constraint_unitary.reshape(2, 256, 256, 2)[..., 0])
-    read = jnp.einsum("kja,kja->ak", vkraus, vkraus).reshape(
+        constraint_unitary.reshape(256, 2, 256, 2)[..., 0])
+    read = jnp.einsum("jka,jka->ak", vkraus, vkraus).reshape(
         4, 4, 4, 4, 2)
     return {
         "cell": cell,
@@ -50,7 +55,9 @@ def main(ticks=2, n_puzzles=16, family="square"):
     assert len(structure.boxes) == 28
     train_cases, test_cases = ex.make_dataset()
     tensors, feedback = solver_tensors(family)
-    scores = co.make_scores(structure, ticks, family, feedback=feedback)
+    scores = co.make_scores(
+        structure, ticks,
+        "quantum" if family == "angles" else family, feedback=feedback)
 
     def probabilities(tensors, effects):
         raw = scores(tensors, effects)

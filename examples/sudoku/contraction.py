@@ -270,10 +270,10 @@ def make_tensors_fn(family, config):
 
     def doubled_constraint(unitary):
         """The verdict distribution of the constraint circuit: nine
-        qubits in (four claims and a fresh ancilla), the verdict register
-        measured and the other qubits traced out."""
-        kraus = unitary.reshape(feedback, 512 // feedback, 256, 2)[..., 0]
-        return jnp.einsum("kja,kja->ak", kraus, kraus).reshape(
+        qubits in (four claims and a fresh ancilla), the low-bit verdict
+        register measured and the other qubits traced out."""
+        kraus = unitary.reshape(512 // feedback, feedback, 256, 2)[..., 0]
+        return jnp.einsum("jka,jka->ak", kraus, kraus).reshape(
             4, 4, 4, 4, feedback)
 
     def tensors_fn(params):
@@ -422,14 +422,28 @@ def train(config, train_cases, test_cases, log=print):
         feedback = 1
     elif family == "quantum":
         feedback = config.get("feedback", 2)
-        params = tuple(map(jnp.asarray, ex.init_quantum(
-            config["cell_depth"], config["cons_depth"], feedback,
-            seed, scale)))
+        mode = config.get("init", "random")
+        if mode == "random":
+            groups = ex.init_quantum(
+                config["cell_depth"], config["cons_depth"], feedback,
+                seed, scale)
+        else:
+            groups = ex.init_quantum_structured(
+                config["cell_depth"], config["cons_depth"], feedback,
+                seed, noise=config.get("noise", 0.05),
+                logic="solver" if mode == "solver" else "random")
+        params = tuple(map(jnp.asarray, groups))
         n_parameters = ex.quantum_parameter_count(
             config["cell_depth"], config["cons_depth"], feedback)
     else:
         bond, feedback = config["bond"], config.get("feedback", 1)
-        groups = ex.init_stochastic(bond, feedback, seed, scale=scale)
+        mode = config.get("init", "random")
+        if mode == "random":
+            groups = ex.init_stochastic(bond, feedback, seed, scale=scale)
+        else:
+            groups = ex.init_stochastic_structured(
+                bond, feedback, seed, family,
+                noise=config.get("noise", 0.05))
         params = tuple(
             [jnp.asarray(core) for core in group] for group in groups)
         n_parameters = ex.parameter_count_stochastic(bond, feedback)
