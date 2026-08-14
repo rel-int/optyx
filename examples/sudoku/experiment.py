@@ -2,29 +2,34 @@
 
 The architecture is the ``interaction.CMap`` of the reference notebook of
 rel-int/optyx#16: one box per cell and one box per row, column and square,
-message ports paired between each cell and the three constraints it
-belongs to. Each cell carries a private memory and writes a prediction at
-every tick. The unrolled protocol is contracted exactly as a tensor
-network with Cotengra paths on JAX arrays, batched over puzzles.
+one bidirectional digit wire pairing each cell with each of its three
+constraints. Each cell carries a private memory and writes a prediction
+at every tick. The unrolled protocol is contracted exactly -- no
+compressed bond -- with Cotengra paths on JAX arrays, batched over
+puzzles.
 
-Two kinds of channel ansatz share this architecture:
+Three channel ansatze share this architecture:
 
-* ``born``: the orthogonal conditional-rotation circuits of the reference
-  notebook, qubit wires and Born-rule readout of the open prediction legs.
-* ``stochastic``: classical channels on two-bit (dimension-four) digit
-  wires, whose transition tensors are factored into a chain of small
-  cores with bond dimension ``D`` -- the parameter ladder. Non-negative
-  cores make the contraction an exact probabilistic inference over
-  message trajectories; signed cores with a squared readout are the same
-  ansatz with interference.
-
-``solver_cores`` writes down all-different constraint cores (bond 6) and
-digit-memory cell cores (bond 4) by hand: the stochastic family contains
-an exact sudoku solver within the trainable bond range.
+* ``quantum``: every box is a channel built from an orthogonal
+  conditional-rotation circuit -- a ten-qubit circuit for the cell,
+  whose two-qubit memory stays coherent between ticks while its digit
+  messages and prediction are measured, and a nine-qubit
+  measure-and-prepare circuit for the constraint, whose measured verdict
+  register of dimension ``feedback`` indexes one prepared state per
+  port. By Stinespring this family contains every classical stochastic
+  channel, ``solver_quantum`` being the solver as permutation circuits.
+* ``exp`` and ``square``: the decohered ablation -- classical stochastic
+  channels on dimension-four digit wires, transition tensors factored
+  into chains of non-negative cores with bond dimension ``bond``, the
+  constraint split into a read chain and per-port write vectors of rank
+  ``feedback``. ``solver_cores`` is the exact solver at cell bond four
+  and constraint bond six, inside the trainable range.
+* ``born``: the fully coherent continuation of the reference notebook,
+  single-qubit messages through orthogonal circuits, no decoherence,
+  Born-rule readout of the open prediction legs.
 """
 
 from dataclasses import dataclass
-from functools import partial
 
 import numpy as np
 
@@ -352,7 +357,7 @@ def init_quantum(cell_depth, cons_depth, feedback, seed, scale=0.3):
     random = np.random.default_rng(seed)
     return (
         random.normal(0, scale, born_parameter_count(10, cell_depth)),
-        random.normal(0, scale, born_parameter_count(8, cons_depth)),
+        random.normal(0, scale, born_parameter_count(9, cons_depth)),
         random.normal(1, scale, (4, feedback, 4)))
 
 

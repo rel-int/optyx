@@ -9,8 +9,6 @@ predictions meet their digit effect at every tick and free predictions
 are marginalised.
 """
 
-from functools import partial
-
 import cotengra as ctg
 import numpy as np
 
@@ -115,7 +113,6 @@ def make_scores(structure, ticks, family, feedback=1,
 
     if optimize is None:
         optimize = default_optimizer()
-    dims = family_dims(family)
     if family == "born":
         constants = {
             ("initial", "port"): np.ones(2) / 2 ** .5,
@@ -342,7 +339,7 @@ def full_probabilities(scores, tensors_fn):
 
 
 def local_probabilities(ticks, family, feedback, tensors_fn,
-                        optimize=None):
+                        optimize=None, strip_exponent=False):
     """Per-cell digit probabilities from the light-cone map of each
     cell, one exact contraction per target; ``effects`` is batched as
     ``(batch, n_cells, n_local_boxes, ticks, 4)``, sliced per target
@@ -355,7 +352,8 @@ def local_probabilities(ticks, family, feedback, tensors_fn,
         structure, _ = ex.local_structure(target)
         scorers.append(make_scores(
             structure, ticks, family, feedback=feedback,
-            optimize=optimize or default_optimizer(), targets=[0]))
+            optimize=optimize or default_optimizer(), targets=[0],
+            strip_exponent=strip_exponent))
 
     def one_puzzle(tensors, effects):
         raw = jnp.stack([
@@ -437,15 +435,18 @@ def train(config, train_cases, test_cases, log=print):
         n_parameters = ex.parameter_count_stochastic(bond, feedback)
     tensors_fn = make_tensors_fn(family, config)
     scope = config.get("scope", "full")
+    strip = config.get("strip_exponent", False)
     if scope == "full":
         scores = make_scores(
             structure, ticks, family, feedback=feedback,
-            optimize=default_optimizer(config.get("path_repeats", 32)))
+            optimize=default_optimizer(config.get("path_repeats", 32)),
+            strip_exponent=strip)
         probabilities = full_probabilities(scores, tensors_fn)
     else:
         probabilities = local_probabilities(
             ticks, family, feedback, tensors_fn,
-            optimize=default_optimizer(config.get("path_repeats", 32)))
+            optimize=default_optimizer(config.get("path_repeats", 32)),
+            strip_exponent=strip)
     loss = make_loss(probabilities)
     probabilities = jax.jit(probabilities)
 

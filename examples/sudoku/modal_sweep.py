@@ -20,7 +20,10 @@ import modal
 
 app = modal.App("optyx-sudoku")
 
-REPO = pathlib.Path(__file__).resolve().parents[2]
+try:
+    REPO = pathlib.Path(__file__).resolve().parents[2]
+except IndexError:                       # inside the container
+    REPO = pathlib.Path("/root/optyx")
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
@@ -56,7 +59,7 @@ def smoke_test():
 
     cnot = Z(1, 2) @ qubit >> qubit @ X(2, 1) @ Scalar(2 ** 0.5)
     cmap = CMap([Box("f", qubit, qubit, cnot)], [((0, 0), (0, 1))])
-    unrolled = Ket(0, 0) >> cmap.unroll(1)
+    unrolled = (Ket(0) @ Ket(0)) >> cmap.unroll(1)
     network = unrolled.double().to_tensor().to_map()
     gpu_result = contract_tensor(network, backend="jax")
     cpu_result = contract_tensor(network, backend="numpy")

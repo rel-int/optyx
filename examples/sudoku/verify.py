@@ -47,8 +47,7 @@ def array_box(name, dom, cod, array):
 
 
 def check_structure():
-    from discopy.utils import AxiomError  # noqa: F401
-    from optyx.channel import Ty, qubit
+    from optyx.channel import qubit
     from optyx.interaction import Box, CMap
 
     structure = ex.sudoku_structure()
@@ -86,7 +85,6 @@ def check_born_toy(ticks=2, seed=11):
     import jax
     import jax.numpy as jnp
     from optyx.channel import Channel, Ty, qubit
-    from optyx.core.contract import contract_tensor
     from optyx.core.diagram import bit as core_bit
     from optyx.interaction import Box, CMap
     from optyx.qubits import Ket
