@@ -1,0 +1,10 @@
+[
+  {"family": "square", "bond": 4, "feedback": 2, "ticks": 2, "init": "cells", "learning_rate": 0.01, "n_steps": 800, "eval_every": 200},
+  {"family": "square", "bond": 5, "feedback": 2, "ticks": 2, "init": "cells", "learning_rate": 0.01, "n_steps": 800, "eval_every": 200},
+  {"family": "square", "bond": 6, "feedback": 2, "ticks": 2, "init": "cells", "learning_rate": 0.01, "n_steps": 800, "eval_every": 200, "seed": 8},
+  {"family": "square", "bond": 6, "feedback": 2, "ticks": 2, "init": "cells", "learning_rate": 0.01, "n_steps": 800, "eval_every": 200, "seed": 9},
+  {"family": "quantum", "cell_depth": 10, "cons_depth": 1, "feedback": 2, "ticks": 2, "init": "cells", "learning_rate": 0.01, "n_steps": 800, "eval_every": 200, "seed": 8},
+  {"family": "quantum", "cell_depth": 10, "cons_depth": 1, "feedback": 2, "ticks": 2, "init": "cells", "learning_rate": 0.01, "n_steps": 800, "eval_every": 200, "seed": 9},
+  {"family": "quantum", "cell_depth": 8, "cons_depth": 1, "feedback": 2, "ticks": 2, "init": "cells", "learning_rate": 0.01, "n_steps": 800, "eval_every": 200},
+  {"family": "quantum", "cell_depth": 8, "cons_depth": 8, "feedback": 2, "ticks": 2, "learning_rate": 0.01, "n_steps": 4000, "eval_every": 400}
+]
