@@ -60,7 +60,7 @@ def make_amplitudes(n_modes):
     import jax.numpy as jnp
 
     per_sector = []
-    for n in range(n_modes + 1):
+    for n in range(1, n_modes + 1):
         sector = occupancies(n_modes, n)
         rows = np.array([[list(y) for y in sector]] * len(sector))
         cols = np.array([[list(x)] * len(sector) for x in sector])
@@ -69,19 +69,15 @@ def make_amplitudes(n_modes):
         out_bits = np.tile(bits, len(sector))
         in_bits = np.repeat(bits, len(sector))
         per_sector.append((
-            n, jnp.asarray(cols.reshape(-1, n) if n else
-                           cols.reshape(-1, 0)),
-            jnp.asarray(rows.reshape(-1, n) if n else
-                        rows.reshape(-1, 0)),
+            jnp.asarray(cols.reshape(-1, n)),
+            jnp.asarray(rows.reshape(-1, n)),
             jnp.asarray(in_bits), jnp.asarray(out_bits),
             make_permanents(n)))
 
     def amplitudes(unitary):
         table = jnp.zeros((2 ** n_modes, 2 ** n_modes))
-        for n, cols, rows, in_bits, out_bits, permanents in per_sector:
-            if n == 0:
-                table = table.at[0, 0].set(1.)
-                continue
+        table = table.at[0, 0].set(1.)
+        for cols, rows, in_bits, out_bits, permanents in per_sector:
             subs = unitary[rows[:, :, None], cols[:, None, :]]
             table = table.at[out_bits, in_bits].set(permanents(subs))
         return table
