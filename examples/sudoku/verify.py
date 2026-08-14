@@ -148,22 +148,37 @@ def check_born_toy(ticks=2, seed=11):
         raw = np.asarray(scores(tensors, jnp.asarray(effects)))[0]
         mine = raw / raw.sum()
 
-        reference = []
-        for final_digit in range(4):
-            selected = [*digits[:-1], final_digit]
-            pred_effects = [
-                (Ket(digit // 2) @ Ket(digit % 2)).dagger()
-                for digit in selected]
-            diagram = threaded(pred_effects)
-            value = contract_tensor(
-                diagram.double().to_tensor().to_map(),
-                backend="numpy").array
-            reference.append(float(np.real(np.asarray(value).ravel()[0])))
-        reference = np.asarray(reference)
+        # Brute-force reference: simulate the protocol of the map by
+        # hand -- read, apply the kraus maps in parallel, write each
+        # paired port to its partner -- on the state of the three memory
+        # wires. (The end-to-end optyx reference through double() or
+        # get_kraus() is blocked by issue #51 on unequal-arity boxes;
+        # cmap.step is still what fixes the wiring being simulated.)
+        assert [str(box) for box in cmap.boxes] == ["A", "B"]
+        kraus_a = cell_isometry.reshape(2, 2, 2, 2, 2, 2)
+        kraus_b = constraint_unitary
+        plus_vec = np.ones(2) / 2 ** .5
+
+        def reference_probability(selected):
+            psi = np.einsum("a,b,m->abm", plus_vec, plus_vec,
+                            np.array([1., 0.]))
+            for digit in selected:
+                effect = np.zeros((2, 2))
+                effect[digit // 2, digit % 2] = 1
+                psi = np.einsum(
+                    "abm,amWMpq,pq,bB->BWM", psi, kraus_a, effect,
+                    kraus_b)
+            for _ in range(3):
+                psi = psi @ plus_vec
+            return float(np.abs(psi) ** 2)
+
+        reference = np.asarray([
+            reference_probability([*digits[:-1], final_digit])
+            for final_digit in range(4)])
         reference = reference / reference.sum()
         assert np.allclose(mine, reference, atol=1e-9), (mine, reference)
-    print("born toy check passed: trainer scores match ticks of",
-          "CMap.step >> double >> contract_tensor")
+    print("born toy check passed: trainer scores match the brute-force",
+          "simulation of the protocol")
 
 
 def check_classical_doubling(seed=5):

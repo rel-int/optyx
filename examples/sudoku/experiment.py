@@ -150,6 +150,31 @@ def sudoku_structure():
     return Structure(boxes, tuple(edges))
 
 
+def local_structure(target):
+    """The light cone of one cell: the target, its seven peers and its
+    three constraints, ports to outside constraints left unpaired --
+    they read a fresh environment state and write to a discarded one at
+    every tick. Returns the structure and the global cell index of each
+    local cell box."""
+    row, column = divmod(target, SIZE)
+    constraints = [c for c, _ in memberships(row, column)]
+    cells = [target] + sorted(PEERS[target])
+    cell_slot = {cell: i for i, cell in enumerate(cells)}
+    cons_slot = {c: len(cells) + j for j, c in enumerate(constraints)}
+    boxes = tuple(
+        [BoxSpec("cell", 3, 1, 1) for _ in cells]
+        + [BoxSpec("constraint", 4, 0, 0) for _ in constraints])
+    edges = []
+    for cell in cells:
+        r, c = divmod(cell, SIZE)
+        for slot, (constraint, position) in enumerate(memberships(r, c)):
+            if constraint in cons_slot:
+                edges.append((
+                    (cell_slot[cell], slot),
+                    (cons_slot[constraint], position)))
+    return Structure(boxes, tuple(edges)), np.asarray(cells)
+
+
 def check_structure_against_interaction(structure, cell_box, constraint_box,
                                         cmap_factory):
     """Assert the trainer's structure matches an ``interaction.CMap``."""
@@ -187,7 +212,7 @@ def unrolled_indices(structure, ticks):
     for tick in range(ticks):
         for b, box in enumerate(structure.boxes):
             for p in range(box.n_ports):
-                if tick == 0:
+                if tick == 0 or (b, p) not in partner:
                     index = wire()
                     initial.append(((b, p), index))
                 else:
@@ -196,7 +221,7 @@ def unrolled_indices(structure, ticks):
                 box_in[(b, p, tick)] = index
                 out = wire()
                 box_out[(b, p, tick)] = out
-                if tick == ticks - 1:
+                if tick == ticks - 1 or (b, p) not in partner:
                     final.append(((b, p), out))
             for m in range(box.n_memory):
                 key = box.n_ports + m

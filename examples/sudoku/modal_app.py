@@ -24,6 +24,7 @@ REPO = pathlib.Path(__file__).resolve().parents[2]
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
+    .apt_install("git")
     .pip_install(
         "jax[cuda12]==0.4.38", "optax", "cotengra", "quimb", "numpy",
         "opt_einsum", "networkx>=3.2", "sympy", "pylatexenc>=2.10",

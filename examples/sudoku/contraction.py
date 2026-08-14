@@ -107,7 +107,7 @@ def default_optimizer(max_repeats=16):
 
 
 def make_scores(structure, ticks, family, feedback=1,
-                optimize=None, strip_exponent=True):
+                optimize=None, strip_exponent=True, targets=None):
     """The (n_cells, 4) digit scores of every cell, one open-leg
     contraction per cell, as a function of the shared box tensors and the
     per-puzzle prediction effects."""
@@ -138,10 +138,13 @@ def make_scores(structure, ticks, family, feedback=1,
             ("final", "memory"): np.eye(4).ravel(),
         })
     constants = {key: jnp.asarray(value) for key, value in constants.items()}
+    if targets is None:
+        targets = [b for b, box in enumerate(structure.boxes)
+                   if box.n_prediction]
     cells = [build_expression(
         structure, ticks, target, family, optimize,
         feedback=feedback, strip_exponent=strip_exponent)
-        for target in range(ex.N_CELLS)]
+        for target in targets]
 
     def resolve(spec, tensors, effects):
         kind = spec[0]
@@ -304,17 +307,27 @@ def puzzle_effects(clues, ticks):
     return effects
 
 
-def encode_cases(cases, ticks):
-    effects = np.stack(
-        [puzzle_effects(clues, ticks) for clues, _ in cases])
+def encode_cases(cases, ticks, scope="full"):
+    if scope == "full":
+        effects = np.stack(
+            [puzzle_effects(clues, ticks) for clues, _ in cases])
+    else:
+        local_cells = [
+            ex.local_structure(target)[1]
+            for target in range(ex.N_CELLS)]
+        effects = np.stack([
+            np.stack([puzzle_effects(clues[cells], ticks)
+                      for cells in local_cells])
+            for clues, _ in cases])
     solutions = np.stack([solution for _, solution in cases]) - 1
     hidden = np.stack([clues == 0 for clues, _ in cases])
     return effects, solutions, hidden
 
 
-def make_loss(scores, tensors_fn):
+def full_probabilities(scores, tensors_fn):
+    """Per-cell digit probabilities from one full-map contraction per
+    cell; ``effects`` is batched as ``(batch, n_cells, ticks, 4)``."""
     import jax
-    import jax.numpy as jnp
 
     def one_puzzle(tensors, effects):
         raw = scores(tensors, effects)
@@ -325,6 +338,42 @@ def make_loss(scores, tensors_fn):
     def probabilities(params, effects):
         return batched(tensors_fn(params), effects)
 
+    return probabilities
+
+
+def local_probabilities(ticks, family, feedback, tensors_fn,
+                        optimize=None):
+    """Per-cell digit probabilities from the light-cone map of each
+    cell, one exact contraction per target; ``effects`` is batched as
+    ``(batch, n_cells, n_local_boxes, ticks, 4)``, sliced per target
+    from the clues of its local cells."""
+    import jax
+    import jax.numpy as jnp
+
+    scorers = []
+    for target in range(ex.N_CELLS):
+        structure, _ = ex.local_structure(target)
+        scorers.append(make_scores(
+            structure, ticks, family, feedback=feedback,
+            optimize=optimize or default_optimizer(), targets=[0]))
+
+    def one_puzzle(tensors, effects):
+        raw = jnp.stack([
+            scorers[target](tensors, effects[target])[0]
+            for target in range(ex.N_CELLS)])
+        return raw / (raw.sum(axis=-1, keepdims=True) + 1e-300)
+
+    batched = jax.vmap(one_puzzle, in_axes=(None, 0))
+
+    def probabilities(params, effects):
+        return batched(tensors_fn(params), effects)
+
+    return probabilities
+
+
+def make_loss(probabilities):
+    import jax.numpy as jnp
+
     def loss(params, effects, solutions, hidden):
         p = probabilities(params, effects)
         picked = jnp.take_along_axis(
@@ -332,12 +381,12 @@ def make_loss(scores, tensors_fn):
         cross_entropy = -jnp.log(picked + 1e-300)
         return (cross_entropy * hidden).sum() / hidden.sum()
 
-    return probabilities, loss
+    return loss
 
 
-def evaluate(probabilities, params, cases, ticks, batch=32):
+def evaluate(probabilities, params, cases, ticks, batch=32, scope="full"):
     """Held-out per-cell accuracy and full-grid solve rate."""
-    effects, solutions, hidden = encode_cases(cases, ticks)
+    effects, solutions, hidden = encode_cases(cases, ticks, scope)
     correct, total, solved = 0, 0, 0
     for start in range(0, len(cases), batch):
         p = np.asarray(probabilities(
@@ -387,10 +436,17 @@ def train(config, train_cases, test_cases, log=print):
             [jnp.asarray(core) for core in group] for group in groups)
         n_parameters = ex.parameter_count_stochastic(bond, feedback)
     tensors_fn = make_tensors_fn(family, config)
-    scores = make_scores(
-        structure, ticks, family, feedback=feedback,
-        optimize=default_optimizer(config.get("path_repeats", 32)))
-    probabilities, loss = make_loss(scores, tensors_fn)
+    scope = config.get("scope", "full")
+    if scope == "full":
+        scores = make_scores(
+            structure, ticks, family, feedback=feedback,
+            optimize=default_optimizer(config.get("path_repeats", 32)))
+        probabilities = full_probabilities(scores, tensors_fn)
+    else:
+        probabilities = local_probabilities(
+            ticks, family, feedback, tensors_fn,
+            optimize=default_optimizer(config.get("path_repeats", 32)))
+    loss = make_loss(probabilities)
     probabilities = jax.jit(probabilities)
 
     optimizer = optax.adam(config.get("learning_rate", 3e-3))
@@ -406,7 +462,7 @@ def train(config, train_cases, test_cases, log=print):
     def full_params(trainable):
         return tuple(trainable)
 
-    effects, solutions, hidden = encode_cases(train_cases, ticks)
+    effects, solutions, hidden = encode_cases(train_cases, ticks, scope)
     opt_state = optimizer.init(trainable)
     random = np.random.default_rng(seed)
     batch_size = config.get("batch_size", 32)
@@ -420,7 +476,8 @@ def train(config, train_cases, test_cases, log=print):
             hidden[pick])
         if step % eval_every == eval_every - 1 or step == n_steps - 1:
             metrics = evaluate(
-                probabilities, full_params(trainable), test_cases, ticks)
+                probabilities, full_params(trainable), test_cases, ticks,
+                scope=scope)
             metrics.update(
                 step=step + 1, loss=float(value),
                 seconds=time.perf_counter() - started)
