@@ -22,6 +22,13 @@ def solver_tensors(family):
             "constraint_write": jnp.stack(
                 [jnp.asarray(c) for c in constraint_write]),
         }, 1
+    if family == "photonic":
+        import jax
+        import photonic
+        tensors_fn = photonic.make_photonic_tensors_fn({})
+        params = jax.tree.map(
+            jnp.asarray, photonic.solver_photonic())
+        return tensors_fn(params), 2
     if family == "angles":
         params = tuple(map(jnp.asarray, ex.solver_angles(10, 1)))
         tensors_fn = co.make_tensors_fn(
