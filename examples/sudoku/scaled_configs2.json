@@ -1,0 +1,17 @@
+[
+  {
+    "family": "photonic-scaled",
+    "scope": "local",
+    "ticks": 2,
+    "cell_modes": 12,
+    "cons_modes": 8,
+    "sweeps": 8,
+    "complex": true,
+    "eta": 1.0,
+    "seed": 0,
+    "learning_rate": 0.005,
+    "n_steps": 8000,
+    "eval_every": 800,
+    "path_repeats": 32
+  }
+]
