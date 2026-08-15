@@ -1,0 +1,47 @@
+[
+  {
+    "family": "photonic-scaled",
+    "scope": "local",
+    "ticks": 2,
+    "cell_modes": 11,
+    "cons_modes": 8,
+    "sweeps": 4,
+    "complex": true,
+    "eta": 1.0,
+    "seed": 0,
+    "learning_rate": 0.01,
+    "n_steps": 4000,
+    "eval_every": 400,
+    "path_repeats": 32
+  },
+  {
+    "family": "photonic-scaled",
+    "scope": "local",
+    "ticks": 2,
+    "cell_modes": 12,
+    "cons_modes": 8,
+    "sweeps": 8,
+    "complex": true,
+    "eta": 1.0,
+    "seed": 0,
+    "learning_rate": 0.01,
+    "n_steps": 4000,
+    "eval_every": 400,
+    "path_repeats": 32
+  },
+  {
+    "family": "photonic-scaled",
+    "scope": "local",
+    "ticks": 2,
+    "cell_modes": 11,
+    "cons_modes": 8,
+    "sweeps": 4,
+    "complex": true,
+    "eta": 0.95,
+    "seed": 0,
+    "learning_rate": 0.01,
+    "n_steps": 4000,
+    "eval_every": 400,
+    "path_repeats": 32
+  }
+]

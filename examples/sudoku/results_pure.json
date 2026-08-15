@@ -1,0 +1,186 @@
+[
+  {
+    "config": {
+      "family": "photonic-pure",
+      "sweeps": 3,
+      "scope": "local",
+      "ticks": 2,
+      "learning_rate": 0.01,
+      "n_steps": 4000,
+      "eval_every": 400
+    },
+    "n_parameters": 109,
+    "history": [
+      {
+        "cell_accuracy": 0.4609375,
+        "solve_rate": 0.0,
+        "step": 400,
+        "loss": 1.1688533865042277,
+        "seconds": 317.773064282
+      },
+      {
+        "cell_accuracy": 0.49609375,
+        "solve_rate": 0.0,
+        "step": 800,
+        "loss": 1.1323281405295327,
+        "seconds": 328.572723656
+      },
+      {
+        "cell_accuracy": 0.50390625,
+        "solve_rate": 0.0,
+        "step": 1200,
+        "loss": 1.097164293858563,
+        "seconds": 339.307428064
+      },
+      {
+        "cell_accuracy": 0.541015625,
+        "solve_rate": 0.0,
+        "step": 1600,
+        "loss": 1.0807521944621212,
+        "seconds": 350.04134428
+      },
+      {
+        "cell_accuracy": 0.478515625,
+        "solve_rate": 0.0,
+        "step": 2000,
+        "loss": 1.0662584297702653,
+        "seconds": 360.7764388
+      },
+      {
+        "cell_accuracy": 0.505859375,
+        "solve_rate": 0.0,
+        "step": 2400,
+        "loss": 1.099240722131156,
+        "seconds": 371.510218831
+      },
+      {
+        "cell_accuracy": 0.44140625,
+        "solve_rate": 0.0,
+        "step": 2800,
+        "loss": 1.1614808467407696,
+        "seconds": 382.248250638
+      },
+      {
+        "cell_accuracy": 0.486328125,
+        "solve_rate": 0.0,
+        "step": 3200,
+        "loss": 1.083809391072237,
+        "seconds": 392.98081120899997
+      },
+      {
+        "cell_accuracy": 0.498046875,
+        "solve_rate": 0.0,
+        "step": 3600,
+        "loss": 1.0557943346566354,
+        "seconds": 403.714692347
+      },
+      {
+        "cell_accuracy": 0.505859375,
+        "solve_rate": 0.0,
+        "step": 4000,
+        "loss": 1.0131220577045466,
+        "seconds": 414.459009295
+      }
+    ],
+    "final": {
+      "cell_accuracy": 0.505859375,
+      "solve_rate": 0.0,
+      "step": 4000,
+      "loss": 1.0131220577045466,
+      "seconds": 414.459009295
+    }
+  },
+  {
+    "config": {
+      "family": "photonic-pure",
+      "sweeps": 2,
+      "scope": "local",
+      "ticks": 3,
+      "learning_rate": 0.003,
+      "n_steps": 3000,
+      "eval_every": 300,
+      "batch_size": 4,
+      "eval_batch": 4
+    },
+    "n_parameters": 78,
+    "history": [
+      {
+        "cell_accuracy": 0.234375,
+        "solve_rate": 0.0,
+        "step": 300,
+        "loss": 1.3880664660354207,
+        "seconds": 564.128390172
+      },
+      {
+        "cell_accuracy": 0.234375,
+        "solve_rate": 0.0,
+        "step": 600,
+        "loss": 1.385425911466708,
+        "seconds": 727.881586382
+      },
+      {
+        "cell_accuracy": 0.208984375,
+        "solve_rate": 0.0,
+        "step": 900,
+        "loss": 1.3852323837247225,
+        "seconds": 891.5900656379999
+      },
+      {
+        "cell_accuracy": 0.267578125,
+        "solve_rate": 0.0,
+        "step": 1200,
+        "loss": 1.3841079606306024,
+        "seconds": 1055.314623797
+      },
+      {
+        "cell_accuracy": 0.359375,
+        "solve_rate": 0.0,
+        "step": 1500,
+        "loss": 1.154732614313906,
+        "seconds": 1219.035086928
+      },
+      {
+        "cell_accuracy": 0.3515625,
+        "solve_rate": 0.0,
+        "step": 1800,
+        "loss": 1.184949195204183,
+        "seconds": 1382.748437354
+      },
+      {
+        "cell_accuracy": 0.31640625,
+        "solve_rate": 0.0,
+        "step": 2100,
+        "loss": 1.300888338335316,
+        "seconds": 1546.503088791
+      },
+      {
+        "cell_accuracy": 0.330078125,
+        "solve_rate": 0.0,
+        "step": 2400,
+        "loss": 1.1925444317755836,
+        "seconds": 1710.209418509
+      },
+      {
+        "cell_accuracy": 0.3125,
+        "solve_rate": 0.0,
+        "step": 2700,
+        "loss": 1.1481941619332625,
+        "seconds": 1873.9091238659998
+      },
+      {
+        "cell_accuracy": 0.33203125,
+        "solve_rate": 0.0,
+        "step": 3000,
+        "loss": 1.1760502683426088,
+        "seconds": 2037.6068621220002
+      }
+    ],
+    "final": {
+      "cell_accuracy": 0.33203125,
+      "solve_rate": 0.0,
+      "step": 3000,
+      "loss": 1.1760502683426088,
+      "seconds": 2037.6068621220002
+    }
+  }
+]

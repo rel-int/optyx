@@ -1,0 +1,43 @@
+[
+  {
+    "config": {
+      "family": "photonic",
+      "init": "cells",
+      "echo_angles": 0,
+      "ticks": 2,
+      "learning_rate": 0.01,
+      "n_steps": 800,
+      "eval_every": 100,
+      "batch_size": 8,
+      "path_repeats": 32
+    },
+    "n_parameters": 648,
+    "history": [
+      {
+        "step": 100,
+        "loss": 0.0502,
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0
+      },
+      {
+        "step": 200,
+        "loss": 0.0039,
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0
+      },
+      {
+        "step": 300,
+        "loss": 0.0005,
+        "cell_accuracy": 1.0,
+        "solve_rate": 1.0
+      }
+    ],
+    "final": {
+      "step": 300,
+      "loss": 0.0005,
+      "cell_accuracy": 1.0,
+      "solve_rate": 1.0
+    },
+    "note": "stopped early after convergence; CPU run"
+  }
+]

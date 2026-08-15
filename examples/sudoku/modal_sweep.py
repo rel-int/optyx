@@ -87,10 +87,12 @@ def run_config(config: dict) -> dict:
 def main(configs: str = "configs.json", out: str = "results.json"):
     with open(configs) as handle:
         config_list = json.load(handle)
-    results = list(run_config.map(config_list))
-    with open(out, "w") as handle:
-        json.dump(results, handle, indent=2)
-    for result in results:
+    results = []
+    for result in run_config.map(config_list, order_outputs=False):
+        results.append(result)
+        with open(out, "w") as handle:
+            json.dump(results, handle, indent=2)
         final = result["final"] or {}
         print(result["config"], result["n_parameters"],
-              final.get("cell_accuracy"), final.get("solve_rate"))
+              final.get("cell_accuracy"), final.get("solve_rate"),
+              flush=True)

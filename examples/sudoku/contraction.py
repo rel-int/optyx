@@ -25,7 +25,8 @@ def family_dims(family):
     dimension-four leg everywhere."""
     if family == "born":
         return {"port": 2, "memory": 2, "prediction": 4}
-    if family == "quantum":
+    if family in ("quantum", "photonic-pure", "photonic-both",
+                  "photonic-scaled"):
         return {"port": 4, "memory": 16, "prediction": 4}
     return {"port": 4, "memory": 4, "prediction": 4}
 
@@ -52,7 +53,7 @@ def build_expression(structure, ticks, target, family, optimize,
             size_dict[index] = dim
 
     fresh_bond = iter(range(10 ** 9, 2 * 10 ** 9))
-    split = family != "born"
+    split = family not in ("born", "photonic-pure", "photonic-scaled")
     for tick in range(ticks):
         for b, box in enumerate(structure.boxes):
             reads = [box_in[(b, k, tick)]
@@ -134,6 +135,20 @@ def make_scores(structure, ticks, family, feedback=1,
             ("final", "port"): np.ones(4),
             ("final", "memory"): np.eye(4).ravel(),
         })
+    if family in ("photonic-pure", "photonic-scaled"):
+        vacuum = np.zeros(4)
+        vacuum[0] = 1.
+        constants.update({
+            ("initial", "port"): vacuum,          # modes start empty
+            ("initial", "memory"): np.eye(16)[0],
+            ("final", "port"): np.array([1., 0., 0., 1.]),
+            ("final", "memory"): np.eye(4).ravel(),
+        })
+    if family == "photonic-both":
+        constants.update({
+            ("initial", "memory"): np.eye(16)[0],  # vacuum memory
+            ("final", "memory"): np.eye(4).ravel(),
+        })
     constants = {key: jnp.asarray(value) for key, value in constants.items()}
     if targets is None:
         targets = [b for b, box in enumerate(structure.boxes)
@@ -188,6 +203,19 @@ def assemble_constraint_read(cores):
 def make_tensors_fn(family, config):
     import jax
     import jax.numpy as jnp
+
+    if family == "photonic":
+        from photonic import make_photonic_tensors_fn
+        return make_photonic_tensors_fn(config)
+    if family == "photonic-pure":
+        from photonic_quantum import make_pure_tensors_fn
+        return make_pure_tensors_fn(config)
+    if family == "photonic-scaled":
+        from photonic_scaled import make_scaled_tensors_fn
+        return make_scaled_tensors_fn(config)
+    if family == "photonic-both":
+        from photonic_quantum import make_both_tensors_fn
+        return make_both_tensors_fn(config)
 
     def normalise(core):
         scale = jax.lax.stop_gradient(jnp.max(jnp.abs(core))) + 1e-300
@@ -435,6 +463,34 @@ def train(config, train_cases, test_cases, log=print):
         params = tuple(map(jnp.asarray, groups))
         n_parameters = ex.quantum_parameter_count(
             config["cell_depth"], config["cons_depth"], feedback)
+    elif family == "photonic-scaled":
+        import photonic_scaled
+        params = tuple(map(jnp.asarray, photonic_scaled.init_scaled(
+            config, seed, scale=config.get("init_scale", 0.3))))
+        n_parameters = photonic_scaled.parameter_count_scaled(config)
+        feedback = 1                     # unused: dense constraints
+    elif family == "photonic-pure":
+        import photonic_quantum
+        sweeps = config.get("sweeps", 1)
+        params = tuple(map(jnp.asarray, photonic_quantum.init_pure(
+            sweeps, seed, scale=config.get("init_scale", 0.4))))
+        n_parameters = photonic_quantum.parameter_count_pure(sweeps)
+        feedback = 1                     # unused: dense constraints
+    elif family == "photonic-both":
+        import photonic_quantum
+        echo = config.get("echo_angles", 28)
+        params = jax.tree.map(
+            jnp.asarray, photonic_quantum.init_both(echo, seed))
+        n_parameters = photonic_quantum.parameter_count_both(echo)
+        feedback = 2
+    elif family == "photonic":
+        import photonic
+        echo = config.get("echo_angles", 0)
+        params = jax.tree.map(jnp.asarray, photonic.init_photonic(
+            echo, seed, mode=config.get("init", "random"),
+            noise=config.get("noise", 0.05)))
+        n_parameters = photonic.parameter_count_photonic(echo)
+        feedback = 2
     else:
         bond, feedback = config["bond"], config.get("feedback", 1)
         mode = config.get("init", "random")
@@ -492,7 +548,7 @@ def train(config, train_cases, test_cases, log=print):
         if step % eval_every == eval_every - 1 or step == n_steps - 1:
             metrics = evaluate(
                 probabilities, full_params(trainable), test_cases, ticks,
-                scope=scope)
+                batch=config.get("eval_batch", 32), scope=scope)
             metrics.update(
                 step=step + 1, loss=float(value),
                 seconds=time.perf_counter() - started)
