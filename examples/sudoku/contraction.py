@@ -538,7 +538,7 @@ def train(config, train_cases, test_cases, log=print):
         if step % eval_every == eval_every - 1 or step == n_steps - 1:
             metrics = evaluate(
                 probabilities, full_params(trainable), test_cases, ticks,
-                scope=scope)
+                batch=config.get("eval_batch", 32), scope=scope)
             metrics.update(
                 step=step + 1, loss=float(value),
                 seconds=time.perf_counter() - started)
