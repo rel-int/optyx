@@ -70,10 +70,46 @@ Decoherence in the loop is what separates the families: the measured
 model solves, the coherent model learns weakly, exactly the pattern of
 the born-versus-measured qubit families in the base PR.
 
+## Scaling the quantum loop: parameters are not the bottleneck
+
+Can the coherent model be scaled past 0.541 without blowing up the
+contraction? The ``photonic-scaled`` family (`photonic_scaled.py`)
+grows parameters only in directions that leave the network width
+untouched: internal vacuum ancillas inside each box (cells 7 to 11 or
+12 modes, constraints 5 to 8 -- photons can scatter into them and be
+traced out, a structured non-unitary channel), complex phased-Givens
+meshes (two parameters per comparator), more mesh sweeps, and fixed
+pure-loss channels of transmittivity 0.95 folded into every coherent
+write leg. With no ancillas, real angles and no loss the family
+reduces exactly to the pure one (verified to 1e-16 by
+`check_scaled.py`). Four runs at two ticks on the local light cones:
+
+| config | params | cell accuracy (final / best) |
+|---|---|---|
+| pure baseline, 7/5 modes | 109 | 0.506 / 0.541 |
+| 11/8 modes, 4 complex sweeps, lossless | 680 | 0.463 / 0.479 |
+| same, fixed loss 0.95 | 680 | 0.459 / 0.516 |
+| 12/8 modes, 8 complex sweeps, lossless | 1,520 | 0.482 / 0.502 |
+| same, 8,000 steps at half the rate | 1,520 | 0.396 / 0.406 |
+
+The plateau does not move: an order of magnitude more parameters,
+non-unitary ancilla channels and mild decoherence on the links all
+land within noise of the 109-parameter model, and training longer
+lands lower. What limits the purely coherent model is not its
+parameter count but its structure -- a passive linear-optical loop
+with counting only at the predictions has no nonlinearity inside the
+recurrence, exactly what the measured families get from their
+counters. Fock cutoff two on the message wires was the one width-side
+scaling planned; its doubled cell tensor (nine-valued message legs)
+is a 4.4 GB dense array before contraction, out of reach of the
+A100, so the bigger-mesh run above took its budget slot.
+
 ## Contraction budget
 
 All dimensions were fixed by the base PR's width measurements before
 any GPU run: dimension-four measured wires and two ticks for the
 classical and mixed loops (the established 2^16-2^24 regime), local
-light cones for the coherent loop. GPU spend: two runs per model, on
-Modal A100s, everything else certified or smoke-tested on CPU first.
+light cones for the coherent loop. The scaled family grows boxes, not
+wires, so it contracts at exactly the pure family's width. GPU spend:
+two runs per model plus a four-run scaling ladder, on Modal A100s,
+everything else certified or smoke-tested on CPU first.

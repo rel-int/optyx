@@ -50,3 +50,22 @@
       post-processing, a traced constraint ancilla) reaches 0.541 cell
       accuracy at 109 parameters on the local light cones; the measured
       model solves at 648; the mixed model reaches 0.637 at 872.
+
+> How can we scale up the pure quantum photonic experiment? The number of
+> parameters seems too low to hope to solve the task, at the same time the
+> contractions need to be doable on the GPU, could truncation help?
+
+- [x] Implement the scaled purely quantum family: internal traced
+      vacuum ancillas, complex phased-Givens meshes, more sweeps, and
+      fixed pure-loss channels of transmittivity at least 0.9 on the
+      coherent links -- all growing boxes rather than wires, verified
+      to reduce exactly to the pure family.
+- [x] Probe the width side: Fock cutoff two on the message wires makes
+      the doubled cell tensor a 4.4 GB dense array before contraction,
+      out of reach of the A100 -- its budget slot went to a bigger mesh
+      (twelve-mode cells, eight sweeps, 1,520 parameters) instead.
+- [x] Run the four-run GPU ladder at two ticks on the local light
+      cones: 680 parameters lossless 0.463, with fixed loss 0.95
+      0.459, 1,520 parameters 0.482, trained twice as long 0.396 --
+      the 109-parameter plateau of 0.541 does not move, so the
+      bottleneck is the coherent structure, not the parameter count.
