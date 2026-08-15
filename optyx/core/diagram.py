@@ -521,9 +521,9 @@ class Box(frobenius.Box, Diagram):
         Otherwise it is defined by the array."""
         if self._array is not None:
             return type(self)(
-                self.name + ".dagger()",
-                dom=self.cod,
-                cod=self.dom,
+                self.name,
+                dom=self.dom,
+                cod=self.cod,
                 array=self._array.conjugate(),
             )
         raise NotImplementedError(
