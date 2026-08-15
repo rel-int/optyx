@@ -19,6 +19,25 @@ bell_density_im = np.exp(1j * np.pi * np.array([
 bell_density = np.multiply(bell_density_re, bell_density_im)
 
 
+def test_box_conjugate_preserves_shape():
+    array = np.random.default_rng(0).normal(size=(4, 8))
+    box = diagram.Box("f", diagram.bit ** 2, diagram.bit ** 3, array=array)
+
+    conjugated = box.conjugate()
+
+    assert (conjugated.dom, conjugated.cod) == (box.dom, box.cod)
+    assert np.allclose(conjugated.array, array.conjugate())
+
+
+def test_channel_double_non_square_kraus():
+    # Box.conjugate() used to swap dom and cod, so this raised AxiomError
+    # when composing self.kraus @ self.kraus.conjugate(), see optyx#51.
+    array = np.random.default_rng(0).normal(size=(4, 8))
+    kraus = diagram.Box("f", diagram.bit ** 2, diagram.bit ** 3, array=array)
+
+    Channel("f", kraus, bit ** 2, bit ** 3).double()
+
+
 def test_CQMap():
     X = Channel("X", zx.X(1, 1, 0.5))
     bell = diagram.Box(name="Bell", dom=diagram.bit ** 2, cod=diagram.bit ** 2, array=bell_density)
