@@ -25,7 +25,8 @@ def family_dims(family):
     dimension-four leg everywhere."""
     if family == "born":
         return {"port": 2, "memory": 2, "prediction": 4}
-    if family in ("quantum", "photonic-pure", "photonic-both"):
+    if family in ("quantum", "photonic-pure", "photonic-both",
+                  "photonic-scaled"):
         return {"port": 4, "memory": 16, "prediction": 4}
     return {"port": 4, "memory": 4, "prediction": 4}
 
@@ -52,7 +53,7 @@ def build_expression(structure, ticks, target, family, optimize,
             size_dict[index] = dim
 
     fresh_bond = iter(range(10 ** 9, 2 * 10 ** 9))
-    split = family not in ("born", "photonic-pure")
+    split = family not in ("born", "photonic-pure", "photonic-scaled")
     for tick in range(ticks):
         for b, box in enumerate(structure.boxes):
             reads = [box_in[(b, k, tick)]
@@ -134,7 +135,7 @@ def make_scores(structure, ticks, family, feedback=1,
             ("final", "port"): np.ones(4),
             ("final", "memory"): np.eye(4).ravel(),
         })
-    if family == "photonic-pure":
+    if family in ("photonic-pure", "photonic-scaled"):
         vacuum = np.zeros(4)
         vacuum[0] = 1.
         constants.update({
@@ -209,6 +210,9 @@ def make_tensors_fn(family, config):
     if family == "photonic-pure":
         from photonic_quantum import make_pure_tensors_fn
         return make_pure_tensors_fn(config)
+    if family == "photonic-scaled":
+        from photonic_scaled import make_scaled_tensors_fn
+        return make_scaled_tensors_fn(config)
     if family == "photonic-both":
         from photonic_quantum import make_both_tensors_fn
         return make_both_tensors_fn(config)
@@ -459,6 +463,12 @@ def train(config, train_cases, test_cases, log=print):
         params = tuple(map(jnp.asarray, groups))
         n_parameters = ex.quantum_parameter_count(
             config["cell_depth"], config["cons_depth"], feedback)
+    elif family == "photonic-scaled":
+        import photonic_scaled
+        params = tuple(map(jnp.asarray, photonic_scaled.init_scaled(
+            config, seed, scale=config.get("init_scale", 0.3))))
+        n_parameters = photonic_scaled.parameter_count_scaled(config)
+        feedback = 1                     # unused: dense constraints
     elif family == "photonic-pure":
         import photonic_quantum
         sweeps = config.get("sweeps", 1)
