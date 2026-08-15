@@ -1,0 +1,35 @@
+[
+  {
+    "family": "photonic",
+    "init": "cells",
+    "echo_angles": 0,
+    "ticks": 2,
+    "learning_rate": 0.01,
+    "n_steps": 800,
+    "eval_every": 100
+  },
+  {
+    "family": "photonic",
+    "echo_angles": 28,
+    "ticks": 2,
+    "learning_rate": 0.01,
+    "n_steps": 3000,
+    "eval_every": 300
+  },
+  {
+    "family": "photonic-both",
+    "echo_angles": 28,
+    "ticks": 2,
+    "learning_rate": 0.01,
+    "n_steps": 3000,
+    "eval_every": 300
+  },
+  {
+    "family": "photonic-both",
+    "echo_angles": 28,
+    "ticks": 2,
+    "learning_rate": 0.003,
+    "n_steps": 3000,
+    "eval_every": 300
+  }
+]

@@ -1,0 +1,4 @@
+[
+  {"family": "photonic-pure", "sweeps": 3, "scope": "local", "ticks": 2, "learning_rate": 0.01, "n_steps": 4000, "eval_every": 400},
+  {"family": "photonic-pure", "sweeps": 2, "scope": "local", "ticks": 3, "learning_rate": 0.003, "n_steps": 3000, "eval_every": 300}
+]

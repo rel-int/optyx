@@ -105,19 +105,23 @@ def mesh_unitary(angles, layout, n_modes):
 # ---------------------------------------------------------------------------
 
 PURE_CELL_MODES = 7          # 3 messages, 2 memory, 2 inject/predict
-PURE_CONS_MODES = 4
+PURE_CONS_MODES = 5          # 4 ports and one injected, traced ancilla
 CELL_LAYOUT = ph.mesh_layout(PURE_CELL_MODES)
 CONS_LAYOUT = ph.mesh_layout(PURE_CONS_MODES)
 
 
 def parameter_count_pure(sweeps=1):
-    return sweeps * (len(CELL_LAYOUT) + len(CONS_LAYOUT))
+    return sweeps * (len(CELL_LAYOUT) + len(CONS_LAYOUT)) + 16
 
 
 def init_pure(sweeps, seed, scale=0.4):
+    """Mesh angles for cells and constraints, and the local classical
+    post-processing of the prediction counters, started near the
+    identity lookup."""
     random = np.random.default_rng(seed)
     return (random.normal(0, scale, (sweeps, len(CELL_LAYOUT))),
-            random.normal(0, scale, (sweeps, len(CONS_LAYOUT))))
+            random.normal(0, scale, (sweeps, len(CONS_LAYOUT))),
+            np.eye(4) + 0.1 * np.abs(random.normal(size=(4, 4))))
 
 
 def make_pure_tensors_fn(config):
@@ -166,20 +170,25 @@ def make_pure_tensors_fn(config):
         return (bits[0] | (bits[1] << 1) | (bits[2] << 2)
                 | (bits[3] << 3))
 
+    cons_inject = 1 << 4                 # the constraint's ancilla photon
     cons_gather = [
-        (jnp.asarray(cons_bits(c_out, copy)),
-         jnp.asarray(cons_bits(c_in, copy))) for copy in (0, 1)]
+        [(jnp.asarray(cons_bits(c_out, copy) | (ancilla << 4)),
+          jnp.asarray(cons_bits(c_in, copy) | cons_inject))
+         for copy in (0, 1)] for ancilla in (0, 1)]
 
     def tensors_fn(params):
-        cell_angles, cons_angles = params
+        cell_angles, cons_angles, post = params
         cell_table = cell_amplitudes(
             mesh_unitary(cell_angles, CELL_LAYOUT, PURE_CELL_MODES))
         cons_table = cons_amplitudes(
             mesh_unitary(cons_angles, CONS_LAYOUT, PURE_CONS_MODES))
         cell = (cell_table[cell_gather[0][0], cell_gather[0][1]]
                 * cell_table[cell_gather[1][0], cell_gather[1][1]])
-        constraint = (cons_table[cons_gather[0][0], cons_gather[0][1]]
-                      * cons_table[cons_gather[1][0], cons_gather[1][1]])
+        cell = jnp.einsum("...o,od->...d", cell, jnp.square(post))
+        constraint = sum(
+            cons_table[gather[0][0], gather[0][1]]
+            * cons_table[gather[1][0], gather[1][1]]
+            for gather in cons_gather)   # traced ancilla
         return {"cell": cell, "constraint": constraint}
     return tensors_fn
 
