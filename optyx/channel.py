@@ -571,10 +571,13 @@ class Diagram(frobenius.Diagram):
         memory that is not all optical modes, more than one loop, boxes
         with no path matrix, or a lossless loop block with spectral radius
         one. :meth:`fix` then falls back on :meth:`power_fix`. A resource
-        shortfall is different: the method returns `None` and warns with
-        the best finite-depth contribution, truncation contribution and
-        their sum. `max_occupation` is not a tensor-network bond dimension;
-        compression error is outside this certificate.
+        shortfall is different: when `max_occupation` is supplied, the
+        method returns `None` and warns with the best finite-depth
+        contribution, truncation contribution and their sum. Without a
+        cutoff it preserves the depth-only API and returns `None` silently;
+        :meth:`fix` owns that warning. `max_occupation` is not a
+        tensor-network bond dimension; compression error is outside this
+        certificate.
 
         >>> from optyx import photonic
         >>> loop = (photonic.Create(1) @ qmode
@@ -673,6 +676,8 @@ class Diagram(frobenius.Diagram):
             if max_occupation is not None and 2 * truncation >= tol:
                 break
 
+        if max_occupation is None:
+            return None
         if best is None:
             warnings.warn(
                 f"max_steps={max_steps} leaves no burn-in step, so "
