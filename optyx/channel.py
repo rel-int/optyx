@@ -536,7 +536,8 @@ class Diagram(frobenius.Diagram):
         return kraus
 
     def unroll_certificate(
-            self, tol: float = 1e-6, max_steps: int = None) -> int | None:
+            self, tol: float = 1e-6, max_steps: int = None,
+            max_occupation: int = None) -> int | None:
         """
         The smallest number of time steps whose last output is certified
         within `tol`, by the stationary boson-sampling bound of Armand Le
@@ -550,7 +551,15 @@ class Diagram(frobenius.Diagram):
         Here `V_ll` is the loop-to-loop block of the one-step optical
         matrix and `qbar` the largest fresh Fock occupation. The
         calculation is on `len(mem)` square matrices only; it builds no
-        Fock-space state.
+        Fock-space state. If `max_occupation` is supplied, it is a cutoff
+        on the *total* loop occupation. The certified error becomes
+
+        .. math::
+            \\Gamma(k) + 2\\Delta_N(k), \\qquad
+            \\Delta_N(k) = \\min\\{1, k\\lambda/(N+1)\\},
+
+        where `lambda` is the stationary mean loop occupation, computed
+        from a Lyapunov equation on the same one-particle matrix.
 
         Loss is read off the diagram, not passed in: the one-step matrix is
         the path matrix of the loop's :meth:`dilate`, so a
@@ -558,12 +567,14 @@ class Diagram(frobenius.Diagram):
         environment in the loop enters `V_ll` as the isometry block it is,
         and shrinks its singular values by the amplitude it leaks.
 
-        Raises `NotImplementedError` when the bound does not apply — a
+        Raises `NotImplementedError` when the theorem does not apply — a
         memory that is not all optical modes, more than one loop, boxes
         with no path matrix, or a lossless loop block with spectral radius
-        one. :meth:`fix` then falls back on :meth:`power_fix`. If
-        `max_steps` is given, `None` means the cap was reached before the
-        bound fell below `tol`.
+        one. :meth:`fix` then falls back on :meth:`power_fix`. A resource
+        shortfall is different: the method returns `None` and warns with
+        the best finite-depth contribution, truncation contribution and
+        their sum. `max_occupation` is not a tensor-network bond dimension;
+        compression error is outside this certificate.
 
         >>> from optyx import photonic
         >>> loop = (photonic.Create(1) @ qmode
@@ -586,6 +597,12 @@ class Diagram(frobenius.Diagram):
                 not isinstance(max_steps, Integral)
                 or isinstance(max_steps, bool) or max_steps <= 0):
             raise ValueError("max_steps must be a positive integer.")
+        if max_occupation is not None and (
+                not isinstance(max_occupation, Integral)
+                or isinstance(max_occupation, bool)
+                or max_occupation < 0):
+            raise ValueError(
+                "max_occupation must be a non-negative integer.")
         loops = [box for box in self.boxes if isinstance(box, Feedback)]
         if len(loops) != 1 or loops[0].dom or any(
                 ob.inside[0].name != "qmode" for ob in loops[0].mem):
@@ -621,13 +638,57 @@ class Diagram(frobenius.Diagram):
         qbar = max(matrix.creations, default=0)
         constant = (qbar + 1) * (
             np.sqrt(6 * qbar * (qbar + 1)) + qbar)
+
+        stationary_mean = 0.
+        if max_occupation is not None:
+            injection = isometry[memory:, visible:visible + memory].T
+            conventional_block = block.T
+            size = memory ** 2
+            lyapunov = np.linalg.solve(
+                np.eye(size) - np.kron(
+                    conventional_block.T,
+                    conventional_block.conjugate().T),
+                np.eye(memory).reshape(size, order="F"),
+            ).reshape((memory, memory), order="F")
+            correlations = injection.conjugate().T @ lyapunov @ injection
+            stationary_mean = max(0., float(np.real(sum(
+                occupation * correlations[index, index]
+                for index, occupation in enumerate(matrix.creations)))))
+
         power, burn_in = np.eye(memory), 0
+        best = None
         while max_steps is None or burn_in < max_steps - 1:
             power, burn_in = block @ power, burn_in + 1
             singular = np.clip(
                 np.linalg.svd(power, compute_uv=False), 0, 1)
-            if 4 * constant * np.sum(np.arcsin(singular) ** 2) <= tol:
+            finite_depth = float(
+                4 * constant * np.sum(np.arcsin(singular) ** 2))
+            truncation = 0. if max_occupation is None else min(
+                1., burn_in * stationary_mean / (max_occupation + 1))
+            total = min(2., finite_depth + 2 * truncation)
+            if best is None or total < best[-1]:
+                best = burn_in, finite_depth, truncation, total
+            if total <= tol:
                 return burn_in + 1
+            if max_occupation is not None and 2 * truncation >= tol:
+                break
+
+        if best is None:
+            warnings.warn(
+                f"max_steps={max_steps} leaves no burn-in step, so "
+                f"tol={tol} cannot be certified.",
+                UserWarning, stacklevel=2)
+            return None
+
+        burn_in, finite_depth, truncation, total = best
+        warnings.warn(
+            f"tol={tol} is not certified by the supplied resources. "
+            f"At the best burn-in k={burn_in}, max_steps={max_steps} "
+            f"permits finite-depth error Gamma={finite_depth:.6g}; "
+            f"max_occupation={max_occupation} permits truncation error "
+            f"2 Delta_N={2 * truncation:.6g}; the certified total "
+            f"tolerance is {total:.6g}.",
+            UserWarning, stacklevel=2)
         return None
 
     def truncation_dimensions(self) -> list[int]:

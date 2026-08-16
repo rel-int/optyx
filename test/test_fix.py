@@ -346,11 +346,19 @@ def test_certification_and_truncation_warn_separately():
 
 def test_the_certificate_reads_the_depth_off_the_diagram():
     """The path normal form puts open memory inputs before creations. A
-    non-symmetric loop block catches the tempting trailing-block mistake."""
+    non-symmetric loop block catches the tempting trailing-block mistake.
+    A failed resource budget reports both certified error contributions."""
     loop = asymmetric_sampler() >> photonic.NumberResolvingMeasurement(1)
     assert loop.unroll_certificate(1e-6) == 3
-    assert loop.unroll_certificate(1e-6, max_steps=2) is None
     assert sampler(.25).unroll_certificate(1e-2) == 13
+
+    with pytest.warns(UserWarning) as caught:
+        assert sampler(loss=.9).unroll_certificate(
+            .1, max_steps=2, max_occupation=100) is None
+    message = str(caught[0].message)
+    assert "Gamma=0.125541" in message
+    assert "2 Delta_N=0.0019174" in message
+    assert "certified total tolerance is 0.127458" in message
 
 
 def test_loss_in_the_diagram_shortens_the_certificate():
