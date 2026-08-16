@@ -2,6 +2,7 @@ import pytest
 
 from optyx.channel import *
 from optyx.core import diagram, zx
+from discopy import tensor
 import numpy as np
 
 bell_density_re = np.array([
@@ -36,6 +37,37 @@ def test_channel_double_non_square_kraus():
     kraus = diagram.Box("f", diagram.bit ** 2, diagram.bit ** 3, array=array)
 
     Channel("f", kraus, bit ** 2, bit ** 3).double()
+
+
+def test_channel_double_non_square_kraus_evaluates():
+    # Box.determine_output_dimensions returned len(dom) dimensions instead
+    # of len(cod), desyncing to_tensor's wire-count bookkeeping for any
+    # array box with dom != cod; raised AxiomError on eval, see optyx#51.
+    array = np.random.default_rng(0).normal(size=(4, 8))
+    kraus = diagram.Box("f", diagram.bit ** 2, diagram.bit ** 3, array=array)
+
+    value = Channel("f", kraus, bit ** 2, bit ** 3).double().to_tensor().eval()
+
+    assert np.allclose(np.asarray(value.array).reshape(4, 8), array ** 2)
+
+
+def test_box_to_tensor_non_square_array():
+    # Same determine_output_dimensions bug as above, surfacing outside
+    # Channel.double() entirely: a non-square array box followed by an
+    # idle parallel wire desyncs layer_dims for every box downstream,
+    # since it's a plain python list, not just the wire *count* tracked
+    # separately. See optyx#51.
+    f_array = np.random.default_rng(0).normal(size=(4, 8))
+    h_array = np.random.default_rng(1).normal(size=(4, 2))
+    f = diagram.Box("f", diagram.bit ** 2, diagram.bit ** 3, array=f_array)
+    h = diagram.Box("h", diagram.bit ** 2, diagram.bit, array=h_array)
+    d = ((f @ diagram.Id(diagram.bit))
+         >> (diagram.Id(diagram.bit) @ h @ diagram.Id(diagram.bit)))
+
+    value = d.to_tensor().eval()
+
+    assert value.dom == tensor.Dim(2, 2, 2)
+    assert value.cod == tensor.Dim(2, 2, 2)
 
 
 def test_CQMap():

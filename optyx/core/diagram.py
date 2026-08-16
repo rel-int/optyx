@@ -608,7 +608,7 @@ class Box(frobenius.Box, Diagram):
         Inheriting boxes should implement this method.
         Otherwise it is defined by the array."""
         if self._array is not None:
-            return input_dims
+            return [2] * len(self.cod)
         str = "does not support determine_output_dimensions"
         raise NotImplementedError(
             f"{self.__class__.__name__} {str}"
