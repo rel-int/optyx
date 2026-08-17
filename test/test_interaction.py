@@ -234,3 +234,46 @@ def test_memory_is_a_delay_line(n_steps):
 def test_drawing():
     cmap = CMap([box()], [((0, 0), (0, 1))])
     assert cmap.to_drawing() == cmap.protocol.to_drawing()
+
+
+def test_gradient_through_the_memory_wire():
+    torch = pytest.importorskip("torch")
+    from discopy import tensor
+    from optyx.channel import Channel
+    from optyx.core.diagram import Box as CoreBox, bit as core_bit
+    from optyx.qubits import Bra
+
+    theta = torch.tensor(0.3, dtype=torch.float64, requires_grad=True)
+    array = torch.stack((
+        torch.stack((torch.cos(theta), -torch.sin(theta))),
+        torch.stack((torch.sin(theta), torch.cos(theta))),
+    )).to(torch.float64)
+    rotation = Channel(
+        "R", CoreBox("R", core_bit, core_bit, array=array), qubit, qubit)
+    memory = Box("m", Ty(), Ty(), rotation >> Z(1, 2),
+                 memory=qubit, prediction=qubit)
+    step = CMap([memory], []).step
+    network = Ket(0) >> step >> Diagram.id(qubit) @ step \
+        >> Bra(1) @ Bra(1) @ Bra(1)
+
+    def to_torch(box):
+        """Spiders keep numpy arrays under the pytorch backend, see
+        https://github.com/discopy/discopy/issues/582 — materialise them."""
+        array = tensor.Tensor.spider_factory(
+            len(box.dom), len(box.cod), box.typ, box.phase).array \
+            if isinstance(box, tensor.Spider) else box.array
+        return tensor.Box(box.name, box.dom, box.cod, torch.as_tensor(
+            np.asarray(array).real if not torch.is_tensor(array) else array,
+            dtype=torch.float64))
+
+    with tensor.backend("pytorch"):
+        diagram = network.get_kraus().to_tensor()
+        diagram = tensor.Diagram.decode(
+            diagram.dom, cod=diagram.cod, offsets=diagram.offsets, boxes=[
+                box if isinstance(box, tensor.Swap) else to_torch(box)
+                for box in diagram.boxes])
+        result = diagram.eval(dtype=float)
+    probability = result.array ** 2
+    probability.backward()
+    assert torch.allclose(probability, torch.sin(2 * theta) ** 2 / 4)
+    assert torch.allclose(theta.grad, torch.sin(4 * theta) / 2)

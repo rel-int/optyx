@@ -62,6 +62,9 @@
 
 > from CMaps I mean
 
+> Check out my comments in https://github.com/rel-int/optyx/pull/16 We need to simplify this
+> implementation.
+
 ## What this PR ships
 
 `optyx.interaction` implements #13: a `Box` is a typed local recurrent channel
@@ -180,7 +183,7 @@ are what the Sudoku notebook was missing.
       not already pull: `quimb` comes transitively through the hard
       dependency `graphix` and `cotengra` through `quimb`. Worth declaring
       both explicitly in `pyproject.toml` since `optyx.channel` and
-      `optyx.core.contract` import them at module level — file as an issue.
+      `optyx.core.backends` import them at module level — file as an issue.
 - [ ] Get one green run of `lint`, `test` and `docs` on this branch. The
       failures of 2026-08-06 after 15:38 UTC are runner-side
       ("Failed to resolve action download info: Service Unavailable"), so the
@@ -210,8 +213,8 @@ by `initial_state`. Local channel is `qubit ** 4 -> qubit ** 5`, a
 - [ ] Shared box ansatz: real orthogonal, two single-qubit rotation layers and
       a nearest-neighbour ring of controlled rotations — the ansatz that won
       the Sudoku pilot — at ~40 parameters per box, shared over boxes and ticks.
-- [ ] Train at `n = 4`, `T_train = 4`, PyTorch autodiff through
-      `contract_tensor`, budget 2,000 scalar contractions and 5 minutes CPU.
+- [ ] Train at `n = 4`, `T_train = 4`, PyTorch autodiff through DisCoPy's
+      tensor backend, budget 2,000 scalar contractions and 5 minutes CPU.
 - [ ] Evaluate at `n = 8, 12, 16, 24` with `T = n`, and produce the
       accuracy-versus-`T` curve at fixed `n = 16` for `T = 1 .. 32`.
 - [ ] Run the four ablations and the matched `bit`-wire classical baseline.
@@ -321,6 +324,15 @@ minus everything that only existed to make a 660-box network fit.
       multi-wire `Discard` drawing bug #35 (minimal case
       `Diagram.swap(qubit, qubit) >> Discard(qubit ** 2)`), so the docs
       draw two open ticks composed by hand instead.
+- [x] Report the two discopy bugs upstream and fix them in
+      [discopy#584](https://github.com/discopy/discopy/pull/584):
+      [discopy#581](https://github.com/discopy/discopy/issues/581), the
+      multi-wire `Discard` drawing `KeyError` of #35, and
+      [discopy#582](https://github.com/discopy/discopy/issues/582), spiders
+      keeping numpy arrays under the PyTorch backend.
+- [x] Restore the PyTorch gradient test through DisCoPy's `eval`,
+      materialising spiders into boxes until discopy#582 lands, so the
+      autodiff requirement stays tested without `contract_tensor`.
 
 ## Docs and checks
 
@@ -329,8 +341,8 @@ minus everything that only existed to make a 660-box network fit.
 - [x] Module documentation explaining how recurrent tensor networks are
       constructed from a `CMap`: one tick as `read >> parallel >> write`,
       `protocol` as delayed feedback, `unroll` as a finite channel diagram,
-      `double().to_tensor().to_map()` down to `contract_tensor`, with
-      doctested drawings of the protocol and its unrolling.
+      `double().to_tensor()` down to DisCoPy's `eval`, with doctested
+      drawings of the step, the protocol and its unrolling.
 - [ ] A drawing of a box with memory and prediction wires in the module
       docstring, and `docs/api.rst` entry (already added) rendering.
 - [ ] File as issues anything left unchecked when this PR is signed off.
