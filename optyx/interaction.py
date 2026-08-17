@@ -51,7 +51,19 @@ Recurrent tensor networks
 
 A :class:`CMap` turns into a tensor network in two orthogonal directions:
 *space* — its boxes and edges — and *time* — the unrolled ticks. Each stage
-of the construction is a diagram the user can inspect and draw.
+of the construction is a diagram the user can inspect and draw. The
+running example is the smallest purely quantum map with every feature:
+three cells in a triangle, each with an internal memory and a prediction.
+A cell entangles its memory with the message on its outgoing port by a
+CNOT, then copies its memory to its prediction:
+
+>>> cell = Box("cell", qubit, qubit, qubit @ (cnot >> qubit @ Z(1, 2)),
+...     memory=qubit, prediction=qubit)
+>>> triangle = CMap(3 * [cell],
+...     [((0, 1), (1, 0)), ((1, 1), (2, 0)), ((2, 1), (0, 0))])
+>>> assert triangle.dom == triangle.cod == Ty()
+>>> assert triangle.memory == qubit ** 9
+>>> assert triangle.prediction == qubit ** 3
 
 **One tick is a channel diagram.** :attr:`CMap.step` composes three
 diagrams: :attr:`CMap.read`, a permutation routing :code:`dom @ memory`
@@ -62,11 +74,13 @@ port to the memory read by its partner at the next tick, each internal
 memory back to its own box. The permutations carry no data: all the
 computation sits in the boxes, as in a premonoidal normal form.
 
->>> wait = Box("wait", Ty(), qubit,
-...     Diagram.swap(qubit, qubit), memory=qubit)
->>> delay = CMap([wait], [])
->>> assert delay.step \\
-...     == delay.read >> delay.parallel >> delay.write
+>>> assert triangle.step \\
+...     == triangle.read >> triangle.parallel >> triangle.write
+>>> triangle.step.draw(figsize=(10, 5),
+...     path="docs/_static/interaction_step.png")
+
+.. image:: /_static/interaction_step.png
+    :align: center
 
 **Feedback closes the time loop.** :attr:`CMap.protocol` applies
 :meth:`optyx.channel.Diagram.feedback` to the step, closing
@@ -76,7 +90,7 @@ the protocol the feedback of a monoidal stream (Di Lavore, de Felice and
 Román, LICS 2022) rather than a trace: nothing is computed yet, the loop
 is syntax.
 
->>> delay.protocol.draw(figsize=(3, 3),
+>>> triangle.protocol.draw(figsize=(10, 5),
 ...     path="docs/_static/interaction_protocol.png")
 
 .. image:: /_static/interaction_protocol.png
@@ -88,43 +102,37 @@ tick to the next; the result is an ordinary
 :class:`optyx.channel.Diagram` whose width is the memory cut and whose
 depth is the number of ticks.
 
->>> delay.unroll(1).draw(figsize=(4, 4),
+>>> triangle.unroll(1).draw(figsize=(10, 8),
 ...     path="docs/_static/interaction_unroll.png")
 
 .. image:: /_static/interaction_unroll.png
     :align: center
 
-**Doubling gives the tensors.** From here the standard optyx pipeline
-applies. :meth:`optyx.channel.Diagram.double` maps the unrolled channel
-diagram to its Kraus map beside the conjugate, and :code:`to_tensor()`
-translates it to a :class:`discopy.tensor.Diagram` whose wires carry
-dimensions and whose boxes carry arrays. Its :code:`to_map()` is again a
-combinatorial map — this time :class:`discopy.tensor.CMap`, boxes and
-port pairings at the array level — mirroring in space the structure this
-module describes in time, without materialising the global permutations
-of :attr:`CMap.read` and :attr:`CMap.write` as explicit swap layers.
-
-**Contraction is a functor away.** The network is evaluated by
-:func:`optyx.core.contract.contract_tensor`: exactly with NumPy or Quimb,
-differentiably with JAX or PyTorch arrays, with any Cotengra path
-optimizer, and approximately through compressed contraction with
-:code:`max_bond`. The cost is controlled by the three sizes fixed above:
-the number of ticks, the local dimension of the wires and the bond
-dimension of the contraction.
+**Contraction closes the time loop the other way.** The standard optyx
+pipeline turns any of these diagrams into numbers:
+:meth:`optyx.channel.Diagram.double` maps a channel diagram to its Kraus
+map beside the conjugate, :code:`to_tensor()` translates it to a
+:class:`discopy.tensor.Diagram`, and DisCoPy contracts it — in one
+``einsum`` under the NumPy, JAX or PyTorch array backend, or through the
+Quimb backends of :mod:`optyx.core.backends` with optimised and
+compressed contraction paths. :meth:`CMap.fix` runs this pipeline at an
+approximately stationary time, instead of a finite unrolling: with every
+memory prepared at :code:`Ket(0)` the triangle is stationary from the
+start, and the contraction reads :code:`Ket(0)` off all three
+predictions.
 
 >>> import numpy as np
 >>> from optyx.qubits import Ket
->>> from optyx.core.contract import contract_tensor
->>> unrolled = Ket(1) >> CMap([readout], []).unroll(1)
->>> network = unrolled.double().to_tensor()
->>> result = contract_tensor(network.to_map(), backend="numpy")
->>> expected = (Ket(1) @ Ket(1)).double().to_tensor().eval()
->>> assert np.allclose(
-...     np.asarray(result.array).flatten(), expected.array.flatten())
+>>> from optyx.core.backends import DiscopyBackend
+>>> fixed = triangle.fix(
+...     initial_state=Diagram.id().tensor(*9 * [Ket(0)]),
+...     max_steps=2, backend=DiscopyBackend())
+>>> expected = Diagram.id().tensor(*3 * [Ket(0)])
+>>> assert np.allclose(fixed.density_matrix,
+...     expected.double().to_tensor().eval().array)
 
-The stationary semantics :meth:`CMap.fix` closes the time direction the
-other way, by an approximate fixed point instead of a finite unrolling;
-see :doc:`/notebooks/fixpoints` for the certificates behind it.
+See :doc:`/notebooks/fixpoints` for the certificates behind
+:meth:`optyx.channel.Diagram.fix`, which :meth:`CMap.fix` delegates to.
 
 Types and diagrams
 ------------------
@@ -215,9 +223,9 @@ class CMap:
 
     A port is a pair :code:`(box, port)` of indices, the second indexing
     :attr:`Box.ports`. An edge is a pair of distinct ports of equal type,
-    and every port belongs to at most one edge. The memory and prediction
-    of a box are not ports: they cannot be paired, and neither can the
-    cups and caps of :meth:`glue` touch them.
+    and every port belongs to at most one edge: an edge between two ports
+    of the same map is a cup or a cap of the compact closed structure. The
+    memory and prediction of a box are not ports and cannot be paired.
 
     Parameters:
         boxes : The boxes of the map.
@@ -486,21 +494,6 @@ class CMap:
         return CMap(self.boxes + other.boxes, self.edges + [
             ((i + shift, j), (k + shift, ll))
             for (i, j), (k, ll) in other.edges])
-
-    def glue(self, *edges) -> CMap:
-        """
-        The map with extra edges, gluing boundary ports together: this is
-        composition in the compact closed structure, and a single edge
-        between two boundary ports of the same map is a cup or a cap.
-
-        >>> from optyx.channel import qubit
-        >>> from optyx.qubits import Z, X, Scalar
-        >>> cnot = Z(1, 2) @ qubit >> qubit @ X(2, 1) @ Scalar(2 ** 0.5)
-        >>> box = Box("f", qubit, qubit, cnot)
-        >>> cmap = CMap([box, box], []).glue(((0, 1), (1, 0)))
-        >>> assert cmap.memory == qubit ** 2
-        """
-        return CMap(self.boxes, self.edges + list(edges))
 
     def __repr__(self):
         return f"CMap({repr(self.boxes)}, {repr(self.edges)})"

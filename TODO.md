@@ -62,6 +62,9 @@
 
 > from CMaps I mean
 
+> Check out my comments in https://github.com/rel-int/optyx/pull/16 We need to simplify this
+> implementation.
+
 ## What this PR ships
 
 `optyx.interaction` implements #13: a `Box` is a typed local recurrent channel
@@ -71,10 +74,24 @@ to the environment and never read. A `CMap` is a list of boxes plus a pairing of
 their ports; its semantics is `protocol`, an `optyx.channel.Diagram` with
 feedback on the paired ports, with finite semantics `unroll` and stationary
 semantics `fix`. This is the Int-construction of Joyal–Street–Verity applied to
-the feedback category of channels, so `@` and `glue` are the compact closed
-structure. `optyx.core.contract.contract_tensor` (from #21) evaluates the
-resulting network on NumPy, Quimb, JAX or PyTorch, differentiably, with
-Cotengra paths and optional compressed bonds.
+the feedback category of channels: `@` is the disjoint union and an edge
+between two ports of the same map is a cup or a cap. The resulting network is
+contracted by DisCoPy's `einsum` on NumPy, JAX or PyTorch — differentiably —
+or by the Quimb backends of `optyx.core.backends` with Cotengra paths and
+optional compressed bonds.
+
+## Simplification from review (2026-08-17)
+
+- [x] Remove `optyx/core/contract.py` and `test/test_contract.py`: DisCoPy's
+      tensor contraction (`Diagram.eval` under any array backend, `to_quimb`)
+      covers it; `optyx.core.backends` is restored to its pre-PR version.
+- [x] Replace the delay example in the module docstring with a minimal purely
+      quantum triangle of three cells, each with an internal memory and a
+      prediction output.
+- [x] Compute the fixpoint of the triangle protocol through contraction in
+      the doctests, via `CMap.fix` and `DiscopyBackend`.
+- [x] Remove `CMap.glue`: a map is initialised directly with the right edges.
+- [x] Draw `CMap.step` in the doctests.
 
 ## Why the Sudoku notebook is gone
 
@@ -180,7 +197,7 @@ are what the Sudoku notebook was missing.
       not already pull: `quimb` comes transitively through the hard
       dependency `graphix` and `cotengra` through `quimb`. Worth declaring
       both explicitly in `pyproject.toml` since `optyx.channel` and
-      `optyx.core.contract` import them at module level — file as an issue.
+      `optyx.core.backends` import them at module level — file as an issue.
 - [ ] Get one green run of `lint`, `test` and `docs` on this branch. The
       failures of 2026-08-06 after 15:38 UTC are runner-side
       ("Failed to resolve action download info: Service Unavailable"), so the
@@ -210,8 +227,8 @@ by `initial_state`. Local channel is `qubit ** 4 -> qubit ** 5`, a
 - [ ] Shared box ansatz: real orthogonal, two single-qubit rotation layers and
       a nearest-neighbour ring of controlled rotations — the ansatz that won
       the Sudoku pilot — at ~40 parameters per box, shared over boxes and ticks.
-- [ ] Train at `n = 4`, `T_train = 4`, PyTorch autodiff through
-      `contract_tensor`, budget 2,000 scalar contractions and 5 minutes CPU.
+- [ ] Train at `n = 4`, `T_train = 4`, PyTorch autodiff through DisCoPy's
+      tensor backend, budget 2,000 scalar contractions and 5 minutes CPU.
 - [ ] Evaluate at `n = 8, 12, 16, 24` with `T = n`, and produce the
       accuracy-versus-`T` curve at fixed `n = 16` for `T = 1 .. 32`.
 - [ ] Run the four ablations and the matched `bit`-wire classical baseline.
@@ -289,8 +306,8 @@ minus everything that only existed to make a 660-box network fit.
 - [x] Module documentation explaining how recurrent tensor networks are
       constructed from a `CMap`: one tick as `read >> parallel >> write`,
       `protocol` as delayed feedback, `unroll` as a finite channel diagram,
-      `double().to_tensor().to_map()` down to `contract_tensor`, with
-      doctested drawings of the protocol and its unrolling.
+      `double().to_tensor()` down to DisCoPy's `eval`, with doctested
+      drawings of the step, the protocol and its unrolling.
 - [ ] A drawing of a box with memory and prediction wires in the module
       docstring, and `docs/api.rst` entry (already added) rendering.
 - [ ] File as issues anything left unchecked when this PR is signed off.
