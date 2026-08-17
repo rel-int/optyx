@@ -14,5 +14,4 @@ languages of ZX, ZW, and Path.
     zw
     zx
     backends
-    contract
 """

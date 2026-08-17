@@ -9,7 +9,7 @@ from optyx.channel import Diagram, Ty, qubit, qmode
 from optyx.core.backends import DiscopyBackend
 from optyx.interaction import Box, CMap
 from optyx.photonic import BS, Create
-from optyx.qubits import Bra, Ket, Scalar, X, Z
+from optyx.qubits import Ket, Scalar, X, Z
 
 
 def cnot():
@@ -181,14 +181,8 @@ def test_tensor_is_disjoint_union():
     assert both.edges == [((0, 0), (0, 1)), ((1, 0), (1, 1))]
 
 
-def test_glue_adds_edges():
-    cmap = CMap([box(), box()], []).glue(((0, 1), (1, 0)))
-    assert cmap == CMap([box(), box()], [((0, 1), (1, 0))])
-    assert cmap.memory == qubit ** 2
-
-
 def test_cup_on_one_box():
-    cmap = CMap([box()], []).glue(((0, 0), (0, 1)))
+    cmap = CMap([box()], [((0, 0), (0, 1))])
     assert cmap.dom == Ty()
     assert cmap.memory == qubit ** 2
 
@@ -240,32 +234,3 @@ def test_memory_is_a_delay_line(n_steps):
 def test_drawing():
     cmap = CMap([box()], [((0, 0), (0, 1))])
     assert cmap.to_drawing() == cmap.protocol.to_drawing()
-
-
-def test_gradient_through_the_memory_wire():
-    torch = pytest.importorskip("torch")
-    from discopy import tensor
-    from optyx.channel import Channel
-    from optyx.core.contract import contract_tensor
-    from optyx.core.diagram import Box as CoreBox, bit as core_bit
-
-    theta = torch.tensor(0.3, dtype=torch.float64, requires_grad=True)
-    array = torch.stack((
-        torch.stack((torch.cos(theta), -torch.sin(theta))),
-        torch.stack((torch.sin(theta), torch.cos(theta))),
-    )).to(torch.float64)
-    rotation = Channel(
-        "R", CoreBox("R", core_bit, core_bit, array=array), qubit, qubit)
-    memory = Box("m", Ty(), Ty(), rotation >> Z(1, 2),
-                 memory=qubit, prediction=qubit)
-    step = CMap([memory], []).step
-    network = Ket(0) >> step >> Diagram.id(qubit) @ step \
-        >> Bra(1) @ Bra(1) @ Bra(1)
-    with tensor.backend("pytorch"):
-        diagram = network.get_kraus().to_tensor()
-        result = contract_tensor(
-            diagram.to_map(), backend="pytorch", dtype=float)
-    probability = result.array ** 2
-    probability.backward()
-    assert torch.allclose(probability, torch.sin(2 * theta) ** 2 / 4)
-    assert torch.allclose(theta.grad, torch.sin(4 * theta) / 2)

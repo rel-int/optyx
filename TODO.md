@@ -71,10 +71,10 @@ to the environment and never read. A `CMap` is a list of boxes plus a pairing of
 their ports; its semantics is `protocol`, an `optyx.channel.Diagram` with
 feedback on the paired ports, with finite semantics `unroll` and stationary
 semantics `fix`. This is the Int-construction of Joyal–Street–Verity applied to
-the feedback category of channels, so `@` and `glue` are the compact closed
-structure. `optyx.core.contract.contract_tensor` (from #21) evaluates the
-resulting network on NumPy, Quimb, JAX or PyTorch, differentiably, with
-Cotengra paths and optional compressed bonds.
+the feedback category of channels: `@` is the disjoint union and the edges are
+the compact closed structure. The recurrent tensor network is contracted with
+DisCoPy's own methods (`eval`, `to_quimb`); the differentiable and compressed
+contraction stays proposed in #21.
 
 ## Why the Sudoku notebook is gone
 
@@ -299,17 +299,28 @@ minus everything that only existed to make a 660-box network fit.
 
 > Draw this somewhere in the doctests
 
-- [WIP] @claude-01Jpwa-2026-08-17 10:58 Replace the delay example in the
-      module docstring by a triangle of three cells, purely quantum, each
-      with an internal memory and a prediction output.
-- [WIP] @claude-01Jpwa-2026-08-17 10:58 Remove `optyx.core.contract`: revert
-      `QuimbBackend.eval` to the DisCoPy `to_quimb` route, drop
-      `test/test_contract.py`, use DisCoPy's tensor contraction everywhere.
-- [WIP] @claude-01Jpwa-2026-08-17 10:58 Compute the fixpoint of the triangle
-      protocol through contraction in the doctests, without `contract_tensor`.
-- [WIP] @claude-01Jpwa-2026-08-17 10:58 Remove `CMap.glue`: initialise maps
-      directly with the right edges.
-- [WIP] @claude-01Jpwa-2026-08-17 10:58 Draw `CMap.step` in the doctests.
+- [x] Replace the delay example in the module docstring by a triangle of
+      three cells, purely quantum, each with an internal memory and a
+      prediction output: a cell is a single Z spider on its two message
+      ports, its memory and its prediction. Started from uniform
+      superpositions the cells synchronise and the stationary prediction
+      is the GHZ mixture.
+- [x] Remove `optyx.core.contract`: `QuimbBackend.eval` reverted to the
+      DisCoPy `to_quimb` route, `test/test_contract.py` dropped, doctests
+      use `eval` and `to_quimb`. The differentiable and compressed
+      contraction — and the PyTorch gradient test that needed it — return
+      to the scope of #21: DisCoPy's own einsum path currently breaks on
+      diagrams with spiders or swaps under the PyTorch backend, so #21
+      remains the place to add it.
+- [x] Compute the fixpoint of the triangle protocol through contraction in
+      the doctests, without `contract_tensor`.
+- [x] Remove `CMap.glue`: maps are initialised directly with the right
+      edges.
+- [x] Draw `CMap.step` in the doctests, with `wire_labels=False` to keep
+      the permutations legible; drawing `CMap.unroll` directly hits the
+      multi-wire `Discard` drawing bug #35 (minimal case
+      `Diagram.swap(qubit, qubit) >> Discard(qubit ** 2)`), so the docs
+      draw two open ticks composed by hand instead.
 
 ## Docs and checks
 

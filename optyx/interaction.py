@@ -53,6 +53,22 @@ A :class:`CMap` turns into a tensor network in two orthogonal directions:
 *space* — its boxes and edges — and *time* — the unrolled ticks. Each stage
 of the construction is a diagram the user can inspect and draw.
 
+The running example is the smallest map that is purely quantum and uses
+every kind of wire: three cells connected in a triangle, each carrying an
+internal memory and a prediction output. A cell is a single Z spider,
+the channel that constrains all its wires to agree in the computational
+basis: at every tick it reads its two message ports and its memory,
+writes them back and predicts its memory.
+
+>>> from optyx.channel import qubit
+>>> from optyx.qubits import Z
+>>> cell = Box("cell", qubit, qubit, Z(3, 4),
+...     memory=qubit, prediction=qubit)
+>>> triangle = CMap([cell, cell, cell],
+...     [((0, 1), (1, 0)), ((1, 1), (2, 0)), ((2, 1), (0, 0))])
+>>> assert triangle.dom == Ty() and triangle.prediction == qubit ** 3
+>>> assert triangle.memory == qubit ** 9
+
 **One tick is a channel diagram.** :attr:`CMap.step` composes three
 diagrams: :attr:`CMap.read`, a permutation routing :code:`dom @ memory`
 onto the inputs of the boxes, then :attr:`CMap.parallel`, the tensor
@@ -62,11 +78,13 @@ port to the memory read by its partner at the next tick, each internal
 memory back to its own box. The permutations carry no data: all the
 computation sits in the boxes, as in a premonoidal normal form.
 
->>> wait = Box("wait", Ty(), qubit,
-...     Diagram.swap(qubit, qubit), memory=qubit)
->>> delay = CMap([wait], [])
->>> assert delay.step \\
-...     == delay.read >> delay.parallel >> delay.write
+>>> assert triangle.step \\
+...     == triangle.read >> triangle.parallel >> triangle.write
+>>> triangle.step.draw(figsize=(8, 5), wire_labels=False,
+...     path="docs/_static/interaction_step.png")
+
+.. image:: /_static/interaction_step.png
+    :align: center
 
 **Feedback closes the time loop.** :attr:`CMap.protocol` applies
 :meth:`optyx.channel.Diagram.feedback` to the step, closing
@@ -76,7 +94,7 @@ the protocol the feedback of a monoidal stream (Di Lavore, de Felice and
 Román, LICS 2022) rather than a trace: nothing is computed yet, the loop
 is syntax.
 
->>> delay.protocol.draw(figsize=(3, 3),
+>>> triangle.protocol.draw(figsize=(8, 5), wire_labels=False,
 ...     path="docs/_static/interaction_protocol.png")
 
 .. image:: /_static/interaction_protocol.png
@@ -84,11 +102,16 @@ is syntax.
 
 **Unrolling gives a finite diagram.** :meth:`CMap.unroll` composes
 :code:`n_steps + 1` copies of the step, threading the memory from each
-tick to the next; the result is an ordinary
+tick to the next — below, two ticks of the triangle with the memory left
+open; :meth:`CMap.unroll` itself also prepares the initial memory and
+discards the final one. The result is an ordinary
 :class:`optyx.channel.Diagram` whose width is the memory cut and whose
 depth is the number of ticks.
 
->>> delay.unroll(1).draw(figsize=(4, 4),
+>>> two_ticks = triangle.step \\
+...     >> Diagram.id(triangle.prediction) @ triangle.step
+>>> assert two_ticks.cod == triangle.unroll(1).cod @ triangle.memory
+>>> two_ticks.draw(figsize=(8, 10), wire_labels=False,
 ...     path="docs/_static/interaction_unroll.png")
 
 .. image:: /_static/interaction_unroll.png
@@ -98,33 +121,36 @@ depth is the number of ticks.
 applies. :meth:`optyx.channel.Diagram.double` maps the unrolled channel
 diagram to its Kraus map beside the conjugate, and :code:`to_tensor()`
 translates it to a :class:`discopy.tensor.Diagram` whose wires carry
-dimensions and whose boxes carry arrays. Its :code:`to_map()` is again a
-combinatorial map — this time :class:`discopy.tensor.CMap`, boxes and
-port pairings at the array level — mirroring in space the structure this
-module describes in time, without materialising the global permutations
-of :attr:`CMap.read` and :attr:`CMap.write` as explicit swap layers.
-
-**Contraction is a functor away.** The network is evaluated by
-:func:`optyx.core.contract.contract_tensor`: exactly with NumPy or Quimb,
-differentiably with JAX or PyTorch arrays, with any Cotengra path
-optimizer, and approximately through compressed contraction with
-:code:`max_bond`. The cost is controlled by the three sizes fixed above:
-the number of ticks, the local dimension of the wires and the bond
-dimension of the contraction.
+dimensions and whose boxes carry arrays — the recurrent tensor network.
+DisCoPy contracts it: exactly with :code:`eval`, or through Quimb with
+:code:`to_quimb`. The cost is controlled by the number of ticks, the
+local dimension of the wires and the width of the memory cut.
 
 >>> import numpy as np
 >>> from optyx.qubits import Ket
->>> from optyx.core.contract import contract_tensor
 >>> unrolled = Ket(1) >> CMap([readout], []).unroll(1)
 >>> network = unrolled.double().to_tensor()
->>> result = contract_tensor(network.to_map(), backend="numpy")
->>> expected = (Ket(1) @ Ket(1)).double().to_tensor().eval()
->>> assert np.allclose(
-...     np.asarray(result.array).flatten(), expected.array.flatten())
+>>> expected = (Ket(1) @ Ket(1)).double().to_tensor()
+>>> assert np.allclose(network.eval().array.flatten(),
+...     expected.eval().array.flatten())
 
-The stationary semantics :meth:`CMap.fix` closes the time direction the
-other way, by an approximate fixed point instead of a finite unrolling;
-see :doc:`/notebooks/fixpoints` for the certificates behind it.
+**The fixpoint is computed through contraction.** :meth:`CMap.fix`
+closes the time direction the other way: following
+:meth:`optyx.channel.Diagram.fix`, it contracts ever longer unrollings
+of the doubled network until the output stops changing — see
+:doc:`/notebooks/fixpoints` for the certificates behind it. For the
+triangle, spider fusion makes every memory agree with its neighbours:
+started from uniform superpositions, the cells synchronise and the
+stationary prediction is the GHZ mixture, perfectly correlated and
+uniform.
+
+>>> from optyx.qubits import H
+>>> plus = Ket(0) >> H()
+>>> fixed = triangle.fix(
+...     initial_state=Diagram.id().tensor(*[plus] * 9),
+...     max_steps=4, max_chi=None)
+>>> assert np.allclose(fixed.density_matrix.reshape(8, 8),
+...     np.diag([.5, 0, 0, 0, 0, 0, 0, .5]))
 
 Types and diagrams
 ------------------
@@ -216,8 +242,9 @@ class CMap:
     A port is a pair :code:`(box, port)` of indices, the second indexing
     :attr:`Box.ports`. An edge is a pair of distinct ports of equal type,
     and every port belongs to at most one edge. The memory and prediction
-    of a box are not ports: they cannot be paired, and neither can the
-    cups and caps of :meth:`glue` touch them.
+    of a box are not ports: they cannot be paired. An edge between two
+    ports of the same box is a cup or a cap, so the maps carry the compact
+    closed structure of the Int-construction.
 
     Parameters:
         boxes : The boxes of the map.
@@ -486,21 +513,6 @@ class CMap:
         return CMap(self.boxes + other.boxes, self.edges + [
             ((i + shift, j), (k + shift, ll))
             for (i, j), (k, ll) in other.edges])
-
-    def glue(self, *edges) -> CMap:
-        """
-        The map with extra edges, gluing boundary ports together: this is
-        composition in the compact closed structure, and a single edge
-        between two boundary ports of the same map is a cup or a cap.
-
-        >>> from optyx.channel import qubit
-        >>> from optyx.qubits import Z, X, Scalar
-        >>> cnot = Z(1, 2) @ qubit >> qubit @ X(2, 1) @ Scalar(2 ** 0.5)
-        >>> box = Box("f", qubit, qubit, cnot)
-        >>> cmap = CMap([box, box], []).glue(((0, 1), (1, 0)))
-        >>> assert cmap.memory == qubit ** 2
-        """
-        return CMap(self.boxes, self.edges + list(edges))
 
     def __repr__(self):
         return f"CMap({repr(self.boxes)}, {repr(self.edges)})"
