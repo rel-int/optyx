@@ -11,7 +11,7 @@ Mais, je veux en revanche que tu réimplémentes l'algo de façon très minimali
 pardon juste pour le prompt précédent, ne raise pas une erreur mais un warning et précise la tolérance permise par le max_n_steps si ça ne passe pas et la tolérance permise par la troncation puis tu sommes les deux pour donner la tolérance vraiment autorisée. Si tu as une meilleure idée pour prévenir et compute les n_steps nécessaires, précise le moi puis on en discute mais implémentes ça d'abord
 
 - [x] Reimplement only `unroll_certificate` on top of PR 15.
-- [WIP] @Codex-2026-08-16 05:02 Keep the Optyx regression tests minimal.
-- [ ] Use Optyx from the Marimo experiments in `content/photonic`.
-- [WIP] @Codex-2026-08-17 02:33 Restructure the short algorithm and its rigorous appendix.
-- [ ] Run the required Optyx and wiki checks.
+- [x] Keep the Optyx regression tests minimal.
+- [x] Use Optyx from the Marimo experiments in `content/photonic`.
+- [x] Restructure the short algorithm and its rigorous appendix.
+- [x] Run the required Optyx and wiki checks.
