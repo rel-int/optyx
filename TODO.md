@@ -282,6 +282,35 @@ minus everything that only existed to make a 660-box network fit.
 - [ ] Keep everything real: orthogonal ansatz, `float32` forward with `float64`
       loss accumulation.
 
+## Review of 2026-08-17
+
+> This is not a good example (only a delay!). Give an example with three cells
+> connected in a triangle. The example should be minimal such that it is purely
+> quantum and every cell has an internal memory and a prediction output.
+
+> Why is this file needed? Can't we just use the tensor contraction methods in
+> DisCoPy?
+
+> For the same simple protocol above, compute the fixpoint through contraction.
+> This conract_tensor method should not be needed, as per my comment above.
+
+> No point to this method. We can simply initialise the map directly with the
+> right edges.
+
+> Draw this somewhere in the doctests
+
+- [WIP] @claude-01Jpwa-2026-08-17 10:58 Replace the delay example in the
+      module docstring by a triangle of three cells, purely quantum, each
+      with an internal memory and a prediction output.
+- [WIP] @claude-01Jpwa-2026-08-17 10:58 Remove `optyx.core.contract`: revert
+      `QuimbBackend.eval` to the DisCoPy `to_quimb` route, drop
+      `test/test_contract.py`, use DisCoPy's tensor contraction everywhere.
+- [WIP] @claude-01Jpwa-2026-08-17 10:58 Compute the fixpoint of the triangle
+      protocol through contraction in the doctests, without `contract_tensor`.
+- [WIP] @claude-01Jpwa-2026-08-17 10:58 Remove `CMap.glue`: initialise maps
+      directly with the right edges.
+- [WIP] @claude-01Jpwa-2026-08-17 10:58 Draw `CMap.step` in the doctests.
+
 ## Docs and checks
 
 - [ ] `pflake8 optyx`, `pylint optyx/interaction.py optyx/core/contract.py
