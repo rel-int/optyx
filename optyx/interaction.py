@@ -100,9 +100,11 @@ is syntax.
 :code:`n_steps + 1` copies of the step, threading the memory from each
 tick to the next; the result is an ordinary
 :class:`optyx.channel.Diagram` whose width is the memory cut and whose
-depth is the number of ticks.
+depth is the number of ticks. The memory starts open and is discarded
+after the last tick; :code:`effect=False` leaves it open to make the
+threading visible.
 
->>> triangle.unroll(1).draw(figsize=(10, 8),
+>>> triangle.unroll(1, effect=False).draw(figsize=(10, 8),
 ...     path="docs/_static/interaction_unroll.png")
 
 .. image:: /_static/interaction_unroll.png
@@ -123,10 +125,9 @@ predictions.
 
 >>> import numpy as np
 >>> from optyx.qubits import Ket
->>> from optyx.core.backends import DiscopyBackend
 >>> fixed = triangle.fix(
 ...     initial_state=Diagram.id().tensor(*9 * [Ket(0)]),
-...     max_steps=2, backend=DiscopyBackend())
+...     max_steps=2, max_chi=None)
 >>> expected = Diagram.id().tensor(*3 * [Ket(0)])
 >>> assert np.allclose(fixed.density_matrix,
 ...     expected.double().to_tensor().eval().array)
@@ -412,7 +413,7 @@ class CMap:
         return self.step.feedback(
             dom=self.dom, cod=self.cod @ self.prediction, mem=self.memory)
 
-    def unroll(self, n_steps: int = 1) -> Diagram:
+    def unroll(self, n_steps: int = 1, state=None, effect=None) -> Diagram:
         """
         The protocol unrolled over :code:`n_steps + 1` time steps — as in
         :meth:`optyx.channel.Diagram.unroll`, :code:`n_steps` counts
@@ -425,14 +426,16 @@ class CMap:
 
         The memory starts open at the end of the domain and is discarded
         after the last step, the default boundaries of
-        :meth:`optyx.channel.Diagram.feedback`; :meth:`fix` is where other
-        boundaries are chosen.
+        :meth:`optyx.channel.Diagram.feedback`; ``state`` and ``effect``
+        override them as in :meth:`optyx.channel.Diagram.unroll`, and
+        :meth:`fix` is where stationary boundaries are chosen.
 
         >>> cmap = CMap([Box("f", qubit, qubit, cnot)], [((0, 0), (0, 1))])
         >>> assert cmap.unroll(2).dom == cmap.memory
         >>> assert cmap.unroll(2).cod == Ty()
+        >>> assert cmap.unroll(2, effect=False).cod == cmap.memory
         """
-        return self.protocol.unroll(n_steps)
+        return self.protocol.unroll(n_steps, state=state, effect=effect)
 
     def fix(self, input_state=None, initial_state=None, **params):
         """

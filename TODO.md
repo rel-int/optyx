@@ -92,6 +92,13 @@ optional compressed bonds.
       the doctests, via `CMap.fix` and `DiscopyBackend`.
 - [x] Remove `CMap.glue`: a map is initialised directly with the right edges.
 - [x] Draw `CMap.step` in the doctests.
+- [x] Report the two discopy bugs this surfaced:
+      [discopy#581](https://github.com/discopy/discopy/issues/581), drawing a
+      multi-wire `Discard` raises `KeyError` (the unrolling is drawn with
+      `effect=False` until it is fixed), and
+      [discopy#582](https://github.com/discopy/discopy/issues/582), spiders
+      keep numpy arrays under the pytorch backend (the gradient test
+      materialises them into boxes).
 
 ## Why the Sudoku notebook is gone
 
