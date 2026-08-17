@@ -13,5 +13,5 @@ pardon juste pour le prompt précédent, ne raise pas une erreur mais un warning
 - [x] Reimplement only `unroll_certificate` on top of PR 15.
 - [WIP] @Codex-2026-08-16 05:02 Keep the Optyx regression tests minimal.
 - [ ] Use Optyx from the Marimo experiments in `content/photonic`.
-- [ ] Restructure the short algorithm and its rigorous appendix.
+- [WIP] @Codex-2026-08-17 02:33 Restructure the short algorithm and its rigorous appendix.
 - [ ] Run the required Optyx and wiki checks.
