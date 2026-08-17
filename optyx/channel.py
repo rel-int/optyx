@@ -556,10 +556,13 @@ class Diagram(frobenius.Diagram):
 
         .. math::
             \\Gamma(k) + 2\\Delta_N(k), \\qquad
-            \\Delta_N(k) = \\min\\{1, k\\lambda/(N+1)\\},
+            \\Delta_N(k) = \\min\\left\\{1,
+                \\sum_{j=1}^k p_N(j)\\right\\},
 
-        where `lambda` is the stationary mean loop occupation, computed
-        from a Lyapunov equation on the same one-particle matrix.
+        where ``p_N(j)=0`` when the photon support at step ``j`` fits below
+        ``N``, and otherwise ``p_N(j)`` is bounded by the exact transient
+        mean occupation divided by ``N + 1``. Both the support and mean are
+        propagated on the same one-particle matrix.
 
         Loss is read off the diagram, not passed in: the one-step matrix is
         the path matrix of the loop's :meth:`dilate`, so a
@@ -613,67 +616,97 @@ class Diagram(frobenius.Diagram):
                 "The certificate needs a single feedback loop over "
                 "optical modes.")
         loop = loops[0]
+        assert loop.arg.dom == loop.mem
         try:
-            matrix = loop.arg.dilate().to_path()
-            isometry = np.asarray(matrix.array, dtype=complex)
+            path_matrix = loop.arg.dilate().to_path()
+            one_step_isometry = np.asarray(
+                path_matrix.array, dtype=complex)
         except (AssertionError, AttributeError, NotImplementedError,
                 TypeError, ValueError) as error:
             raise NotImplementedError(
-                "The loop has no one-step optical matrix.") from error
-        memory = len(loop.mem.single())
-        visible = len(loop.cod.single())
-        if matrix.dom != memory or matrix.cod < visible + memory \
-                or matrix.selections:
+                "The feedback step has no passive one-particle path "
+                "representation required by the certificate.") from error
+        n_memory_modes = len(loop.mem.single())
+        n_emitted_modes = len(loop.cod.single())
+        if path_matrix.dom != n_memory_modes:
+            raise RuntimeError(
+                "The path conversion did not preserve the feedback input "
+                "boundary.")
+        if path_matrix.cod < n_emitted_modes + n_memory_modes \
+                or path_matrix.selections:
             raise NotImplementedError(
-                "The loop's optical matrix does not split into visible, "
+                "The loop's optical matrix does not split into emitted, "
                 "memory and environment modes.")
-        if isometry.shape != (memory + len(matrix.creations), matrix.cod) \
+        if one_step_isometry.shape != (
+                n_memory_modes + len(path_matrix.creations),
+                path_matrix.cod) \
                 or not np.allclose(
-                    isometry @ isometry.conjugate().T,
-                    np.eye(len(isometry))):
+                    one_step_isometry @ one_step_isometry.conjugate().T,
+                    np.eye(len(one_step_isometry))):
             raise NotImplementedError(
                 "The loop's optical matrix is not an isometry.")
-        block = isometry[:memory, visible:visible + memory]
-        if max(abs(np.linalg.eigvals(block)), default=0) >= 1:
+        loop_block = one_step_isometry[
+            :n_memory_modes,
+            n_emitted_modes:n_emitted_modes + n_memory_modes]
+        if max(abs(np.linalg.eigvals(loop_block)), default=0) >= 1:
             raise NotImplementedError(
-                "The loop block does not satisfy rho(V_ll) < 1: nothing "
-                "ever leaves the loop, so no depth is certified.")
-        qbar = max(matrix.creations, default=0)
+                "The loop block does not satisfy rho(V_ll) < 1: a memory "
+                "direction does not decay, so no depth is certified.")
+        qbar = max(path_matrix.creations, default=0)
         constant = (qbar + 1) * (
             np.sqrt(6 * qbar * (qbar + 1)) + qbar)
 
-        stationary_mean = 0.
+        conventional_loop_block = loop_block.T
+        weighted_injection = None
+        reachable_injection = None
+        loop_adjacency = None
         if max_occupation is not None:
-            injection = isometry[memory:, visible:visible + memory].T
-            conventional_block = block.T
-            size = memory ** 2
-            lyapunov = np.linalg.solve(
-                np.eye(size) - np.kron(
-                    conventional_block.T,
-                    conventional_block.conjugate().T),
-                np.eye(memory).reshape(size, order="F"),
-            ).reshape((memory, memory), order="F")
-            correlations = injection.conjugate().T @ lyapunov @ injection
-            stationary_mean = max(0., float(np.real(sum(
-                occupation * correlations[index, index]
-                for index, occupation in enumerate(matrix.creations)))))
+            injection = one_step_isometry[
+                n_memory_modes:,
+                n_emitted_modes:n_emitted_modes + n_memory_modes].T
+            occupations = np.asarray(path_matrix.creations, dtype=float)
+            weighted_injection = injection * np.sqrt(occupations)
+            reachable_injection = injection != 0
+            loop_adjacency = loop_block != 0
 
-        power, burn_in = np.eye(memory), 0
+        power, burn_in = np.eye(n_memory_modes), 0
+        transient_mean = cumulative_tail = 0.
+        required_occupation = 0
         best = None
         while max_steps is None or burn_in < max_steps - 1:
-            power, burn_in = block @ power, burn_in + 1
+            power, burn_in = loop_block @ power, burn_in + 1
             singular = np.clip(
                 np.linalg.svd(power, compute_uv=False), 0, 1)
-            finite_depth = float(
+            error_n_steps = float(
                 4 * constant * np.sum(np.arcsin(singular) ** 2))
-            truncation = 0. if max_occupation is None else min(
-                1., burn_in * stationary_mean / (max_occupation + 1))
-            total = min(2., finite_depth + 2 * truncation)
-            if best is None or total < best[-1]:
-                best = burn_in, finite_depth, truncation, total
-            if total <= tol:
+
+            error_truncation = 0.
+            if max_occupation is not None:
+                transient_mean += float(np.real(np.vdot(
+                    weighted_injection, weighted_injection)))
+                required_occupation += int(sum(
+                    occupation for occupation, reachable in zip(
+                        path_matrix.creations,
+                        np.any(reachable_injection, axis=0)) if reachable))
+                if required_occupation > max_occupation:
+                    cumulative_tail = min(
+                        1., cumulative_tail + min(
+                            1., transient_mean / (max_occupation + 1)))
+                error_truncation = 2 * cumulative_tail
+                weighted_injection = (
+                    conventional_loop_block @ weighted_injection)
+                reachable_injection = (
+                    loop_adjacency.T.astype(int)
+                    @ reachable_injection.astype(int)).astype(bool)
+
+            error_total = min(
+                2., error_n_steps + error_truncation)
+            if best is None or error_total < best[-1]:
+                best = (burn_in, error_n_steps, error_truncation,
+                        required_occupation, error_total)
+            if error_total <= tol:
                 return burn_in + 1
-            if max_occupation is not None and 2 * truncation >= tol:
+            if max_occupation is not None and error_truncation >= tol:
                 break
 
         if max_occupation is None:
@@ -685,14 +718,16 @@ class Diagram(frobenius.Diagram):
                 UserWarning, stacklevel=2)
             return None
 
-        burn_in, finite_depth, truncation, total = best
+        burn_in, error_n_steps, error_truncation, required_occupation, \
+            error_total = best
         warnings.warn(
             f"tol={tol} is not certified by the supplied resources. "
             f"At the best burn-in k={burn_in}, max_steps={max_steps} "
-            f"permits finite-depth error Gamma={finite_depth:.6g}; "
-            f"max_occupation={max_occupation} permits truncation error "
-            f"2 Delta_N={2 * truncation:.6g}; the certified total "
-            f"tolerance is {total:.6g}.",
+            f"permits error_n_steps={error_n_steps:.6g}; "
+            f"max_occupation={max_occupation} versus required occupation "
+            f"{required_occupation} permits error_truncation="
+            f"{error_truncation:.6g}; the certified total tolerance is "
+            f"{error_total:.6g}.",
             UserWarning, stacklevel=2)
         return None
 

@@ -356,9 +356,17 @@ def test_the_certificate_reads_the_depth_off_the_diagram():
         assert sampler(loss=.9).unroll_certificate(
             .1, max_steps=2, max_occupation=100) is None
     message = str(caught[0].message)
-    assert "Gamma=0.125541" in message
-    assert "2 Delta_N=0.0019174" in message
-    assert "certified total tolerance is 0.127458" in message
+    assert "error_n_steps=0.125541" in message
+    assert "required occupation 1" in message
+    assert "error_truncation=0" in message
+    assert "certified total tolerance is 0.125541" in message
+
+    with pytest.warns(UserWarning) as caught:
+        assert sampler(loss=.9).unroll_certificate(
+            .01, max_steps=3, max_occupation=1) is None
+    message = str(caught[0].message)
+    assert "required occupation 2" in message
+    assert "error_truncation=0.0968276" in message
 
 
 def test_loss_in_the_diagram_shortens_the_certificate():
