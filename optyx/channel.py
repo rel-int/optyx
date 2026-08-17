@@ -575,12 +575,12 @@ class Diagram(frobenius.Diagram):
         with no path matrix, or a lossless loop block with spectral radius
         one. :meth:`fix` then falls back on :meth:`power_fix`. A resource
         shortfall is different: when `max_occupation` is supplied, the
-        method returns `None` and warns with the best finite-depth
-        contribution, truncation contribution and their sum. Without a
-        cutoff it preserves the depth-only API and returns `None` silently;
-        :meth:`fix` owns that warning. `max_occupation` is not a
-        tensor-network bond dimension; compression error is outside this
-        certificate.
+        method returns the best available depth and warns with the
+        finite-depth contribution, truncation contribution and tolerance
+        certified at that depth. Without a cutoff it preserves the
+        depth-only API and returns `None` silently; :meth:`fix` owns that
+        warning. `max_occupation` is not a tensor-network bond dimension;
+        compression error is outside this certificate.
 
         >>> from optyx import photonic
         >>> loop = (photonic.Create(1) @ qmode
@@ -661,7 +661,9 @@ class Diagram(frobenius.Diagram):
         constant = (qbar + 1) * (
             np.sqrt(6 * qbar * (qbar + 1)) + qbar)
 
-        # Moment recurrences use column vectors, hence the transpose.
+        # Path uses input rows and output columns. In the column-vector
+        # convention, A := memory_block.T maps one memory to the next:
+        # a_{k+1} = A a_k + C b_{k+1}.
         memory_block_T = memory_block.T
         one_particle_correlation = None
         injection_correlation = None
@@ -669,15 +671,24 @@ class Diagram(frobenius.Diagram):
         reachable_injection = None
         loop_adjacency = None
         if max_occupation is not None:
+            # C has shape (n_memory_modes, n_fresh_modes) and maps one fresh
+            # Fock injection b_k to the next memory a_k.
             injection = one_step_isometry[
                 n_memory_modes:,
                 n_emitted_modes:n_emitted_modes + n_memory_modes].T
+            # q = (q_a) lists the fresh Fock occupations and Q = diag(q).
             occupations = np.asarray(path_matrix.creations, dtype=float)
+            # C Q C^dagger is one injection's contribution to G_k.
             injection_correlation = (
                 injection * occupations) @ injection.conjugate().T
+            # G_0 = 0 and G_k = A G_{k-1} A^dagger + C Q C^dagger.
             one_particle_correlation = np.zeros(
                 (n_memory_modes, n_memory_modes), dtype=complex)
+            # P_0 = C and P_t = A^t C: each column norm is the survival of
+            # one fresh input mode after t memory transfers.
             injection_power = injection.copy()
+            # These Boolean matrices propagate only whether a path exists;
+            # they bound photon support S_k, not probabilities.
             reachable_injection = injection != 0
             loop_adjacency = memory_block != 0
 
@@ -696,6 +707,7 @@ class Diagram(frobenius.Diagram):
 
             error_truncation = 0.
             if max_occupation is not None:
+                # G_k = A G_{k-1} A^dagger + C Q C^dagger.
                 one_particle_correlation = (
                     memory_block_T @ one_particle_correlation
                     @ memory_block_T.conjugate().T
@@ -718,6 +730,7 @@ class Diagram(frobenius.Diagram):
                     tail = min(
                         1., transient_mean / (max_occupation + 1))
                     if max_occupation:
+                        # F_{2,k} = mu_k^2 + ||G_k||_F^2 - s_k.
                         factorial_moment = max(0., float(np.real(
                             transient_mean ** 2
                             + np.vdot(
@@ -727,6 +740,7 @@ class Diagram(frobenius.Diagram):
                         tail = min(
                             tail, factorial_moment
                             / (max_occupation * (max_occupation + 1)))
+                    # Delta_N(k) = min(1, sum_{j=1}^k p_N(j)).
                     cumulative_tail = min(
                         1., cumulative_tail + tail)
                 error_truncation = 2 * cumulative_tail
@@ -736,6 +750,7 @@ class Diagram(frobenius.Diagram):
                 injection_power = (
                     memory_block_T @ injection_power)
 
+            # E_N(k) = min(2, Gamma(k) + 2 Delta_N(k)).
             error_total = min(
                 2., error_n_steps + error_truncation)
             if best is None or error_total < best[-1]:
@@ -767,7 +782,7 @@ class Diagram(frobenius.Diagram):
             f"{error_truncation:.6g}; the certified total tolerance is "
             f"{error_total:.6g}.",
             UserWarning, stacklevel=2)
-        return None
+        return burn_in + 1
 
     def truncation_dimensions(self) -> list[int]:
         """

@@ -353,12 +353,11 @@ def test_unroll_certificate_reads_the_one_step_matrix():
 
 
 def test_unroll_certificate_reports_both_resource_errors():
-    """A depth is returned only when finite depth plus the exact
-    second-moment cutoff tail fits the tolerance. Otherwise the warning
-    reports both contributions and their certified sum."""
+    """The best depth is returned even when its certified tolerance misses
+    the request; the warning reports both contributions and their sum."""
     with pytest.warns(UserWarning) as caught:
         assert sampler(loss=.9).unroll_certificate(
-            .1, max_steps=2, max_occupation=100) is None
+            .1, max_steps=2, max_occupation=100) == 2
     message = str(caught[0].message)
     assert "error_n_steps=0.125541" in message
     assert "required occupation 1" in message
@@ -369,7 +368,7 @@ def test_unroll_certificate_reports_both_resource_errors():
         .001, max_steps=3, max_occupation=1) == 3
     with pytest.warns(UserWarning) as caught:
         assert sampler(loss=.9).unroll_certificate(
-            .0005, max_steps=3, max_occupation=1) is None
+            .0005, max_steps=3, max_occupation=1) == 3
     message = str(caught[0].message)
     assert "required occupation 2" in message
     assert "error_truncation=0.000130757" in message
