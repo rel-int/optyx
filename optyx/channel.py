@@ -560,9 +560,9 @@ class Diagram(frobenius.Diagram):
                 \\sum_{j=1}^k p_N(j)\\right\\},
 
         where ``p_N(j)=0`` when the photon support at step ``j`` fits below
-        ``N``, and otherwise ``p_N(j)`` is bounded by the exact transient
-        mean occupation divided by ``N + 1``. Both the support and mean are
-        propagated on the same one-particle matrix.
+        ``N``. Otherwise its exact transient first and second factorial
+        moments are computed from one-particle matrices. The resulting
+        tails scale respectively as ``1 / N`` and ``1 / N ** 2``.
 
         Loss is read off the diagram, not passed in: the one-step matrix is
         the path matrix of the loop's :meth:`dilate`, so a
@@ -609,6 +609,7 @@ class Diagram(frobenius.Diagram):
                 or max_occupation < 0):
             raise ValueError(
                 "max_occupation must be a non-negative integer.")
+        # The proof currently covers one initialised optical feedback loop.
         loops = [box for box in self.boxes if isinstance(box, Feedback)]
         if len(loops) != 1 or loops[0].dom or any(
                 ob.inside[0].name != "qmode" for ob in loops[0].mem):
@@ -618,6 +619,8 @@ class Diagram(frobenius.Diagram):
         loop = loops[0]
         assert loop.arg.dom == loop.mem
         try:
+            # Turn losses into vacuum outputs, then read the repeated step as
+            # a passive one-photon matrix. No Fock state is built here.
             path_matrix = loop.arg.dilate().to_path()
             one_step_isometry = np.asarray(
                 path_matrix.array, dtype=complex)
@@ -645,10 +648,12 @@ class Diagram(frobenius.Diagram):
                     np.eye(len(one_step_isometry))):
             raise NotImplementedError(
                 "The loop's optical matrix is not an isometry.")
-        loop_block = one_step_isometry[
+        # Path matrices use input rows and output columns. This block sends
+        # one round's memory input back to the next round's memory output.
+        memory_block = one_step_isometry[
             :n_memory_modes,
             n_emitted_modes:n_emitted_modes + n_memory_modes]
-        if max(abs(np.linalg.eigvals(loop_block)), default=0) >= 1:
+        if max(abs(np.linalg.eigvals(memory_block)), default=0) >= 1:
             raise NotImplementedError(
                 "The loop block does not satisfy rho(V_ll) < 1: a memory "
                 "direction does not decay, so no depth is certified.")
@@ -656,8 +661,11 @@ class Diagram(frobenius.Diagram):
         constant = (qbar + 1) * (
             np.sqrt(6 * qbar * (qbar + 1)) + qbar)
 
-        conventional_loop_block = loop_block.T
-        weighted_injection = None
+        # Moment recurrences use column vectors, hence the transpose.
+        memory_block_T = memory_block.T
+        one_particle_correlation = None
+        injection_correlation = None
+        injection_power = None
         reachable_injection = None
         loop_adjacency = None
         if max_occupation is not None:
@@ -665,16 +673,22 @@ class Diagram(frobenius.Diagram):
                 n_memory_modes:,
                 n_emitted_modes:n_emitted_modes + n_memory_modes].T
             occupations = np.asarray(path_matrix.creations, dtype=float)
-            weighted_injection = injection * np.sqrt(occupations)
+            injection_correlation = (
+                injection * occupations) @ injection.conjugate().T
+            one_particle_correlation = np.zeros(
+                (n_memory_modes, n_memory_modes), dtype=complex)
+            injection_power = injection.copy()
             reachable_injection = injection != 0
-            loop_adjacency = loop_block != 0
+            loop_adjacency = memory_block != 0
 
         power, burn_in = np.eye(n_memory_modes), 0
-        transient_mean = cumulative_tail = 0.
+        cumulative_tail = factorial_correction = 0.
         required_occupation = 0
         best = None
+        # Gamma decreases with depth while repeated truncation accumulates,
+        # so the total error must be checked at every admissible burn-in.
         while max_steps is None or burn_in < max_steps - 1:
-            power, burn_in = loop_block @ power, burn_in + 1
+            power, burn_in = memory_block @ power, burn_in + 1
             singular = np.clip(
                 np.linalg.svd(power, compute_uv=False), 0, 1)
             error_n_steps = float(
@@ -682,22 +696,45 @@ class Diagram(frobenius.Diagram):
 
             error_truncation = 0.
             if max_occupation is not None:
-                transient_mean += float(np.real(np.vdot(
-                    weighted_injection, weighted_injection)))
+                one_particle_correlation = (
+                    memory_block_T @ one_particle_correlation
+                    @ memory_block_T.conjugate().T
+                    + injection_correlation)
+                transient_mean = max(
+                    0., float(np.real(np.trace(
+                        one_particle_correlation))))
+                column_survival = np.sum(
+                    abs(injection_power) ** 2, axis=0)
+                factorial_correction += float(np.sum(
+                    occupations * (occupations + 1)
+                    * column_survival ** 2))
                 required_occupation += int(sum(
                     occupation for occupation, reachable in zip(
                         path_matrix.creations,
                         np.any(reachable_injection, axis=0)) if reachable))
                 if required_occupation > max_occupation:
+                    # Once the support crosses the cutoff, use the better of
+                    # its exact first- and second-moment tail bounds.
+                    tail = min(
+                        1., transient_mean / (max_occupation + 1))
+                    if max_occupation:
+                        factorial_moment = max(0., float(np.real(
+                            transient_mean ** 2
+                            + np.vdot(
+                                one_particle_correlation,
+                                one_particle_correlation)
+                            - factorial_correction)))
+                        tail = min(
+                            tail, factorial_moment
+                            / (max_occupation * (max_occupation + 1)))
                     cumulative_tail = min(
-                        1., cumulative_tail + min(
-                            1., transient_mean / (max_occupation + 1)))
+                        1., cumulative_tail + tail)
                 error_truncation = 2 * cumulative_tail
-                weighted_injection = (
-                    conventional_loop_block @ weighted_injection)
                 reachable_injection = (
                     loop_adjacency.T.astype(int)
                     @ reachable_injection.astype(int)).astype(bool)
+                injection_power = (
+                    memory_block_T @ injection_power)
 
             error_total = min(
                 2., error_n_steps + error_truncation)
@@ -705,6 +742,7 @@ class Diagram(frobenius.Diagram):
                 best = (burn_in, error_n_steps, error_truncation,
                         required_occupation, error_total)
             if error_total <= tol:
+                # The returned depth includes the final readout step.
                 return burn_in + 1
             if max_occupation is not None and error_truncation >= tol:
                 break
