@@ -9,7 +9,7 @@ from optyx.channel import Diagram, Ty, qubit, qmode
 from optyx.core.backends import DiscopyBackend
 from optyx.interaction import Box, CMap
 from optyx.photonic import BS, Create
-from optyx.qubits import Bra, Ket, Scalar, X, Z
+from optyx.qubits import Ket, Scalar, X, Z
 
 
 def cnot():
@@ -241,6 +241,7 @@ def test_gradient_through_the_memory_wire():
     from discopy import tensor
     from optyx.channel import Channel
     from optyx.core.diagram import Box as CoreBox, bit as core_bit
+    from optyx.qubits import Bra
 
     theta = torch.tensor(0.3, dtype=torch.float64, requires_grad=True)
     array = torch.stack((

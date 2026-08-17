@@ -51,19 +51,23 @@ Recurrent tensor networks
 
 A :class:`CMap` turns into a tensor network in two orthogonal directions:
 *space* — its boxes and edges — and *time* — the unrolled ticks. Each stage
-of the construction is a diagram the user can inspect and draw. The
-running example is the smallest purely quantum map with every feature:
-three cells in a triangle, each with an internal memory and a prediction.
-A cell entangles its memory with the message on its outgoing port by a
-CNOT, then copies its memory to its prediction:
+of the construction is a diagram the user can inspect and draw.
 
->>> cell = Box("cell", qubit, qubit, qubit @ (cnot >> qubit @ Z(1, 2)),
+The running example is the smallest map that is purely quantum and uses
+every kind of wire: three cells connected in a triangle, each carrying an
+internal memory and a prediction output. A cell is a single Z spider,
+the channel that constrains all its wires to agree in the computational
+basis: at every tick it reads its two message ports and its memory,
+writes them back and predicts its memory.
+
+>>> from optyx.channel import qubit
+>>> from optyx.qubits import Z
+>>> cell = Box("cell", qubit, qubit, Z(3, 4),
 ...     memory=qubit, prediction=qubit)
->>> triangle = CMap(3 * [cell],
+>>> triangle = CMap([cell, cell, cell],
 ...     [((0, 1), (1, 0)), ((1, 1), (2, 0)), ((2, 1), (0, 0))])
->>> assert triangle.dom == triangle.cod == Ty()
+>>> assert triangle.dom == Ty() and triangle.prediction == qubit ** 3
 >>> assert triangle.memory == qubit ** 9
->>> assert triangle.prediction == qubit ** 3
 
 **One tick is a channel diagram.** :attr:`CMap.step` composes three
 diagrams: :attr:`CMap.read`, a permutation routing :code:`dom @ memory`
@@ -76,7 +80,7 @@ computation sits in the boxes, as in a premonoidal normal form.
 
 >>> assert triangle.step \\
 ...     == triangle.read >> triangle.parallel >> triangle.write
->>> triangle.step.draw(figsize=(10, 5),
+>>> triangle.step.draw(figsize=(8, 5), wire_labels=False,
 ...     path="docs/_static/interaction_step.png")
 
 .. image:: /_static/interaction_step.png
@@ -90,7 +94,7 @@ the protocol the feedback of a monoidal stream (Di Lavore, de Felice and
 Román, LICS 2022) rather than a trace: nothing is computed yet, the loop
 is syntax.
 
->>> triangle.protocol.draw(figsize=(10, 5),
+>>> triangle.protocol.draw(figsize=(8, 5), wire_labels=False,
 ...     path="docs/_static/interaction_protocol.png")
 
 .. image:: /_static/interaction_protocol.png
@@ -98,42 +102,55 @@ is syntax.
 
 **Unrolling gives a finite diagram.** :meth:`CMap.unroll` composes
 :code:`n_steps + 1` copies of the step, threading the memory from each
-tick to the next; the result is an ordinary
+tick to the next — below, two ticks of the triangle with the memory left
+open; :meth:`CMap.unroll` itself also prepares the initial memory and
+discards the final one. The result is an ordinary
 :class:`optyx.channel.Diagram` whose width is the memory cut and whose
-depth is the number of ticks. The memory starts open and is discarded
-after the last tick; :code:`effect=False` leaves it open to make the
-threading visible.
+depth is the number of ticks.
 
->>> triangle.unroll(1, effect=False).draw(figsize=(10, 8),
+>>> two_ticks = triangle.step \\
+...     >> Diagram.id(triangle.prediction) @ triangle.step
+>>> assert two_ticks.cod == triangle.unroll(1).cod @ triangle.memory
+>>> two_ticks.draw(figsize=(8, 10), wire_labels=False,
 ...     path="docs/_static/interaction_unroll.png")
 
 .. image:: /_static/interaction_unroll.png
     :align: center
 
-**Contraction closes the time loop the other way.** The standard optyx
-pipeline turns any of these diagrams into numbers:
-:meth:`optyx.channel.Diagram.double` maps a channel diagram to its Kraus
-map beside the conjugate, :code:`to_tensor()` translates it to a
-:class:`discopy.tensor.Diagram`, and DisCoPy contracts it — in one
-``einsum`` under the NumPy, JAX or PyTorch array backend, or through the
-Quimb backends of :mod:`optyx.core.backends` with optimised and
-compressed contraction paths. :meth:`CMap.fix` runs this pipeline at an
-approximately stationary time, instead of a finite unrolling: with every
-memory prepared at :code:`Ket(0)` the triangle is stationary from the
-start, and the contraction reads :code:`Ket(0)` off all three
-predictions.
+**Doubling gives the tensors.** From here the standard optyx pipeline
+applies. :meth:`optyx.channel.Diagram.double` maps the unrolled channel
+diagram to its Kraus map beside the conjugate, and :code:`to_tensor()`
+translates it to a :class:`discopy.tensor.Diagram` whose wires carry
+dimensions and whose boxes carry arrays — the recurrent tensor network.
+DisCoPy contracts it: exactly with :code:`eval`, or through Quimb with
+:code:`to_quimb`. The cost is controlled by the number of ticks, the
+local dimension of the wires and the width of the memory cut.
 
 >>> import numpy as np
 >>> from optyx.qubits import Ket
->>> fixed = triangle.fix(
-...     initial_state=Diagram.id().tensor(*9 * [Ket(0)]),
-...     max_steps=2, max_chi=None)
->>> expected = Diagram.id().tensor(*3 * [Ket(0)])
->>> assert np.allclose(fixed.density_matrix,
-...     expected.double().to_tensor().eval().array)
+>>> unrolled = Ket(1) >> CMap([readout], []).unroll(1)
+>>> network = unrolled.double().to_tensor()
+>>> expected = (Ket(1) @ Ket(1)).double().to_tensor()
+>>> assert np.allclose(network.eval().array.flatten(),
+...     expected.eval().array.flatten())
 
-See :doc:`/notebooks/fixpoints` for the certificates behind
-:meth:`optyx.channel.Diagram.fix`, which :meth:`CMap.fix` delegates to.
+**The fixpoint is computed through contraction.** :meth:`CMap.fix`
+closes the time direction the other way: following
+:meth:`optyx.channel.Diagram.fix`, it contracts ever longer unrollings
+of the doubled network until the output stops changing — see
+:doc:`/notebooks/fixpoints` for the certificates behind it. For the
+triangle, spider fusion makes every memory agree with its neighbours:
+started from uniform superpositions, the cells synchronise and the
+stationary prediction is the GHZ mixture, perfectly correlated and
+uniform.
+
+>>> from optyx.qubits import H
+>>> plus = Ket(0) >> H()
+>>> fixed = triangle.fix(
+...     initial_state=Diagram.id().tensor(*[plus] * 9),
+...     max_steps=4, max_chi=None)
+>>> assert np.allclose(fixed.density_matrix.reshape(8, 8),
+...     np.diag([.5, 0, 0, 0, 0, 0, 0, .5]))
 
 Types and diagrams
 ------------------
@@ -224,9 +241,10 @@ class CMap:
 
     A port is a pair :code:`(box, port)` of indices, the second indexing
     :attr:`Box.ports`. An edge is a pair of distinct ports of equal type,
-    and every port belongs to at most one edge: an edge between two ports
-    of the same map is a cup or a cap of the compact closed structure. The
-    memory and prediction of a box are not ports and cannot be paired.
+    and every port belongs to at most one edge. The memory and prediction
+    of a box are not ports: they cannot be paired. An edge between two
+    ports of the same box is a cup or a cap, so the maps carry the compact
+    closed structure of the Int-construction.
 
     Parameters:
         boxes : The boxes of the map.
@@ -413,7 +431,7 @@ class CMap:
         return self.step.feedback(
             dom=self.dom, cod=self.cod @ self.prediction, mem=self.memory)
 
-    def unroll(self, n_steps: int = 1, state=None, effect=None) -> Diagram:
+    def unroll(self, n_steps: int = 1) -> Diagram:
         """
         The protocol unrolled over :code:`n_steps + 1` time steps — as in
         :meth:`optyx.channel.Diagram.unroll`, :code:`n_steps` counts
@@ -426,16 +444,14 @@ class CMap:
 
         The memory starts open at the end of the domain and is discarded
         after the last step, the default boundaries of
-        :meth:`optyx.channel.Diagram.feedback`; ``state`` and ``effect``
-        override them as in :meth:`optyx.channel.Diagram.unroll`, and
-        :meth:`fix` is where stationary boundaries are chosen.
+        :meth:`optyx.channel.Diagram.feedback`; :meth:`fix` is where other
+        boundaries are chosen.
 
         >>> cmap = CMap([Box("f", qubit, qubit, cnot)], [((0, 0), (0, 1))])
         >>> assert cmap.unroll(2).dom == cmap.memory
         >>> assert cmap.unroll(2).cod == Ty()
-        >>> assert cmap.unroll(2, effect=False).cod == cmap.memory
         """
-        return self.protocol.unroll(n_steps, state=state, effect=effect)
+        return self.protocol.unroll(n_steps)
 
     def fix(self, input_state=None, initial_state=None, **params):
         """

@@ -74,31 +74,10 @@ to the environment and never read. A `CMap` is a list of boxes plus a pairing of
 their ports; its semantics is `protocol`, an `optyx.channel.Diagram` with
 feedback on the paired ports, with finite semantics `unroll` and stationary
 semantics `fix`. This is the Int-construction of Joyal–Street–Verity applied to
-the feedback category of channels: `@` is the disjoint union and an edge
-between two ports of the same map is a cup or a cap. The resulting network is
-contracted by DisCoPy's `einsum` on NumPy, JAX or PyTorch — differentiably —
-or by the Quimb backends of `optyx.core.backends` with Cotengra paths and
-optional compressed bonds.
-
-## Simplification from review (2026-08-17)
-
-- [x] Remove `optyx/core/contract.py` and `test/test_contract.py`: DisCoPy's
-      tensor contraction (`Diagram.eval` under any array backend, `to_quimb`)
-      covers it; `optyx.core.backends` is restored to its pre-PR version.
-- [x] Replace the delay example in the module docstring with a minimal purely
-      quantum triangle of three cells, each with an internal memory and a
-      prediction output.
-- [x] Compute the fixpoint of the triangle protocol through contraction in
-      the doctests, via `CMap.fix` and `DiscopyBackend`.
-- [x] Remove `CMap.glue`: a map is initialised directly with the right edges.
-- [x] Draw `CMap.step` in the doctests.
-- [x] Report the two discopy bugs this surfaced:
-      [discopy#581](https://github.com/discopy/discopy/issues/581), drawing a
-      multi-wire `Discard` raises `KeyError` (the unrolling is drawn with
-      `effect=False` until it is fixed), and
-      [discopy#582](https://github.com/discopy/discopy/issues/582), spiders
-      keep numpy arrays under the pytorch backend (the gradient test
-      materialises them into boxes).
+the feedback category of channels: `@` is the disjoint union and the edges are
+the compact closed structure. The recurrent tensor network is contracted with
+DisCoPy's own methods (`eval`, `to_quimb`); the differentiable and compressed
+contraction stays proposed in #21.
 
 ## Why the Sudoku notebook is gone
 
@@ -305,6 +284,55 @@ minus everything that only existed to make a 660-box network fit.
       compressed paths.
 - [ ] Keep everything real: orthogonal ansatz, `float32` forward with `float64`
       loss accumulation.
+
+## Review of 2026-08-17
+
+> This is not a good example (only a delay!). Give an example with three cells
+> connected in a triangle. The example should be minimal such that it is purely
+> quantum and every cell has an internal memory and a prediction output.
+
+> Why is this file needed? Can't we just use the tensor contraction methods in
+> DisCoPy?
+
+> For the same simple protocol above, compute the fixpoint through contraction.
+> This conract_tensor method should not be needed, as per my comment above.
+
+> No point to this method. We can simply initialise the map directly with the
+> right edges.
+
+> Draw this somewhere in the doctests
+
+- [x] Replace the delay example in the module docstring by a triangle of
+      three cells, purely quantum, each with an internal memory and a
+      prediction output: a cell is a single Z spider on its two message
+      ports, its memory and its prediction. Started from uniform
+      superpositions the cells synchronise and the stationary prediction
+      is the GHZ mixture.
+- [x] Remove `optyx.core.contract`: `QuimbBackend.eval` reverted to the
+      DisCoPy `to_quimb` route, `test/test_contract.py` dropped, doctests
+      use `eval` and `to_quimb`. The differentiable and compressed
+      contraction — and the PyTorch gradient test that needed it — return
+      to the scope of #21: DisCoPy's own einsum path currently breaks on
+      diagrams with spiders or swaps under the PyTorch backend, so #21
+      remains the place to add it.
+- [x] Compute the fixpoint of the triangle protocol through contraction in
+      the doctests, without `contract_tensor`.
+- [x] Remove `CMap.glue`: maps are initialised directly with the right
+      edges.
+- [x] Draw `CMap.step` in the doctests, with `wire_labels=False` to keep
+      the permutations legible; drawing `CMap.unroll` directly hits the
+      multi-wire `Discard` drawing bug #35 (minimal case
+      `Diagram.swap(qubit, qubit) >> Discard(qubit ** 2)`), so the docs
+      draw two open ticks composed by hand instead.
+- [x] Report the two discopy bugs upstream and fix them in
+      [discopy#584](https://github.com/discopy/discopy/pull/584):
+      [discopy#581](https://github.com/discopy/discopy/issues/581), the
+      multi-wire `Discard` drawing `KeyError` of #35, and
+      [discopy#582](https://github.com/discopy/discopy/issues/582), spiders
+      keeping numpy arrays under the PyTorch backend.
+- [x] Restore the PyTorch gradient test through DisCoPy's `eval`,
+      materialising spiders into boxes until discopy#582 lands, so the
+      autodiff requirement stays tested without `contract_tensor`.
 
 ## Docs and checks
 
