@@ -609,7 +609,6 @@ class Diagram(frobenius.Diagram):
                 or max_occupation < 0):
             raise ValueError(
                 "max_occupation must be a non-negative integer.")
-        # The proof currently covers one initialised optical feedback loop.
         loops = [box for box in self.boxes if isinstance(box, Feedback)]
         if len(loops) != 1 or loops[0].dom or any(
                 ob.inside[0].name != "qmode" for ob in loops[0].mem):
@@ -619,8 +618,6 @@ class Diagram(frobenius.Diagram):
         loop = loops[0]
         assert loop.arg.dom == loop.mem
         try:
-            # Turn losses into vacuum outputs, then read the repeated step as
-            # a passive one-photon matrix. No Fock state is built here.
             path_matrix = loop.arg.dilate().to_path()
             one_step_isometry = np.asarray(
                 path_matrix.array, dtype=complex)
@@ -648,8 +645,6 @@ class Diagram(frobenius.Diagram):
                     np.eye(len(one_step_isometry))):
             raise NotImplementedError(
                 "The loop's optical matrix is not an isometry.")
-        # Path matrices use input rows and output columns. This block sends
-        # one round's memory input back to the next round's memory output.
         memory_block = one_step_isometry[
             :n_memory_modes,
             n_emitted_modes:n_emitted_modes + n_memory_modes]
@@ -661,9 +656,6 @@ class Diagram(frobenius.Diagram):
         constant = (qbar + 1) * (
             np.sqrt(6 * qbar * (qbar + 1)) + qbar)
 
-        # Path uses input rows and output columns. In the column-vector
-        # convention, A := memory_block.T maps one memory to the next:
-        # a_{k+1} = A a_k + C b_{k+1}.
         memory_block_T = memory_block.T
         one_particle_correlation = None
         injection_correlation = None
@@ -671,24 +663,15 @@ class Diagram(frobenius.Diagram):
         reachable_injection = None
         loop_adjacency = None
         if max_occupation is not None:
-            # C has shape (n_memory_modes, n_fresh_modes) and maps one fresh
-            # Fock injection b_k to the next memory a_k.
             injection = one_step_isometry[
                 n_memory_modes:,
                 n_emitted_modes:n_emitted_modes + n_memory_modes].T
-            # q = (q_a) lists the fresh Fock occupations and Q = diag(q).
             occupations = np.asarray(path_matrix.creations, dtype=float)
-            # C Q C^dagger is one injection's contribution to G_k.
             injection_correlation = (
                 injection * occupations) @ injection.conjugate().T
-            # G_0 = 0 and G_k = A G_{k-1} A^dagger + C Q C^dagger.
             one_particle_correlation = np.zeros(
                 (n_memory_modes, n_memory_modes), dtype=complex)
-            # P_0 = C and P_t = A^t C: each column norm is the survival of
-            # one fresh input mode after t memory transfers.
             injection_power = injection.copy()
-            # These Boolean matrices propagate only whether a path exists;
-            # they bound photon support S_k, not probabilities.
             reachable_injection = injection != 0
             loop_adjacency = memory_block != 0
 
@@ -696,8 +679,6 @@ class Diagram(frobenius.Diagram):
         cumulative_tail = factorial_correction = 0.
         required_occupation = 0
         best = None
-        # Gamma decreases with depth while repeated truncation accumulates,
-        # so the total error must be checked at every admissible burn-in.
         while max_steps is None or burn_in < max_steps - 1:
             power, burn_in = memory_block @ power, burn_in + 1
             singular = np.clip(
@@ -707,7 +688,6 @@ class Diagram(frobenius.Diagram):
 
             error_truncation = 0.
             if max_occupation is not None:
-                # G_k = A G_{k-1} A^dagger + C Q C^dagger.
                 one_particle_correlation = (
                     memory_block_T @ one_particle_correlation
                     @ memory_block_T.conjugate().T
@@ -725,12 +705,9 @@ class Diagram(frobenius.Diagram):
                         path_matrix.creations,
                         np.any(reachable_injection, axis=0)) if reachable))
                 if required_occupation > max_occupation:
-                    # Once the support crosses the cutoff, use the better of
-                    # its exact first- and second-moment tail bounds.
                     tail = min(
                         1., transient_mean / (max_occupation + 1))
                     if max_occupation:
-                        # F_{2,k} = mu_k^2 + ||G_k||_F^2 - s_k.
                         factorial_moment = max(0., float(np.real(
                             transient_mean ** 2
                             + np.vdot(
@@ -740,7 +717,6 @@ class Diagram(frobenius.Diagram):
                         tail = min(
                             tail, factorial_moment
                             / (max_occupation * (max_occupation + 1)))
-                    # Delta_N(k) = min(1, sum_{j=1}^k p_N(j)).
                     cumulative_tail = min(
                         1., cumulative_tail + tail)
                 error_truncation = 2 * cumulative_tail
@@ -750,14 +726,12 @@ class Diagram(frobenius.Diagram):
                 injection_power = (
                     memory_block_T @ injection_power)
 
-            # E_N(k) = min(2, Gamma(k) + 2 Delta_N(k)).
             error_total = min(
                 2., error_n_steps + error_truncation)
             if best is None or error_total < best[-1]:
                 best = (burn_in, error_n_steps, error_truncation,
                         required_occupation, error_total)
             if error_total <= tol:
-                # The returned depth includes the final readout step.
                 return burn_in + 1
             if max_occupation is not None and error_truncation >= tol:
                 break
