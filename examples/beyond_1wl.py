@@ -18,7 +18,7 @@ invariant under graph isomorphism, so a nonzero separation on a pair is
 a certificate that the model computes a graph invariant beyond 1-WL.
 """
 
-from itertools import product
+from itertools import combinations, permutations, product
 
 import numpy as np
 
@@ -173,17 +173,25 @@ def vertex_box(degree: int, tap: float = 0.3) -> Box:
                memory=qmode, prediction=qmode)
 
 
-def stateful_channel(box: Box) -> Diagram:
+def stateful_channel(box: Box, input_state: Diagram = None) -> Diagram:
     """
     The interpretation of one box of the map as a stateful channel: its
     local channel with the internal memory fed back to itself with a
     one-tick delay, a recurrent channel from its ports to its ports and
-    prediction.
+    prediction. An ``input_state`` prepares the drive inside the loop,
+    afresh at every tick, as in :meth:`optyx.interaction.CMap.fix` --
+    one photon input at every time step is simply ``Create(1)`` in the
+    diagram with the feedback loop.
     """
+    channel, dom = box.channel, box.ports
+    if input_state is not None:
+        channel = input_state @ Diagram.id(
+            box.cod @ box.memory) >> channel
+        dom = box.cod
     move_memory_last = Diagram.id(box.ports) @ Diagram.swap(
         box.memory, box.prediction)
-    return (box.channel >> move_memory_last).feedback(
-        dom=box.ports, cod=box.ports @ box.prediction, mem=box.memory)
+    return (channel >> move_memory_last).feedback(
+        dom=dom, cod=box.ports @ box.prediction, mem=box.memory)
 
 
 def graph_cmap(graph: tuple, tap: float = 0.3) -> CMap:
@@ -261,6 +269,28 @@ def photon_statistics(amplitudes: np.ndarray, n_ticks: int) -> tuple:
     return (mean.reshape(n_ticks, n_out).sum(axis=1),
             coincidence.reshape(
                 n_ticks, n_out, n_ticks, n_out).sum(axis=(1, 3)))
+
+
+def third_order_statistic(matrix: np.ndarray,
+                          n_ticks: int) -> np.ndarray:
+    """
+    An aggregated third-order photon statistic of a transfer matrix:
+    three-photon coincidences summed over the vertices of each tick
+    triple, from the three-by-three permanents of the transfer matrix
+    over every unordered triple of injection ticks -- one order past
+    the pairwise coincidences of :func:`photon_statistics`, where the
+    statistics of non-interacting photons keep going.
+    """
+    n_out = matrix.shape[0] // n_ticks
+    total = np.zeros((n_ticks, n_ticks, n_ticks))
+    for columns in combinations(matrix.T, 3):
+        permanents = sum(
+            np.einsum("x,y,z->xyz", *ordering)
+            for ordering in permutations(columns))
+        total += (np.abs(permanents) ** 2).reshape(
+            n_ticks, n_out, n_ticks, n_out, n_ticks, n_out
+        ).sum(axis=(1, 3, 5))
+    return total
 
 
 def profile(graph: tuple, n_ticks: int, tap: float = 0.3,

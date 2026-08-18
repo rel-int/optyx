@@ -66,10 +66,25 @@ def test_the_decohered_ablation_is_blind_but_not_broken():
 
 
 def test_one_box_is_a_stateful_channel():
+    from optyx.photonic import Create
     box = b.vertex_box(2)
     channel = b.stateful_channel(box)
     assert channel.dom == box.ports
     assert channel.cod == box.ports @ box.prediction
+    driven = b.stateful_channel(box, Create(1))
+    assert driven.dom == box.cod
+    assert driven.cod == box.ports @ box.prediction
+
+
+def test_third_order_coincidences_also_separate():
+    profiles = []
+    for graph in b.PAIRS["2C3 vs C6"]:
+        step = b.step_amplitudes(b.graph_cmap(graph))
+        stats = [np.sort(b.third_order_statistic(
+            b.transfer(step, len(graph), source, 4), 4).ravel())
+            for source in range(len(graph))]
+        profiles.append(np.sort(np.array(stats), axis=0))
+    assert np.abs(profiles[0] - profiles[1]).max() > 1e-3
 
 
 def test_unrolling_matches_the_transfer_matrix():

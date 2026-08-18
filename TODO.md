@@ -397,10 +397,14 @@ into it map swaps to path matrices.
       the driven margins grow to 3.5e-2 / 9.9e-3 / 1.5e-2 on the
       non-cospectral pairs (2e4 to 2.5e5 shots per source for five
       sigma), but rook vs Shrikhande stays at zero in the means, the
-      coincidences, and even the sorted moduli of the single-particle
-      transfer matrix -- no statistic of non-interacting photons through
-      this encoding separates them (Gamble et al., PRA 81, 052313), so
-      the open item below sharpens to number-resolved feed-forward
+      pairwise coincidences and the three-photon coincidences -- and
+      the two transfer matrices are equal up to an output relabelling
+      and a phase per injection tick, which every permanent modulus is
+      invariant under, so the statistics agree at every order however
+      many photons are injected. Gamble et al. (PRA 81, 052313) prove
+      the one- and two-walker cases for Hamiltonian walks; the
+      all-orders statement here is checked directly for this encoding.
+      The open item below sharpens to number-resolved feed-forward
       inside the loop.
 - [x] Draw one box as a stateful
       channel — its local channel with the memory fed back — instead of the
