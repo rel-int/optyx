@@ -247,13 +247,13 @@ of Fock statistics is a permanent/hafnian of the adjacency matrix, which
 Brádler et al. show is a complete set of graph invariants. Running the same
 `CMap` with `bit` wires is the controlled ablation and must sit at chance.
 
-- [ ] Generator for the three 1-WL-equivalent pairs plus a 1-WL check, so the
+- [[WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 08:38] Generator for the three 1-WL-equivalent pairs plus a 1-WL check, so the
       indistinguishability is asserted rather than asserted-in-prose.
-- [ ] Encode a graph as a `CMap` and read out photon-number statistics;
+- [[WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 08:38] Encode a graph as a `CMap` and read out photon-number statistics;
       report the separation margin against shot noise for a stated sample
       count, not just the exact amplitude.
-- [ ] Classical `bit`-wire ablation at chance, and a randomly rewired control.
-- [ ] Say plainly in the notebook what this does and does not show: it is a
+- [[WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 08:38] Classical `bit`-wire ablation at chance, and a randomly rewired control.
+- [[WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 08:38] Say plainly in the notebook what this does and does not show: it is a
       separation on graph invariants, related to walk and matching counts, not
       evidence of constraint propagation. Proposal A carries that claim.
 
@@ -334,3 +334,26 @@ minus everything that only existed to make a 660-box network fit.
 - [ ] A drawing of a box with memory and prediction wires in the module
       docstring, and `docs/api.rst` entry (already added) rendering.
 - [ ] File as issues anything left unchecked when this PR is signed off.
+
+## Proposal B as three models (2026-08-18)
+
+> Implement proposal B in https://github.com/rel-int/optyx/pull/16 as a
+> comparison between three models: 1. A vanilla GNN, 2. a MapNN from
+> discopy.neural, and 3. an optyx.interaction.CMap where nodes are
+> interferometers with coherent memory and coherent messages
+
+- [WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 08:38] Vanilla GNN: a textbook isotropic MPNN with permutation-invariant
+      readout, run on the 1-WL-equivalent pairs; its outputs on the two
+      graphs of a pair must be equal to float precision, over random
+      parameter draws — the 1-WL bound observed, not assumed.
+- [WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 08:38] MapNN from `discopy.neural` (discopy#585): the same graphs
+      interpreted as port-addressed interaction maps, same invariant
+      readout, measured under the same separation test.
+- [WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 08:38] Photonic `CMap`: one `interaction.Box` per vertex, one `qmode`
+      port per incident edge, a `qmode` coherent memory and a prediction
+      tap; boxes are interferometers (beam splitters and phase shifters),
+      one photon injected through the initial memory, escape-time and
+      per-mode photon statistics as the readout.
+- [WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 08:38] Notebook `examples/beyond-1wl.ipynb` running all three models on
+      the same pairs with the separation margin against shot noise, and
+      stating what the comparison does and does not show.
