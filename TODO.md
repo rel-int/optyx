@@ -247,13 +247,22 @@ of Fock statistics is a permanent/hafnian of the adjacency matrix, which
 Brádler et al. show is a complete set of graph invariants. Running the same
 `CMap` with `bit` wires is the controlled ablation and must sit at chance.
 
-- [[WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 08:38] Generator for the three 1-WL-equivalent pairs plus a 1-WL check, so the
-      indistinguishability is asserted rather than asserted-in-prose.
-- [[WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 08:38] Encode a graph as a `CMap` and read out photon-number statistics;
+- [x] Generator for the three 1-WL-equivalent pairs plus a 1-WL check, so the
+      indistinguishability is asserted rather than asserted-in-prose:
+      `examples/beyond_1wl.py`, asserted in `test/test_beyond_1wl.py`.
+- [x] Encode a graph as a `CMap` and read out photon-number statistics;
       report the separation margin against shot noise for a stated sample
-      count, not just the exact amplitude.
-- [[WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 08:38] Classical `bit`-wire ablation at chance, and a randomly rewired control.
-- [[WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 08:38] Say plainly in the notebook what this does and does not show: it is a
+      count, not just the exact amplitude: margins 1.6e-2 (2C3/C6),
+      2.2e-3 (2C6/C12), 4.3e-3 (decalin/bicyclopentyl), i.e. 1e5 to 5e6
+      shots per vertex for five sigma; rook/Shrikhande are cospectral, so
+      one photon measurably does not separate them (Gamble et al., PRA
+      81, 052313).
+- [x] Classical ablation at chance and a control that must separate: the
+      decohered run of the same map (photon measured every tick) is exact
+      zero on every 1-WL pair while separating `C6 vs P6`; the vanilla
+      GNN and the MapNN land on the same bound. The `bit`-wire CMap form
+      of the ablation stays open below.
+- [x] Say plainly in the notebook what this does and does not show: it is a
       separation on graph invariants, related to walk and matching counts, not
       evidence of constraint propagation. Proposal A carries that claim.
 
@@ -342,18 +351,30 @@ minus everything that only existed to make a 660-box network fit.
 > discopy.neural, and 3. an optyx.interaction.CMap where nodes are
 > interferometers with coherent memory and coherent messages
 
-- [WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 08:38] Vanilla GNN: a textbook isotropic MPNN with permutation-invariant
+- [x] Vanilla GNN: a textbook isotropic MPNN with permutation-invariant
       readout, run on the 1-WL-equivalent pairs; its outputs on the two
       graphs of a pair must be equal to float precision, over random
       parameter draws — the 1-WL bound observed, not assumed.
-- [WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 08:38] MapNN from `discopy.neural` (discopy#585): the same graphs
+- [x] MapNN from `discopy.neural` (discopy#585): the same graphs
       interpreted as port-addressed interaction maps, same invariant
       readout, measured under the same separation test.
-- [WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 08:38] Photonic `CMap`: one `interaction.Box` per vertex, one `qmode`
+- [x] Photonic `CMap`: one `interaction.Box` per vertex, one `qmode`
       port per incident edge, a `qmode` coherent memory and a prediction
       tap; boxes are interferometers (beam splitters and phase shifters),
       one photon injected through the initial memory, escape-time and
       per-mode photon statistics as the readout.
-- [WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 08:38] Notebook `examples/beyond-1wl.ipynb` running all three models on
+- [x] Notebook `examples/beyond_1wl.ipynb` running all three models on
       the same pairs with the separation margin against shot noise, and
       stating what the comparison does and does not show.
+
+Found while running the three models against discopy main (which
+`discopy.neural` needs): two incompatibilities with the pinned discopy,
+fixed here so that optyx runs on both — `unpack_layer` in
+`optyx.utils.misc` replaces the pre-discopy#438 alternating-layer
+indexing, and `optyx.core.path.Matrix` gets `@factory` so that functors
+into it map swaps to path matrices.
+
+- [ ] `bit`-wire `CMap` ablation: the decohered walk of the notebook,
+      expressed as the same `CMap` with classical wires.
+- [ ] Multi-photon rook-vs-Shrikhande: needs interactions or measurement
+      feedback (KLM) beyond one photon, and multi-photon contraction.
