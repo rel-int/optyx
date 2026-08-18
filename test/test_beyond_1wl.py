@@ -29,71 +29,83 @@ def test_the_control_pair_is_distinguished_by_1wl():
     assert not b.wl_equivalent(*b.CONTROL)
 
 
-def test_star_coupler_is_a_port_symmetric_unitary():
-    unitary = b.star_coupler(3)
-    assert np.allclose(unitary @ unitary.conj().T, np.eye(4))
-    swap_ports = np.eye(4)[[1, 0, 2, 3]]
+def test_the_coupler_is_a_port_symmetric_unitary():
+    unitary = b.coupler(3)
+    assert np.allclose(unitary @ unitary.conj().T, np.eye(5))
+    swap_ports = np.eye(5)[[0, 2, 1, 3, 4]]
     assert np.allclose(swap_ports @ unitary @ swap_ports, unitary)
 
 
 def test_the_step_conserves_probability():
     graph = b.PAIRS["2C3 vs C6"][0]
-    leak, feedback = b.step_blocks(b.graph_cmap(graph))
-    norms = (np.abs(leak) ** 2).sum(1) + (np.abs(feedback) ** 2).sum(1)
-    assert np.allclose(norms, 1)
-    curves = b.escape_curves(graph, 100)
-    assert ((curves >= 0) & (curves.cumsum(1) <= 1 + 1e-8)).all()
-    assert curves.sum(1).min() > 0.99
+    amplitudes = b.step_amplitudes(b.graph_cmap(graph))
+    assert np.allclose((np.abs(amplitudes) ** 2).sum(axis=1), 1)
+    matrix = b.transfer(amplitudes, len(graph), 0, 30)
+    captured = (np.abs(matrix) ** 2).sum(axis=0)
+    assert (captured <= 1 + 1e-9).all()
+    assert (captured[:15] > 0.9).all()
 
 
-def test_escape_curves_are_relabel_invariant():
+def test_the_profile_is_relabel_invariant():
     graph = b.PAIRS["decalin vs bicyclopentyl"][0]
     relabel = [(len(graph) - 1 - v) for v in range(len(graph))]
     relabelled = tuple(
         tuple(sorted(relabel[u] for u in graph[relabel[v]]))
         for v in range(len(graph)))
-    assert np.allclose(
-        b.escape_curves(graph, 8), b.escape_curves(relabelled, 8))
+    assert np.allclose(b.profile(graph, 6), b.profile(relabelled, 6))
 
 
-def test_the_photonic_map_separates_beyond_1wl():
-    left, right = b.PAIRS["2C3 vs C6"]
-    curves = b.escape_curves(left, 8), b.escape_curves(right, 8)
-    assert np.allclose(curves[0][:, :2], curves[1][:, :2])
-    assert np.abs(curves[0] - curves[1])[:, 2:].max() > 1e-3
+def test_the_driven_map_separates_beyond_1wl():
+    assert b.separation(*b.PAIRS["2C3 vs C6"], 8) > 1e-3
     assert b.separation(*b.CONTROL, 8) > 1e-3
 
 
 def test_the_decohered_ablation_is_blind_but_not_broken():
-    assert b.separation(*b.PAIRS["2C3 vs C6"], 12, decohered=True) < 1e-12
-    assert b.separation(*b.CONTROL, 12, decohered=True) > 1e-4
+    assert b.separation(*b.PAIRS["2C3 vs C6"], 8, decohered=True) < 1e-12
+    assert b.separation(*b.CONTROL, 8, decohered=True) > 1e-4
 
 
-def test_unrolling_matches_the_path_iteration():
+def test_one_box_is_a_stateful_channel():
+    box = b.vertex_box(2)
+    channel = b.stateful_channel(box)
+    assert channel.dom == box.ports
+    assert channel.cod == box.ports @ box.prediction
+
+
+def test_unrolling_matches_the_transfer_matrix():
     from optyx.channel import Diagram, Measure
     from optyx.photonic import Create
-    graph = b.path(2)
+    graph, source, n_ticks = b.path(2), 0, 1
     cmap = b.graph_cmap(graph)
-    n_ticks, source = 1, len(cmap.paired)
-    state = Diagram.id().tensor(*[
-        Create(1 if wire == source else 0)
-        for wire in range(len(cmap.memory))])
-    unrolled = state >> cmap.unroll(n_ticks)
+    drives = Diagram.id().tensor(*[
+        Create(1 if wire == source else 0) for wire in range(len(graph))])
+    memory = Diagram.id().tensor(*[
+        Create(0) for _ in range(len(cmap.memory))])
+    unrolled = drives @ drives @ memory >> cmap.unroll(n_ticks)
     probabilities = unrolled >> Measure(unrolled.cod)
-    joint = np.asarray(probabilities.eval().tensor.array).real.reshape(
-        [2] * len(unrolled.cod))
-    n_prediction = len(cmap.prediction)
-    contracted = []
-    for tick in range(n_ticks + 1):
-        axes = range(tick * n_prediction, (tick + 1) * n_prediction)
-        marginal = joint.sum(axis=tuple(
-            axis for axis in range(len(unrolled.cod))
-            if axis not in axes))
-        contracted.append(sum(
-            marginal[index] for index in np.ndindex(*marginal.shape)
-            if sum(index) == 1))
-    iterated = b.escape_curves(graph, n_ticks + 1)[-1]
-    assert np.allclose(contracted, iterated, atol=1e-8)
+    tensor = probabilities.eval().tensor
+    joint = np.asarray(tensor.array).real.reshape(
+        tuple(int(dim) for dim in tensor.cod.inside))
+    counts = [np.arange(dim) for dim in joint.shape]
+    matrix = b.transfer(
+        b.step_amplitudes(cmap), len(graph), source, n_ticks + 1)
+    mean = (np.abs(matrix) ** 2).sum(axis=1)
+    green = matrix @ matrix.conj().T
+    squared = np.abs(matrix) ** 2
+    for wire in range(len(unrolled.cod)):
+        axes = tuple(a for a in range(len(unrolled.cod)) if a != wire)
+        assert np.isclose(joint.sum(axes) @ counts[wire], mean[wire])
+    for wire, other in [(0, 5), (2, 3), (1, 6)]:
+        axes = tuple(a for a in range(len(unrolled.cod))
+                     if a not in (wire, other))
+        marginal = joint.sum(axes)
+        correlation = np.einsum(
+            "ij,i,j->", marginal, counts[wire], counts[other])
+        coincidence = (
+            mean[wire] * mean[other]
+            + np.abs(green[wire, other]) ** 2
+            - 2 * (squared[wire] * squared[other]).sum())
+        assert np.isclose(correlation, coincidence, atol=1e-8)
 
 
 def test_classical_embeddings_are_bounded_by_1wl():

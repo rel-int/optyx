@@ -387,13 +387,21 @@ into it map swaps to path matrices.
 > a single box in the CMap as a stateful channel (instead of the step of the
 > protocol).
 
-- [WIP @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 09:58] Drive the map through the
+- [x] Drive the map through the
       boundary: vacuum initial memory, one photon injected at the source
       vertex at every tick, the mechanism of `CMap.fix`'s `input_state`.
-- [WIP @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 09:58] Second-order photon
+- [x] Second-order photon
       statistics: with several photons in flight, two-photon interference
       gives permanental invariants beyond the single-particle spectrum;
-      measure whether they separate rook 4x4 from Shrikhande.
-- [WIP @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-18 09:58] Draw one box as a stateful
+      measure whether they separate rook 4x4 from Shrikhande. Measured:
+      the driven margins grow to 3.5e-2 / 9.9e-3 / 1.5e-2 on the
+      non-cospectral pairs (2e4 to 2.5e5 shots per source for five
+      sigma), but rook vs Shrikhande stays at zero in the means, the
+      coincidences, and even the sorted moduli of the single-particle
+      transfer matrix -- no statistic of non-interacting photons through
+      this encoding separates them (Gamble et al., PRA 81, 052313), so
+      the open item below sharpens to number-resolved feed-forward
+      inside the loop.
+- [x] Draw one box as a stateful
       channel — its local channel with the memory fed back — instead of the
       step of the protocol, in the notebook.

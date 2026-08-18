@@ -22,7 +22,7 @@ from itertools import product
 
 import numpy as np
 
-from optyx.channel import qmode, Diagram, Ty
+from optyx.channel import qmode, Diagram
 from optyx.interaction import Box, CMap
 from optyx.photonic import Create, Gate, TBS
 
@@ -129,117 +129,183 @@ def wl_equivalent(left: tuple, right: tuple) -> bool:
     return wl_colours(left) == wl_colours(right)
 
 
-def star_coupler(degree: int, theta: float = 0.4, phi: float = 0.7,
-                 chi: float = 1.1) -> np.ndarray:
+def coupler(degree: int, theta: float = 0.4, phi: float = 0.7,
+            chi: float = 1.1, drive: float = 0.8) -> np.ndarray:
     """
-    A port-symmetric interferometer on ``degree + 1`` modes, the ports
-    then the memory: the memory mode couples equally to every port and
-    the ports mix symmetrically among themselves, so the unitary is
-    invariant under permutations of the ports and the readout below is a
-    graph invariant. Like any interferometer it decomposes into beam
-    splitters and phase shifters (Reck et al., PRL 73, 58 (1994)).
+    A port-symmetric interferometer on ``1 + degree + 1`` modes -- the
+    drive, the message ports, the memory: the drive and the memory couple
+    to every port with the same amplitude and to each other, and the
+    ports mix symmetrically among themselves, so the unitary is invariant
+    under permutations of the ports and the readout below is a graph
+    invariant. Like any interferometer it decomposes into beam splitters
+    and phase shifters (Reck et al., PRL 73, 58 (1994)).
     """
-    coupling = np.zeros((degree + 1, degree + 1), dtype=complex)
-    coupling[:degree, degree] = theta * np.exp(1j * phi) / degree ** .5
-    coupling[degree, :degree] = theta * np.exp(-1j * phi) / degree ** .5
-    coupling[:degree, :degree] = chi / degree
-    coupling[range(degree), range(degree)] = 0
-    coupling[degree, degree] = 0.9
-    energies, modes = np.linalg.eigh(coupling)
-    return modes @ np.diag(np.exp(1j * energies)) @ modes.conj().T
+    modes = degree + 2
+    ports, memory = range(1, degree + 1), modes - 1
+    coupling = np.zeros((modes, modes), dtype=complex)
+    for port in ports:
+        coupling[port, memory] = theta * np.exp(1j * phi) / degree ** .5
+        coupling[0, port] = 0.25 * np.exp(1j * 0.5) / degree ** .5
+        for other in ports:
+            if port != other:
+                coupling[port, other] = chi / degree
+    coupling[0, memory] = drive * np.exp(1j * 0.3)
+    coupling[memory, memory] = 0.9
+    coupling += np.triu(coupling, 1).conj().T
+    energies, modes_ = np.linalg.eigh(coupling)
+    return modes_ @ np.diag(np.exp(1j * energies)) @ modes_.conj().T
 
 
 def vertex_box(degree: int, tap: float = 0.3) -> Box:
     """
-    The interferometer cell of a degree-``degree`` vertex: one ``qmode``
-    port per incident edge, a ``qmode`` coherent memory mixed with the
-    messages by :func:`star_coupler`, and a beam-splitter tap from the
-    memory into a fresh vacuum mode as the prediction -- the output
-    coupler of a little cavity, leaking photon amplitude to the
-    environment at every tick.
+    The interferometer cell of a degree-``degree`` vertex: a ``qmode``
+    drive port read from the environment at every tick -- where the
+    photons come in -- one ``qmode`` message port per incident edge, a
+    ``qmode`` coherent memory mixed with all of them by :func:`coupler`,
+    and a beam-splitter tap from the memory into a fresh vacuum mode as
+    the prediction: the input and output couplers of a little cavity.
     """
-    mix = Gate(star_coupler(degree), degree + 1, degree + 1, f"mix{degree}")
-    channel = mix >> Diagram.id(qmode ** degree) @ (
+    modes = degree + 2
+    mix = Gate(coupler(degree), modes, modes, f"mix{degree}")
+    channel = mix >> Diagram.id(qmode ** (modes - 1)) @ (
         qmode @ Create(0) >> TBS(tap))
-    return Box(f"cell{degree}", Ty(), qmode ** degree, channel,
+    return Box(f"cell{degree}", qmode, qmode ** degree, channel,
                memory=qmode, prediction=qmode)
+
+
+def stateful_channel(box: Box) -> Diagram:
+    """
+    The interpretation of one box of the map as a stateful channel: its
+    local channel with the internal memory fed back to itself with a
+    one-tick delay, a recurrent channel from its ports to its ports and
+    prediction.
+    """
+    move_memory_last = Diagram.id(box.ports) @ Diagram.swap(
+        box.memory, box.prediction)
+    return (box.channel >> move_memory_last).feedback(
+        dom=box.ports, cod=box.ports @ box.prediction, mem=box.memory)
 
 
 def graph_cmap(graph: tuple, tap: float = 0.3) -> CMap:
     """
     The combinatorial map of a graph: one :func:`vertex_box` per vertex
-    and one edge pairing the matching ports of its endpoints. All ports
-    are paired, so the boundary is empty and the protocol writes only
-    the predictions.
+    and one edge pairing the matching message ports of its endpoints.
+    The drive ports stay unpaired, so the boundary of the map is one
+    ``qmode`` per vertex, read from the environment at every tick -- the
+    mechanism of ``input_state`` in :meth:`optyx.interaction.CMap.fix`.
     """
     return CMap(
         [vertex_box(len(nbrs), tap) for nbrs in graph],
-        [((u, nbrs.index(v)), (v, graph[v].index(u)))
+        [((u, nbrs.index(v) + 1), (v, graph[v].index(u) + 1))
          for u, nbrs in enumerate(graph) for v in nbrs if u < v])
 
 
-def step_blocks(cmap: CMap) -> tuple:
+def step_amplitudes(cmap: CMap) -> np.ndarray:
     """
-    The one-photon blocks of one tick of a map with empty boundary: the
-    path matrix of :attr:`CMap.step` restricted to its memory inputs,
-    split into the amplitudes leaking to the predictions and those fed
-    back to the memory. Rows are inputs and columns outputs, the
-    convention of :class:`optyx.core.path.Matrix`.
+    The one-photon amplitudes of one tick of the map: the path matrix of
+    :attr:`CMap.step` restricted to its physical inputs -- the drive
+    ports then the memory, with rows as inputs and columns as outputs,
+    the convention of :class:`optyx.core.path.Matrix`. The columns are
+    the reflections at the drive ports, the predictions, the memory.
     """
     amplitudes = np.asarray(cmap.step.to_path().array, dtype=complex)
-    n_prediction, n_memory = len(cmap.prediction), len(cmap.memory)
-    return (amplitudes[:n_memory, :n_prediction],
-            amplitudes[:n_memory, n_prediction:])
+    return amplitudes[:len(cmap.dom) + len(cmap.memory), :]
 
 
-def escape_curves(graph: tuple, n_ticks: int, tap: float = 0.3,
-                  decohered: bool = False) -> np.ndarray:
+def transfer(amplitudes: np.ndarray, n_vertices: int, source: int,
+             n_ticks: int, decohered: bool = False) -> np.ndarray:
     """
-    The escape-time profile of a graph: for a single photon started in
-    each vertex's memory in turn, the probability that it leaves through
-    a prediction wire at each tick, as a sorted ``(vertex, tick)`` array
-    -- a multiset over vertices, hence a graph invariant.
-
-    With ``decohered`` the same network is run as its classical
-    ablation: the photon is measured at every tick, so the amplitudes
-    are replaced by the stochastic matrix of their squared moduli and
-    the walk no longer interferes.
+    The single-particle transfer matrix of the driven protocol: entry
+    ``(output, tick)`` is the amplitude on one of the ``2 n_vertices``
+    output wires of one tick -- the drive reflections then the
+    predictions -- for the photon injected at the source's drive port at
+    that tick, starting from vacuum memory. With ``decohered`` the
+    photon is measured at every tick, so the entries are probabilities
+    propagated by the squared moduli instead.
     """
-    cmap = graph_cmap(graph, tap)
-    leak, feedback = step_blocks(cmap)
-    if decohered:
-        leak, feedback = np.abs(leak) ** 2, np.abs(feedback) ** 2
-    curves = []
-    for vertex in range(len(graph)):
-        state = np.zeros(len(cmap.memory), dtype=complex)
-        state[len(cmap.paired) + vertex] = 1
-        curve = []
-        for _ in range(n_ticks):
-            leaked = state @ leak
-            curve.append(np.sum(leaked if decohered
-                                else np.abs(leaked) ** 2).real)
-            state = state @ feedback
-        curves.append(curve)
-    curves = np.array(curves)
-    return curves[np.lexsort(np.round(curves, 9).T[::-1])]
+    amplitudes = np.abs(amplitudes) ** 2 if decohered else amplitudes
+    n_out = 2 * n_vertices
+    n_memory = amplitudes.shape[0] - n_vertices
+    result = np.zeros((n_ticks * n_out, n_ticks),
+                      dtype=float if decohered else complex)
+    for injected in range(n_ticks):
+        state = np.zeros(n_memory, dtype=result.dtype)
+        for tick in range(injected, n_ticks):
+            occupation = np.zeros(amplitudes.shape[0], dtype=result.dtype)
+            occupation[source] = tick == injected
+            occupation[n_vertices:] = state
+            output = occupation @ amplitudes
+            result[tick * n_out:(tick + 1) * n_out, injected] = \
+                output[:n_out]
+            state = output[n_out:]
+    return result
+
+
+def photon_statistics(amplitudes: np.ndarray, n_ticks: int) -> tuple:
+    """
+    The photon statistics of a transfer matrix, aggregated over vertices
+    so that both are graph invariants: the mean photon number leaving at
+    each tick, and the two-photon coincidences between each pair of
+    ticks. With independent single photons on the inputs of a passive
+    network, the coincidence between two output wires is a sum of
+    two-by-two permanents of the transfer matrix -- Hong-Ou-Mandel
+    interference -- computed here through its Green's function.
+    """
+    n_out = amplitudes.shape[0] // n_ticks
+    mean = (np.abs(amplitudes) ** 2).sum(axis=1)
+    green = amplitudes @ amplitudes.conj().T
+    squared = np.abs(amplitudes) ** 2
+    diagonal = squared @ squared.T
+    coincidence = (np.outer(mean, mean) - diagonal
+                   + np.abs(green) ** 2 - diagonal)
+    return (mean.reshape(n_ticks, n_out).sum(axis=1),
+            coincidence.reshape(
+                n_ticks, n_out, n_ticks, n_out).sum(axis=(1, 3)))
+
+
+def profile(graph: tuple, n_ticks: int, tap: float = 0.3,
+            decohered: bool = False) -> np.ndarray:
+    """
+    The response profile of a graph under the driven protocol: for each
+    source vertex, the mean-photon-number curve followed by the upper
+    triangle of the tick-by-tick coincidences, as a sorted array over
+    sources -- a multiset over vertices, hence a graph invariant. The
+    decohered ablation propagates probabilities instead of amplitudes;
+    its particles are independent, so only the mean curve carries
+    information and the coincidence entries are set to zero.
+    """
+    step = step_amplitudes(graph_cmap(graph, tap))
+    rows = []
+    for source in range(len(graph)):
+        matrix = transfer(step, len(graph), source, n_ticks, decohered)
+        if decohered:
+            mean = matrix.sum(axis=1).reshape(n_ticks, -1).sum(axis=1)
+            coincidence = np.zeros((n_ticks, n_ticks))
+        else:
+            mean, coincidence = photon_statistics(matrix, n_ticks)
+        rows.append(np.concatenate([
+            mean, coincidence[np.triu_indices(n_ticks)]]))
+    rows = np.array(rows)
+    return rows[np.lexsort(np.round(rows, 9).T[::-1])]
 
 
 def separation(left: tuple, right: tuple, n_ticks: int,
                **params) -> float:
     """
-    The largest difference between the escape-time profiles of two
-    graphs: zero iff the readout does not distinguish them.
+    The largest difference between the response profiles of two graphs:
+    zero iff the readout does not distinguish them.
     """
     return float(np.abs(
-        escape_curves(left, n_ticks, **params)
-        - escape_curves(right, n_ticks, **params)).max())
+        profile(left, n_ticks, **params)
+        - profile(right, n_ticks, **params)).max())
 
 
 def shots_to_separate(margin: float, confidence: float = 5) -> float:
     """
-    The number of runs per vertex after which a separation ``margin`` on
-    a probability stands ``confidence`` standard deviations above shot
-    noise, from the normal approximation of a Bernoulli estimate.
+    The number of runs per source vertex after which a separation
+    ``margin`` on a probability stands ``confidence`` standard
+    deviations above shot noise, from the normal approximation of a
+    Bernoulli estimate.
     """
     return (confidence / margin) ** 2
 
