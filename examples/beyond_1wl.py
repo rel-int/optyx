@@ -221,7 +221,7 @@ def escape_curves(graph: tuple, n_ticks: int, tap: float = 0.3,
             state = state @ feedback
         curves.append(curve)
     curves = np.array(curves)
-    return curves[np.lexsort(curves.T[::-1])]
+    return curves[np.lexsort(np.round(curves, 9).T[::-1])]
 
 
 def separation(left: tuple, right: tuple, n_ticks: int,
