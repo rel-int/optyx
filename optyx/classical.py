@@ -134,6 +134,7 @@ and feed the result into a controlled quantum gate.
 from typing import Callable, List
 import numpy as np
 from optyx import channel
+from optyx.utils.misc import unpack_layer
 from optyx.core import (
     control,
     zw,
@@ -211,10 +212,8 @@ class BitControlledGate(Channel):
         boxes = []
         for i in range(len(diag)):
             layer = diag[i]
-            box = layer.inside[0][1]
+            left, box, right = unpack_layer(layer)
             if box.cod == box.dom:
-                left = layer.inside[0][0]
-                right = layer.inside[0][2]
                 copy = Z(1, 2)
 
                 layers = [
