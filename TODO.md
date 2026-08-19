@@ -341,8 +341,9 @@ minus everything that only existed to make a 660-box network fit.
 
 ## Docs and checks
 
-- [ ] `pflake8 optyx`, `pylint optyx/interaction.py optyx/core/contract.py
-      --fail-under=9`, `coverage run -m pytest` with coverage at least 95%.
+- [WIP @evening-cleanup-2026-08-19] `pflake8 optyx`, `pylint
+      optyx/interaction.py optyx/core/contract.py --fail-under=9`,
+      `coverage run -m pytest` with coverage at least 95%.
 - [x] Module documentation explaining how recurrent tensor networks are
       constructed from a `CMap`: one tick as `read >> parallel >> write`,
       `protocol` as delayed feedback, `unroll` as a finite channel diagram,
