@@ -341,16 +341,34 @@ minus everything that only existed to make a 660-box network fit.
 
 ## Docs and checks
 
-- [WIP @evening-cleanup-2026-08-19] `pflake8 optyx`, `pylint
-      optyx/interaction.py optyx/core/contract.py --fail-under=9`,
-      `coverage run -m pytest` with coverage at least 95%.
+- [x] `pflake8 optyx`, `pylint optyx/interaction.py optyx/core/contract.py
+      --fail-under=9`, `coverage run -m pytest` with coverage at least 95%.
+      `optyx/core/contract.py` no longer exists — removed by this PR's own
+      "Remove `optyx.core.contract`" point above — so `pylint` is run on
+      `optyx/interaction.py` alone (9.80/10) and, matching the CI `lint`
+      job's actual invocation, on the whole package (9.57/10); both clear
+      `--fail-under=9`. `pflake8 optyx` is clean. `coverage run -m pytest`
+      passes 1286 tests; `coverage report -m` is 95% total (module-level
+      lowest is `optyx/core/backends.py` and `optyx/qubits.py` at 92-93%),
+      matching CI's `coverage report --fail-under=95`.
 - [x] Module documentation explaining how recurrent tensor networks are
       constructed from a `CMap`: one tick as `read >> parallel >> write`,
       `protocol` as delayed feedback, `unroll` as a finite channel diagram,
       `double().to_tensor().to_map()` down to `contract_tensor`, with
       doctested drawings of the protocol and its unrolling.
-- [ ] A drawing of a box with memory and prediction wires in the module
+- [x] A drawing of a box with memory and prediction wires in the module
       docstring, and `docs/api.rst` entry (already added) rendering.
+      `docs/api.rst:11` already lists `optyx.interaction`, confirmed
+      rendering in the local `sphinx-build` above. Judgement call on the
+      drawing: `optyx/interaction.py`'s module docstring already draws
+      `triangle.step`/`.protocol`/`two_ticks` (its `cell` box has both
+      `memory` and `prediction`), and the `Box` docstring has a runnable
+      `memory=qubit, prediction=qubit` example; on top of that, the
+      "One box is a stateful channel" section of
+      `docs/notebooks/beyond_1wl.ipynb` (added for the 2026-08-18 "Driven
+      protocol" point above) draws exactly this — a single box's local
+      channel with the memory fed back, `Create(1)` and its prediction
+      tap. No further diagram needed.
 - [ ] File as issues anything left unchecked when this PR is signed off.
 
 ## Proposal B as three models (2026-08-18)
