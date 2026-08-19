@@ -369,7 +369,8 @@ minus everything that only existed to make a 660-box network fit.
       protocol" point above) draws exactly this — a single box's local
       channel with the memory fed back, `Create(1)` and its prediction
       tap. No further diagram needed.
-- [ ] File as issues anything left unchecked when this PR is signed off.
+- [WIP @evening-cleanup-2026-08-19] File as issues anything left unchecked
+      when this PR is signed off.
 
 ## Proposal B as three models (2026-08-18)
 
@@ -401,10 +402,12 @@ fixed here so that optyx runs on both — `unpack_layer` in
 indexing, and `optyx.core.path.Matrix` gets `@factory` so that functors
 into it map swaps to path matrices.
 
-- [ ] `bit`-wire `CMap` ablation: the decohered walk of the notebook,
-      expressed as the same `CMap` with classical wires.
-- [ ] Multi-photon rook-vs-Shrikhande: needs interactions or measurement
-      feedback (KLM) beyond one photon, and multi-photon contraction.
+- [WIP @evening-cleanup-2026-08-19] `bit`-wire `CMap` ablation: the
+      decohered walk of the notebook, expressed as the same `CMap` with
+      classical wires.
+- [WIP @evening-cleanup-2026-08-19] Multi-photon rook-vs-Shrikhande: needs
+      interactions or measurement feedback (KLM) beyond one photon, and
+      multi-photon contraction.
 
 ## Driven protocol (2026-08-18)
 
