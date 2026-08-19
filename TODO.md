@@ -181,12 +181,19 @@ are what the Sudoku notebook was missing.
       dependency `graphix` and `cotengra` through `quimb`. Worth declaring
       both explicitly in `pyproject.toml` since `optyx.channel` and
       `optyx.core.contract` import them at module level — file as an issue.
-- [WIP @evening-cleanup-2026-08-19] Get one green run of `lint`, `test` and
-      `docs` on this branch. The failures of 2026-08-06 after 15:38 UTC are
-      runner-side ("Failed to resolve action download info: Service
-      Unavailable"), so the first job is to distinguish them from ours by
-      rerunning.
-- [ ] Merge the target branch in (never rebase, per RULES.md) and rerun.
+- [x] Get one green run of `lint`, `test` and `docs` on this branch.
+      Verified 2026-08-19: GitHub check-runs on the head commit are all
+      `success` (lint, test, docs), and reproduced locally under
+      Python 3.12 — `pflake8 optyx` clean; `pylint optyx --fail-under=9`
+      (the CI invocation) rates 9.57/10; `coverage run -m pytest` passes
+      1286 tests, `coverage report --fail-under=95` passes at 95% total;
+      the docs job's `jupyter nbconvert --execute
+      docs/notebooks/fixpoints.ipynb` and `sphinx-build docs
+      docs/_build/html` both complete without error.
+- [x] Merge the target branch in (never rebase, per RULES.md) and rerun.
+      `git merge-base --is-ancestor
+      origin/claude/optyx-new-module-plan-p4k3ip HEAD` is already true —
+      the base is fully contained in this branch, nothing to merge.
 
 ## Proposal A — XOR chains: propagation over a distance
 
