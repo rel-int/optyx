@@ -409,3 +409,28 @@ into it map swaps to path matrices.
 - [x] Draw one box as a stateful
       channel — its local channel with the memory fed back — instead of the
       step of the protocol, in the notebook.
+
+## One self-contained docs notebook (2026-08-19)
+
+> Remove the hosting PR you've created in DisCoPy, you can just use
+> https://github.com/discopy/discopy/pull/399 as base. Also, edit the optyx PR
+> so that the contribution is a single self-contained notebook in the docs,
+> showing the separation for all the graphs you used except for Rook vs
+> Shriklande (that's too expensive for a documentation notebook). The notebook
+> should simply state at the beginning that GNNs (and MapNNs) provably cannot
+> distinguish between these graphs (giving a reference for GNNs). This way we
+> don't even need the pytorch and discopy neural import in the PR. The notebook
+> should be self-contained, defining the photonic CMap implementation and the
+> separation results.
+
+- [WIP @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-19 09:35] One self-contained
+      notebook in `docs/notebooks/`, defining the photonic `CMap`
+      implementation inline and showing the separation for every pair
+      except rook vs Shrikhande, stating up front that GNNs (and MapNNs)
+      provably cannot distinguish these graphs, with a reference.
+- [WIP @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-19 09:35] Remove
+      `examples/beyond_1wl.py`, `examples/beyond_1wl.ipynb`,
+      `test/test_beyond_1wl.py`, the torch path and the discopy-main
+      compatibility changes, so the PR diff is the notebook alone.
+- [WIP @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-19 09:35] Close the discopy
+      hosting PR discopy#593.
