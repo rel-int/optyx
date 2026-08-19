@@ -429,12 +429,12 @@ class Diagram(frobenius.Diagram):
                 f"type {iterated.dom}.")
         return iterated
 
-    def check_fixpoint(self, tol: float = 1e-6, max_chi: int = None):
+    def check_fixpoint(self, tol: float = 1e-6):
         """
         The guards :meth:`fix` and :meth:`eigen_fix` share: that this
-        diagram poses a fixpoint problem at all, and that the numbers asked
-        of it are in range. Raises rather than returning, since every
-        failure is a mistake in the call.
+        diagram poses a fixpoint problem at all, and that the requested
+        tolerance is in range. Solver-specific resources are validated by
+        the method that gives them meaning.
 
         >>> from optyx.qubits import Ket
         >>> try:
@@ -450,11 +450,6 @@ class Diagram(frobenius.Diagram):
             raise ValueError(
                 "The diagram has no feedback loop, so it is already its own "
                 "stationary state.")
-        if max_chi is not None and (not isinstance(max_chi, Integral)
-                                    or isinstance(max_chi, bool)
-                                    or max_chi <= 0):
-            raise ValueError(
-                "The truncation bound must be a positive integer.")
         if not isinstance(tol, Real) or isinstance(tol, bool) \
                 or not np.isfinite(tol) or tol <= 0:
             raise ValueError("tol must be a positive finite real number.")
@@ -537,7 +532,7 @@ class Diagram(frobenius.Diagram):
 
     def unroll_certificate(
             self, tol: float = 1e-6, max_steps: int = None,
-            max_occupation: int = None) -> int | None:
+            max_occupation: int = None) -> int:
         """
         The smallest number of time steps whose last output is certified
         within `tol`, by the stationary boson-sampling bound of Armand Le
@@ -570,16 +565,26 @@ class Diagram(frobenius.Diagram):
         environment in the loop enters `V_ll` as the isometry block it is,
         and shrinks its singular values by the amplitude it leaks.
 
-        Raises `NotImplementedError` when the theorem does not apply — a
-        memory that is not all optical modes, more than one loop, boxes
+        With only `tol`, no Fock cutoff is imposed: the method returns the
+        first `k + 1` for which `Gamma(k) <= tol`, namely `k` burn-in steps
+        followed by one readout step. Thus the theorem bounds the required
+        depth and there is no photon-truncation contribution. Supplying
+        `max_occupation=N` instead certifies the same readout against the
+        combined error `Gamma(k) + 2 Delta_N(k)`.
+
+        `max_steps` is a resource ceiling, not a theorem assumption. If it
+        stops the search before the requested tolerance is certified, the
+        method warns with the best depth it did evaluate and the tolerance
+        guaranteed there, then returns that depth. Likewise, reaching more
+        than `N` photons does not immediately fail: it activates the tail
+        bound `Delta_N`. The search succeeds if the combined error still
+        reaches `tol`; otherwise it returns the best evaluated depth and
+        warns separately about its finite-depth and truncation errors.
+        Raises `NotImplementedError` when the theorem itself does not apply
+        — a memory that is not all optical modes, more than one loop, boxes
         with no path matrix, or a lossless loop block with spectral radius
-        one. :meth:`fix` then falls back on :meth:`power_fix`. A resource
-        shortfall is different: when `max_occupation` is supplied, the
-        method returns the best available depth and warns with the
-        finite-depth contribution, truncation contribution and tolerance
-        certified at that depth. Without a cutoff it preserves the
-        depth-only API and returns `None` silently; :meth:`fix` owns that
-        warning. `max_occupation` is not a tensor-network bond dimension;
+        one. :meth:`fix` then falls back on :meth:`power_fix`.
+        `max_occupation` is not a tensor-network bond dimension;
         compression error is outside this certificate.
 
         >>> from optyx import photonic
@@ -601,8 +606,10 @@ class Diagram(frobenius.Diagram):
         self.check_fixpoint(tol)
         if max_steps is not None and (
                 not isinstance(max_steps, Integral)
-                or isinstance(max_steps, bool) or max_steps <= 0):
-            raise ValueError("max_steps must be a positive integer.")
+                or isinstance(max_steps, bool) or max_steps < 2):
+            raise ValueError(
+                "max_steps must be at least 2: one burn-in step and one "
+                "readout step.")
         if max_occupation is not None and (
                 not isinstance(max_occupation, Integral)
                 or isinstance(max_occupation, bool)
@@ -736,26 +743,24 @@ class Diagram(frobenius.Diagram):
             if max_occupation is not None and error_truncation >= tol:
                 break
 
-        if max_occupation is None:
-            return None
-        if best is None:
-            warnings.warn(
-                f"max_steps={max_steps} leaves no burn-in step, so "
-                f"tol={tol} cannot be certified.",
-                UserWarning, stacklevel=2)
-            return None
-
         burn_in, error_n_steps, error_truncation, required_occupation, \
             error_total = best
-        warnings.warn(
-            f"tol={tol} is not certified by the supplied resources. "
-            f"At the best burn-in k={burn_in}, max_steps={max_steps} "
-            f"permits error_n_steps={error_n_steps:.6g}; "
-            f"max_occupation={max_occupation} versus required occupation "
-            f"{required_occupation} permits error_truncation="
-            f"{error_truncation:.6g}; the certified total tolerance is "
-            f"{error_total:.6g}.",
-            UserWarning, stacklevel=2)
+        if max_occupation is None:
+            message = (
+                f"tol={tol} is not certified within max_steps={max_steps}. "
+                f"At the best burn-in k={burn_in}, the finite-depth error "
+                f"is {error_n_steps:.6g}, so the certified tolerance is "
+                f"{error_total:.6g}.")
+        else:
+            message = (
+                f"tol={tol} is not certified by the supplied resources. "
+                f"At the best burn-in k={burn_in}, max_steps={max_steps} "
+                f"permits error_n_steps={error_n_steps:.6g}; "
+                f"max_occupation={max_occupation} versus required "
+                f"occupation {required_occupation} permits "
+                f"error_truncation={error_truncation:.6g}; the certified "
+                f"total tolerance is {error_total:.6g}.")
+        warnings.warn(message, UserWarning, stacklevel=2)
         return burn_in + 1
 
     def truncation_dimensions(self) -> list[int]:
@@ -843,10 +848,16 @@ class Diagram(frobenius.Diagram):
         See :doc:`/notebooks/fixpoints` for the semantic diagram, agreement
         map and contraction planning.
         """
-        self.check_fixpoint(tol, max_chi)
+        self.check_fixpoint(tol)
+        if max_chi is not None and (
+                not isinstance(max_chi, Integral)
+                or isinstance(max_chi, bool) or max_chi <= 0):
+            raise ValueError("max_chi must be a positive integer or None.")
         if not isinstance(max_steps, Integral) \
-                or isinstance(max_steps, bool) or max_steps <= 0:
-            raise ValueError("max_steps must be a positive integer.")
+                or isinstance(max_steps, bool) or max_steps < 2:
+            raise ValueError(
+                "max_steps must be at least 2: one burn-in step and one "
+                "readout step.")
         backends = import_module("optyx.core.backends")
         if backend is None:
             backend = backends.QuimbBackend(
@@ -861,12 +872,7 @@ class Diagram(frobenius.Diagram):
         except NotImplementedError:
             return self.power_fix(
                 tol, max_steps=max_steps, max_chi=max_chi)
-        depth = max_steps if certified is None else certified
-        if certified is None:
-            warnings.warn(
-                f"max_steps={max_steps} stops before the stationary "
-                f"boson-sampling bound reaches tol={tol}: the result is not "
-                "certified.", UserWarning, stacklevel=2)
+        depth = certified
         network = self.at_time(depth - 1)
 
         needed = max(network.truncation_dimensions(), default=1)
@@ -937,7 +943,11 @@ class Diagram(frobenius.Diagram):
         ...     result.density_matrix,
         ...     loop.eigen_fix().density_matrix, atol=1e-2)
         """
-        self.check_fixpoint(tol, max_chi)
+        self.check_fixpoint(tol)
+        if max_chi is not None and (
+                not isinstance(max_chi, Integral)
+                or isinstance(max_chi, bool) or max_chi <= 0):
+            raise ValueError("max_chi must be a positive integer or None.")
         for name, value in {
                 "n_steps": n_steps, "max_steps": max_steps}.items():
             if not isinstance(value, Integral) or isinstance(value, bool) \
@@ -1051,7 +1061,12 @@ class Diagram(frobenius.Diagram):
         ...     delay.eigen_fix().density_matrix, [[0, 0], [0, 1]],
         ...     atol=1e-6)
         """
-        self.check_fixpoint(tol, max_truncation)
+        self.check_fixpoint(tol)
+        if not isinstance(max_truncation, Integral) \
+                or isinstance(max_truncation, bool) \
+                or max_truncation <= 0:
+            raise ValueError(
+                "max_truncation must be a positive integer.")
         step = self.one_step()
         memory = step.cod[len(self.cod):]
         transfer = step >> Discard(self.cod) @ self.id(memory)

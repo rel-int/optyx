@@ -148,7 +148,7 @@ def test_loss_is_not_a_solver_input():
             getattr(source(), solver)(loss=.5)
 
 
-@pytest.mark.parametrize("max_steps", [0, -1, 1.5, True])
+@pytest.mark.parametrize("max_steps", [0, 1, -1, 1.5, True])
 def test_fix_validates_max_steps(max_steps):
     with pytest.raises(ValueError, match="max_steps"):
         source().fix(max_steps=max_steps)
@@ -338,10 +338,12 @@ def test_certification_and_truncation_warn_separately():
     own warning and both can fire on one call."""
     with pytest.warns(UserWarning) as caught:
         sampler(loss=.9).fix(tol=1e-4, max_chi=2, max_steps=2)
-    messages = sorted(str(warning.message)[:20] for warning in caught)
+    messages = [str(warning.message) for warning in caught]
     assert len(messages) == 2
-    assert messages[0].startswith("max_steps=2 stops be")
-    assert messages[1].startswith("the contraction need")
+    assert any("not certified within max_steps=2" in message
+               for message in messages)
+    assert any(message.startswith("the contraction needs")
+               for message in messages)
 
 
 def test_unroll_certificate_reads_the_one_step_matrix():
@@ -373,6 +375,25 @@ def test_unroll_certificate_reports_both_resource_errors():
     assert "required occupation 2" in message
     assert "error_truncation=0.000130757" in message
     assert "certified total tolerance is 0.00057104" in message
+
+
+def test_unroll_certificate_returns_best_depth_without_cutoff():
+    """A finite depth budget returns what it evaluated even when Gamma
+    misses the request; the warning states the tolerance actually proved."""
+    with pytest.warns(UserWarning) as caught:
+        assert sampler(loss=.9).unroll_certificate(
+            1e-4, max_steps=2) == 2
+    message = str(caught[0].message)
+    assert "not certified within max_steps=2" in message
+    assert "finite-depth error is 0.125541" in message
+    assert "certified tolerance is 0.125541" in message
+
+
+def test_unroll_certificate_accepts_a_vacuum_only_cutoff():
+    """Zero is a valid total occupation cutoff, unlike a bond dimension."""
+    with pytest.warns(UserWarning):
+        assert sampler(loss=.9).unroll_certificate(
+            1e-4, max_steps=2, max_occupation=0) == 2
 
 
 def test_loss_in_the_diagram_shortens_the_certificate():
