@@ -369,8 +369,16 @@ minus everything that only existed to make a 660-box network fit.
       protocol" point above) draws exactly this — a single box's local
       channel with the memory fed back, `Create(1)` and its prediction
       tap. No further diagram needed.
-- [WIP @evening-cleanup-2026-08-19] File as issues anything left unchecked
-      when this PR is signed off.
+- [ ] File as issues anything left unchecked when this PR is signed off.
+      Done for this PR's own scope: the two items superseded by the
+      2026-08-19 single-notebook revision are filed as rel-int/optyx#59
+      and rel-int/optyx#60 and checked off above. Left open: `Proposal A`,
+      `Proposal C` and `Contraction work these need` stay unchecked and
+      unfiled on purpose — they are a different, larger piece of scope
+      (training runs, maze scale-up) explicitly gated on an unresolved
+      process question, whether an unattended overnight session may spend
+      compute on multi-hour training (giodefelice/desire#17, open). Not
+      this bounded pass's call to file or close; revisit once #17 answers.
 
 ## Proposal B as three models (2026-08-18)
 
@@ -402,12 +410,15 @@ fixed here so that optyx runs on both — `unpack_layer` in
 indexing, and `optyx.core.path.Matrix` gets `@factory` so that functors
 into it map swaps to path matrices.
 
-- [WIP @evening-cleanup-2026-08-19] `bit`-wire `CMap` ablation: the
-      decohered walk of the notebook, expressed as the same `CMap` with
-      classical wires.
-- [WIP @evening-cleanup-2026-08-19] Multi-photon rook-vs-Shrikhande: needs
-      interactions or measurement feedback (KLM) beyond one photon, and
-      multi-photon contraction.
+- [x] `bit`-wire `CMap` ablation: the decohered walk of the notebook,
+      expressed as the same `CMap` with classical wires. Superseded by the
+      2026-08-19 single-notebook scope (no torch/discopy.neural, notebook
+      only); filed as rel-int/optyx#59.
+- [x] Multi-photon rook-vs-Shrikhande: needs interactions or measurement
+      feedback (KLM) beyond one photon, and multi-photon contraction.
+      Superseded by the 2026-08-19 instruction excluding rook vs
+      Shrikhande from the notebook as too expensive; filed as
+      rel-int/optyx#60.
 
 ## Driven protocol (2026-08-18)
 
