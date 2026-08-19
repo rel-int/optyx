@@ -181,10 +181,11 @@ are what the Sudoku notebook was missing.
       dependency `graphix` and `cotengra` through `quimb`. Worth declaring
       both explicitly in `pyproject.toml` since `optyx.channel` and
       `optyx.core.contract` import them at module level — file as an issue.
-- [ ] Get one green run of `lint`, `test` and `docs` on this branch. The
-      failures of 2026-08-06 after 15:38 UTC are runner-side
-      ("Failed to resolve action download info: Service Unavailable"), so the
-      first job is to distinguish them from ours by rerunning.
+- [WIP @evening-cleanup-2026-08-19] Get one green run of `lint`, `test` and
+      `docs` on this branch. The failures of 2026-08-06 after 15:38 UTC are
+      runner-side ("Failed to resolve action download info: Service
+      Unavailable"), so the first job is to distinguish them from ours by
+      rerunning.
 - [ ] Merge the target branch in (never rebase, per RULES.md) and rerun.
 
 ## Proposal A — XOR chains: propagation over a distance
