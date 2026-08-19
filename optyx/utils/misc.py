@@ -17,36 +17,6 @@ from typing import (
 from numbers import Number
 
 
-def unpack_layer(layer):
-    """
-    The ``(left, box, right)`` decomposition of a one-box layer of a
-    diagram, across the representations of ``monoidal.Layer`` before and
-    after its refactoring in discopy/discopy#438.
-
-    >>> from optyx.photonic import BS
-    >>> from optyx.channel import qmode, Diagram
-    >>> diagram = qmode @ BS @ qmode
-    >>> left, box, right = unpack_layer(diagram[0])
-    >>> assert (left, box, right) == (qmode, BS, qmode)
-    """
-    # pylint: disable=import-outside-toplevel
-    from discopy import monoidal
-    left = right = layer.dom[:0]
-    box = None
-    for item in layer.inside[0]:
-        if isinstance(item, monoidal.Ty):
-            if box is None:
-                left = left @ item
-            else:
-                right = right @ item
-        elif box is None:
-            box = item
-        else:
-            raise NotImplementedError(
-                "unpack_layer is defined for one-box layers.")
-    return left, box, right
-
-
 def _build_w_layer(n_nonzero_counts, dagger=False):
     # pylint: disable=import-outside-toplevel
     from optyx.core import zw
@@ -264,14 +234,16 @@ def explode_channel(
 
     arrows = []
     for layer in kraus:
-        left, generator, right = unpack_layer(layer)
+        generator = layer.inside[0][1]
         channel = channel_class(
             generator.name,
             generator,
         )
 
         arrows.append(
-            Ty.from_optyx(left) @ channel @ Ty.from_optyx(right)
+            Ty.from_optyx(layer.inside[0][0]) @
+            channel @
+            Ty.from_optyx(layer.inside[0][2])
         )
 
     if len(arrows) == 0:

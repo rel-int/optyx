@@ -423,14 +423,27 @@ into it map swaps to path matrices.
 > should be self-contained, defining the photonic CMap implementation and the
 > separation results.
 
-- [WIP @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-19 09:35] One self-contained
+- [x] One self-contained
       notebook in `docs/notebooks/`, defining the photonic `CMap`
       implementation inline and showing the separation for every pair
       except rook vs Shrikhande, stating up front that GNNs (and MapNNs)
-      provably cannot distinguish these graphs, with a reference.
-- [WIP @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-19 09:35] Remove
+      provably cannot distinguish these graphs, with a reference:
+      `docs/notebooks/beyond_1wl.ipynb`, committed executed against the
+      pinned discopy and added to the docs toctree. Margins at eight
+      ticks: 3.5e-2 (2C3 vs C6), 6.3e-3 (2C6 vs C12), 1.0e-2 (decalin
+      vs bicyclopentyl), 4.2e-2 (control); decohered blind at 1e-16 on
+      every pair; the fast pipeline validated against the contraction
+      of `CMap.unroll` inside the notebook.
+- [x] Remove
       `examples/beyond_1wl.py`, `examples/beyond_1wl.ipynb`,
       `test/test_beyond_1wl.py`, the torch path and the discopy-main
-      compatibility changes, so the PR diff is the notebook alone.
-- [WIP @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-19 09:35] Close the discopy
-      hosting PR discopy#593.
+      compatibility changes, so the PR diff is the notebook alone. The
+      compatibility changes (`unpack_layer`, `@factory` on
+      `path.Matrix`) are reverted but preserved in history at d2e743c
+      should optyx move its discopy pin; the two determinism fixes stay
+      (seeded `chip_mzi`, exact contraction when the bonds fit
+      `max_chi`), since both repaired tests that failed intermittently
+      on this branch's CI.
+- [x] Close the discopy
+      hosting PR discopy#593: closed, discopy#585 can use discopy#399
+      as base.

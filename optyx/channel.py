@@ -235,7 +235,6 @@ from discopy.utils import AxiomError
 from pytket.extensions.pyzx import pyzx_to_tk
 from pyzx import extract_circuit
 from optyx.core import diagram
-from optyx.utils.misc import unpack_layer
 
 
 class Ob(frobenius.Ob):
@@ -516,7 +515,7 @@ class Diagram(frobenius.Diagram):
         """
         kraus, env = diagram.Id(self.dom.single()), diagram.Ty()
         for layer in self:
-            left, box, right = unpack_layer(layer)
+            left, box, right = layer.inside[0]
             left, right = left.single(), right.single()
             if isinstance(box, Swap):
                 step, box_env = diagram.Swap(
@@ -1040,7 +1039,7 @@ class Diagram(frobenius.Diagram):
         are_layers_pure = []
         are_layers_classical = []
         for layer in self:
-            _, generator, _ = unpack_layer(layer)
+            generator = layer.inside[0][1]
 
             if isinstance(generator, Feedback) and not all(
                 part.is_pure for part in (
@@ -1087,9 +1086,11 @@ class Diagram(frobenius.Diagram):
         assert self.is_pure, "Cannot get a Kraus map of non-pure circuit"
         kraus_maps = [diagram.Id(self.dom.single())]
         for layer in self:
-            left, generator, right = unpack_layer(layer)
-            left = diagram.Ty().tensor(*[ty.single() for ty in left])
-            right = diagram.Ty().tensor(*[ty.single() for ty in right])
+            left = diagram.Ty().tensor(*[ty.single()
+                                       for ty in layer.inside[0][0]])
+            right = diagram.Ty().tensor(*[ty.single()
+                                        for ty in layer.inside[0][2]])
+            generator = layer.inside[0][1]
 
             if isinstance(generator, Swap):
                 kraus_maps.append(
@@ -1155,7 +1156,9 @@ class Diagram(frobenius.Diagram):
 
         kraus_maps = []
         for layer in self:
-            left, generator, right = unpack_layer(layer)
+            left = layer.inside[0][0]
+            right = layer.inside[0][2]
+            generator = layer.inside[0][1]
 
             kraus_maps.append(
                 diagram.Bit(len(left)) @
