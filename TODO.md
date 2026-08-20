@@ -488,3 +488,22 @@ into it map swaps to path matrices.
 - [x] Close the discopy
       hosting PR discopy#593: closed, discopy#585 can use discopy#399
       as base.
+
+## Active photonics: classical feed-forward (2026-08-20)
+
+> Add classical feedforward to the stateful channel and see if you can separate
+> between Rook and Shriklande. Open a separate pull request with the full
+> experiment, saying how which k-WL can be separated with passive vs active
+> photonics
+
+- [WIP @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-20 07:05] Classical feed-forward
+      in the cell: number-resolved detection on the boundary outputs, the
+      outcome stored in a classical memory wire and controlling a phase on
+      the coherent memory — drawn as a stateful channel — and a two-photon
+      simulation measuring whether the conditioned statistics separate
+      rook 4x4 from Shrikhande, with the feed-forward-off ablation that
+      must stay blind. Addresses rel-int/optyx#60.
+- [WIP @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-20 07:05] A separate pull
+      request with the full experiment as a self-contained docs notebook,
+      stating which k-WL classes passive and active photonics separate,
+      with references.
