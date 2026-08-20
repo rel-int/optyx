@@ -536,7 +536,7 @@ into it map swaps to path matrices.
 > to previous models, with a proposal for experiments to show separations and
 > the potential of our new model
 
-- [WIP @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-20 18:40] Fold the literature
+- [x] Fold the literature
       into `docs/notebooks/beyond_3wl.ipynb`: prior quantum-beyond-1WL
       work (Emms et al. walk spectra, the cellular-algebra limitation
       theorems, EQGC, the Raj et al. message-passing QGNN) and the
@@ -544,7 +544,12 @@ into it map swaps to path matrices.
       (j-1)-WL, proved for j <= 4, so their guarantee tops out at
       tuple 3-WL and cannot cover same-parameter strongly regular
       pairs; purely unitary circuits with no measurement in the loop.
-- [WIP @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-20 18:40] A markdown proposal
+- [x] A markdown proposal
       for a new paper introducing quantum Map neural networks, their
       photonic instantiation, their advantages over previous models,
-      and the experiments to run.
+      and the experiments to run:
+      `docs/quantum_map_neural_networks.md`, with six proposed
+      experiments (broadcast-radius ladder on CFI/BREC, the
+      generalized-quadrangle pairs where walk invariants failed,
+      trained cells with the bit-wire ablation, deeper photon
+      sectors, the theory obligations, hardware feasibility).
