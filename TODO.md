@@ -518,3 +518,33 @@ into it map swaps to path matrices.
       with references: `docs/notebooks/beyond_3wl.ipynb`, committed
       executed, validated against `CMap.step.to_path()` and the
       contraction of `CMap.unroll` at machine precision.
+
+## Literature positioning and paper proposal (2026-08-20)
+
+> Can you look in the literature if anyone already showed that quantum models
+> can separate graphs beyond 1-WL?
+
+> Can you look more closely at the Kashefi paper? Except for the photonics, is
+> there a difference between their message passing GNNs and our model? What
+> does their result say about j-WL separation? At first glance it seems that
+> they show that these QGNNs can distinguish up to 4-WL and not further, but
+> there's some weird j-1 happening
+
+> Ok that's interesting. Fold this in the notebook explanation and add a
+> markdown file with a proposal for a new paper, introducing our quantum Map
+> neural networks, their photonic instantiations and their advantage compared
+> to previous models, with a proposal for experiments to show separations and
+> the potential of our new model
+
+- [WIP @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-20 18:40] Fold the literature
+      into `docs/notebooks/beyond_3wl.ipynb`: prior quantum-beyond-1WL
+      work (Emms et al. walk spectra, the cellular-algebra limitation
+      theorems, EQGC, the Raj et al. message-passing QGNN) and the
+      precise reading of arXiv:2606.26873 — set-based j-WL is tuple
+      (j-1)-WL, proved for j <= 4, so their guarantee tops out at
+      tuple 3-WL and cannot cover same-parameter strongly regular
+      pairs; purely unitary circuits with no measurement in the loop.
+- [WIP @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-20 18:40] A markdown proposal
+      for a new paper introducing quantum Map neural networks, their
+      photonic instantiation, their advantages over previous models,
+      and the experiments to run.
