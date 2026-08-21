@@ -81,10 +81,10 @@ jobs:
         pip install .[docs]
     - name: Execute fixpoint notebook
       run: |
-        jupyter nbconvert --to notebook --execute \
-          ${{ env.DOCS_DIR }}/notebooks/fixpoints.ipynb \
-          --output fixpoints.ipynb --output-dir /tmp \
-          --ExecutePreprocessor.timeout=600
+        pip install marimo
+        marimo export script \
+          ${{ env.DOCS_DIR }}/notebooks/fixpoints.md -o /tmp/fixpoints.py
+        timeout 600 python /tmp/fixpoints.py
     - name: Build
       run: |
         sphinx-build ${{ env.DOCS_DIR }} ${{ env.DOCS_DIR }}/_build/html
