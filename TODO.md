@@ -12,7 +12,7 @@ package is listed in the PR body, not fixed here.
 
 ## Baseline
 
-- [ ] Install `.[test]` and record `pylint optyx` score + by-symbol census before any change
+- [x] Install `.[test]` and record `pylint optyx` score + by-symbol census before any change
 
 ## No secrets
 
