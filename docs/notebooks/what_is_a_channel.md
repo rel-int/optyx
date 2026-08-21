@@ -341,12 +341,16 @@ for _t in (0, 2, 8):
 The distribution it settles into is the **fixed point** of the loop:
 the stationary state of the channel that one time step induces on the
 memory. `eigen_fix` computes it directly, by diagonalising that transfer
-channel instead of iterating it — and for lossy loops, `fix` approximates
-it by contracting an unrolling of certified depth:
+channel instead of iterating it, and `fix` approximates it by contracting
+an unrolling whose depth is certified from the loop's optical matrix —
+here five time steps suffice. The two agree:
 
 ```python {.marimo}
-{count: p for count, p in
- measured.eigen_fix(chi=8).prob_dist(round_digits=4).items() if p}
+print({count: p for count, p in
+       measured.eigen_fix(chi=8).prob_dist(round_digits=4).items() if p})
+print({count: p for count, p in
+       measured.fix(tol=1e-3, chi=None).prob_dist(round_digits=4).items()
+       if p})
 ```
 
 ## 9. The universal setup
@@ -447,11 +451,12 @@ for _t in (0, 2, 5, 10):
     print(_t, setup.at_time(_t).eval().prob_dist(round_digits=4))
 ```
 
-and both fixed-point methods agree on where it converges to:
+and `eigen_fix` computes the distribution it converges to directly —
+the optical depth certificate of `fix` covers purely photonic loops, not
+a memory carrying a classical control bit:
 
 ```python {.marimo}
-print(setup.eigen_fix(tol=1e-6).prob_dist(round_digits=4))
-print(setup.fix(tol=1e-3, loss=0.4, chi=None).prob_dist(round_digits=4))
+setup.eigen_fix(tol=1e-6).prob_dist(round_digits=4)
 ```
 
 So, what is a channel? It is the one interface behind every box in this
