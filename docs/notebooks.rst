@@ -9,6 +9,7 @@ Here we give examples of using ``optyx``:
 
     notebooks/fixpoints
     notebooks/beyond_1wl
+    notebooks/beyond_3wl
     notebooks/feed_forward_example.ipynb
     notebooks/optyx-compilation.ipynb
     notebooks/optyx-vqe-experiment.ipynb

@@ -488,3 +488,68 @@ into it map swaps to path matrices.
 - [x] Close the discopy
       hosting PR discopy#593: closed, discopy#585 can use discopy#399
       as base.
+
+## Active photonics: classical feed-forward (2026-08-20)
+
+> Add classical feedforward to the stateful channel and see if you can separate
+> between Rook and Shriklande. Open a separate pull request with the full
+> experiment, saying how which k-WL can be separated with passive vs active
+> photonics
+
+- [x] Classical feed-forward
+      in the cell: threshold detection on the tap, the outcome stored in
+      a classical `bit` in the memory and *broadcast one hop along the
+      edges* (the ports become `qmode @ bit`), the stored bit controlling
+      a second beam splitter — drawn as a stateful channel with
+      `Create(1)` in the loop — and an exact two-photon simulation of
+      the post-selected sector of the homogeneous drive. Measured, with
+      the separation of rook 4x4 from Shrikhande: kick off, exactly
+      blind (7e-18); detection re-programming only its own cell, still
+      exactly blind (7e-18) — strong regularity absorbs one marked
+      vertex; detection broadcast one hop, separation 1.7e-3 at twelve
+      ticks (~9e6 post-selected pairs at five sigma), the classical
+      layer writing the 2C3-vs-C6 neighbourhood into the optics. A
+      conditional *phase* never separates however applied to one cell:
+      conditional phases sit inside the gauge freedom. Addresses
+      rel-int/optyx#60.
+- [x] A separate pull
+      request with the full experiment as a self-contained docs notebook,
+      stating which k-WL classes passive and active photonics separate,
+      with references: `docs/notebooks/beyond_3wl.ipynb`, committed
+      executed, validated against `CMap.step.to_path()` and the
+      contraction of `CMap.unroll` at machine precision.
+
+## Literature positioning and paper proposal (2026-08-20)
+
+> Can you look in the literature if anyone already showed that quantum models
+> can separate graphs beyond 1-WL?
+
+> Can you look more closely at the Kashefi paper? Except for the photonics, is
+> there a difference between their message passing GNNs and our model? What
+> does their result say about j-WL separation? At first glance it seems that
+> they show that these QGNNs can distinguish up to 4-WL and not further, but
+> there's some weird j-1 happening
+
+> Ok that's interesting. Fold this in the notebook explanation and add a
+> markdown file with a proposal for a new paper, introducing our quantum Map
+> neural networks, their photonic instantiations and their advantage compared
+> to previous models, with a proposal for experiments to show separations and
+> the potential of our new model
+
+- [x] Fold the literature
+      into `docs/notebooks/beyond_3wl.ipynb`: prior quantum-beyond-1WL
+      work (Emms et al. walk spectra, the cellular-algebra limitation
+      theorems, EQGC, the Raj et al. message-passing QGNN) and the
+      precise reading of arXiv:2606.26873 — set-based j-WL is tuple
+      (j-1)-WL, proved for j <= 4, so their guarantee tops out at
+      tuple 3-WL and cannot cover same-parameter strongly regular
+      pairs; purely unitary circuits with no measurement in the loop.
+- [x] A markdown proposal
+      for a new paper introducing quantum Map neural networks, their
+      photonic instantiation, their advantages over previous models,
+      and the experiments to run:
+      `docs/quantum_map_neural_networks.md`, with six proposed
+      experiments (broadcast-radius ladder on CFI/BREC, the
+      generalized-quadrangle pairs where walk invariants failed,
+      trained cells with the bit-wire ablation, deeper photon
+      sectors, the theory obligations, hardware feasibility).
