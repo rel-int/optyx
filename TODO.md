@@ -181,11 +181,19 @@ are what the Sudoku notebook was missing.
       dependency `graphix` and `cotengra` through `quimb`. Worth declaring
       both explicitly in `pyproject.toml` since `optyx.channel` and
       `optyx.core.contract` import them at module level — file as an issue.
-- [ ] Get one green run of `lint`, `test` and `docs` on this branch. The
-      failures of 2026-08-06 after 15:38 UTC are runner-side
-      ("Failed to resolve action download info: Service Unavailable"), so the
-      first job is to distinguish them from ours by rerunning.
-- [ ] Merge the target branch in (never rebase, per RULES.md) and rerun.
+- [x] Get one green run of `lint`, `test` and `docs` on this branch.
+      Verified 2026-08-19: GitHub check-runs on the head commit are all
+      `success` (lint, test, docs), and reproduced locally under
+      Python 3.12 — `pflake8 optyx` clean; `pylint optyx --fail-under=9`
+      (the CI invocation) rates 9.57/10; `coverage run -m pytest` passes
+      1286 tests, `coverage report --fail-under=95` passes at 95% total;
+      the docs job's `jupyter nbconvert --execute
+      docs/notebooks/fixpoints.ipynb` and `sphinx-build docs
+      docs/_build/html` both complete without error.
+- [x] Merge the target branch in (never rebase, per RULES.md) and rerun.
+      `git merge-base --is-ancestor
+      origin/claude/optyx-new-module-plan-p4k3ip HEAD` is already true —
+      the base is fully contained in this branch, nothing to merge.
 
 ## Proposal A — XOR chains: propagation over a distance
 
@@ -247,13 +255,22 @@ of Fock statistics is a permanent/hafnian of the adjacency matrix, which
 Brádler et al. show is a complete set of graph invariants. Running the same
 `CMap` with `bit` wires is the controlled ablation and must sit at chance.
 
-- [ ] Generator for the three 1-WL-equivalent pairs plus a 1-WL check, so the
-      indistinguishability is asserted rather than asserted-in-prose.
-- [ ] Encode a graph as a `CMap` and read out photon-number statistics;
+- [x] Generator for the three 1-WL-equivalent pairs plus a 1-WL check, so the
+      indistinguishability is asserted rather than asserted-in-prose:
+      `examples/beyond_1wl.py`, asserted in `test/test_beyond_1wl.py`.
+- [x] Encode a graph as a `CMap` and read out photon-number statistics;
       report the separation margin against shot noise for a stated sample
-      count, not just the exact amplitude.
-- [ ] Classical `bit`-wire ablation at chance, and a randomly rewired control.
-- [ ] Say plainly in the notebook what this does and does not show: it is a
+      count, not just the exact amplitude: margins 1.6e-2 (2C3/C6),
+      2.2e-3 (2C6/C12), 4.3e-3 (decalin/bicyclopentyl), i.e. 1e5 to 5e6
+      shots per vertex for five sigma; rook/Shrikhande are cospectral, so
+      one photon measurably does not separate them (Gamble et al., PRA
+      81, 052313).
+- [x] Classical ablation at chance and a control that must separate: the
+      decohered run of the same map (photon measured every tick) is exact
+      zero on every 1-WL pair while separating `C6 vs P6`; the vanilla
+      GNN and the MapNN land on the same bound. The `bit`-wire CMap form
+      of the ablation stays open below.
+- [x] Say plainly in the notebook what this does and does not show: it is a
       separation on graph invariants, related to walk and matching counts, not
       evidence of constraint propagation. Proposal A carries that claim.
 
@@ -324,13 +341,150 @@ minus everything that only existed to make a 660-box network fit.
 
 ## Docs and checks
 
-- [ ] `pflake8 optyx`, `pylint optyx/interaction.py optyx/core/contract.py
+- [x] `pflake8 optyx`, `pylint optyx/interaction.py optyx/core/contract.py
       --fail-under=9`, `coverage run -m pytest` with coverage at least 95%.
+      `optyx/core/contract.py` no longer exists — removed by this PR's own
+      "Remove `optyx.core.contract`" point above — so `pylint` is run on
+      `optyx/interaction.py` alone (9.80/10) and, matching the CI `lint`
+      job's actual invocation, on the whole package (9.57/10); both clear
+      `--fail-under=9`. `pflake8 optyx` is clean. `coverage run -m pytest`
+      passes 1286 tests; `coverage report -m` is 95% total (module-level
+      lowest is `optyx/core/backends.py` and `optyx/qubits.py` at 92-93%),
+      matching CI's `coverage report --fail-under=95`.
 - [x] Module documentation explaining how recurrent tensor networks are
       constructed from a `CMap`: one tick as `read >> parallel >> write`,
       `protocol` as delayed feedback, `unroll` as a finite channel diagram,
       `double().to_tensor().to_map()` down to `contract_tensor`, with
       doctested drawings of the protocol and its unrolling.
-- [ ] A drawing of a box with memory and prediction wires in the module
+- [x] A drawing of a box with memory and prediction wires in the module
       docstring, and `docs/api.rst` entry (already added) rendering.
+      `docs/api.rst:11` already lists `optyx.interaction`, confirmed
+      rendering in the local `sphinx-build` above. Judgement call on the
+      drawing: `optyx/interaction.py`'s module docstring already draws
+      `triangle.step`/`.protocol`/`two_ticks` (its `cell` box has both
+      `memory` and `prediction`), and the `Box` docstring has a runnable
+      `memory=qubit, prediction=qubit` example; on top of that, the
+      "One box is a stateful channel" section of
+      `docs/notebooks/beyond_1wl.ipynb` (added for the 2026-08-18 "Driven
+      protocol" point above) draws exactly this — a single box's local
+      channel with the memory fed back, `Create(1)` and its prediction
+      tap. No further diagram needed.
 - [ ] File as issues anything left unchecked when this PR is signed off.
+      Done for this PR's own scope: the two items superseded by the
+      2026-08-19 single-notebook revision are filed as rel-int/optyx#59
+      and rel-int/optyx#60 and checked off above. Left open: `Proposal A`,
+      `Proposal C` and `Contraction work these need` stay unchecked and
+      unfiled on purpose — they are a different, larger piece of scope
+      (training runs, maze scale-up) explicitly gated on an unresolved
+      process question, whether an unattended overnight session may spend
+      compute on multi-hour training (giodefelice/desire#17, open). Not
+      this bounded pass's call to file or close; revisit once #17 answers.
+
+## Proposal B as three models (2026-08-18)
+
+> Implement proposal B in https://github.com/rel-int/optyx/pull/16 as a
+> comparison between three models: 1. A vanilla GNN, 2. a MapNN from
+> discopy.neural, and 3. an optyx.interaction.CMap where nodes are
+> interferometers with coherent memory and coherent messages
+
+- [x] Vanilla GNN: a textbook isotropic MPNN with permutation-invariant
+      readout, run on the 1-WL-equivalent pairs; its outputs on the two
+      graphs of a pair must be equal to float precision, over random
+      parameter draws — the 1-WL bound observed, not assumed.
+- [x] MapNN from `discopy.neural` (discopy#585): the same graphs
+      interpreted as port-addressed interaction maps, same invariant
+      readout, measured under the same separation test.
+- [x] Photonic `CMap`: one `interaction.Box` per vertex, one `qmode`
+      port per incident edge, a `qmode` coherent memory and a prediction
+      tap; boxes are interferometers (beam splitters and phase shifters),
+      one photon injected through the initial memory, escape-time and
+      per-mode photon statistics as the readout.
+- [x] Notebook `examples/beyond_1wl.ipynb` running all three models on
+      the same pairs with the separation margin against shot noise, and
+      stating what the comparison does and does not show.
+
+Found while running the three models against discopy main (which
+`discopy.neural` needs): two incompatibilities with the pinned discopy,
+fixed here so that optyx runs on both — `unpack_layer` in
+`optyx.utils.misc` replaces the pre-discopy#438 alternating-layer
+indexing, and `optyx.core.path.Matrix` gets `@factory` so that functors
+into it map swaps to path matrices.
+
+- [x] `bit`-wire `CMap` ablation: the decohered walk of the notebook,
+      expressed as the same `CMap` with classical wires. Superseded by the
+      2026-08-19 single-notebook scope (no torch/discopy.neural, notebook
+      only); filed as rel-int/optyx#59.
+- [x] Multi-photon rook-vs-Shrikhande: needs interactions or measurement
+      feedback (KLM) beyond one photon, and multi-photon contraction.
+      Superseded by the 2026-08-19 instruction excluding rook vs
+      Shrikhande from the notebook as too expensive; filed as
+      rel-int/optyx#60.
+
+## Driven protocol (2026-08-18)
+
+> For the photonic CMap, the initial state in the memory should be Create(0),
+> one photon should be input at every time step. Let's see if we can separate
+> Rook and Shrikhande too. To illustrate the model, draw the interpretation of
+> a single box in the CMap as a stateful channel (instead of the step of the
+> protocol).
+
+- [x] Drive the map through the
+      boundary: vacuum initial memory, one photon injected at the source
+      vertex at every tick, the mechanism of `CMap.fix`'s `input_state`.
+- [x] Second-order photon
+      statistics: with several photons in flight, two-photon interference
+      gives permanental invariants beyond the single-particle spectrum;
+      measure whether they separate rook 4x4 from Shrikhande. Measured:
+      the driven margins grow to 3.5e-2 / 9.9e-3 / 1.5e-2 on the
+      non-cospectral pairs (2e4 to 2.5e5 shots per source for five
+      sigma), but rook vs Shrikhande stays at zero in the means, the
+      pairwise coincidences and the three-photon coincidences -- and
+      the two transfer matrices are equal up to an output relabelling
+      and a phase per injection tick, which every permanent modulus is
+      invariant under, so the statistics agree at every order however
+      many photons are injected. Gamble et al. (PRA 81, 052313) prove
+      the one- and two-walker cases for Hamiltonian walks; the
+      all-orders statement here is checked directly for this encoding.
+      The open item below sharpens to number-resolved feed-forward
+      inside the loop.
+- [x] Draw one box as a stateful
+      channel — its local channel with the memory fed back — instead of the
+      step of the protocol, in the notebook.
+
+## One self-contained docs notebook (2026-08-19)
+
+> Remove the hosting PR you've created in DisCoPy, you can just use
+> https://github.com/discopy/discopy/pull/399 as base. Also, edit the optyx PR
+> so that the contribution is a single self-contained notebook in the docs,
+> showing the separation for all the graphs you used except for Rook vs
+> Shriklande (that's too expensive for a documentation notebook). The notebook
+> should simply state at the beginning that GNNs (and MapNNs) provably cannot
+> distinguish between these graphs (giving a reference for GNNs). This way we
+> don't even need the pytorch and discopy neural import in the PR. The notebook
+> should be self-contained, defining the photonic CMap implementation and the
+> separation results.
+
+- [x] One self-contained
+      notebook in `docs/notebooks/`, defining the photonic `CMap`
+      implementation inline and showing the separation for every pair
+      except rook vs Shrikhande, stating up front that GNNs (and MapNNs)
+      provably cannot distinguish these graphs, with a reference:
+      `docs/notebooks/beyond_1wl.ipynb`, committed executed against the
+      pinned discopy and added to the docs toctree. Margins at eight
+      ticks: 3.5e-2 (2C3 vs C6), 6.3e-3 (2C6 vs C12), 1.0e-2 (decalin
+      vs bicyclopentyl), 4.2e-2 (control); decohered blind at 1e-16 on
+      every pair; the fast pipeline validated against the contraction
+      of `CMap.unroll` inside the notebook.
+- [x] Remove
+      `examples/beyond_1wl.py`, `examples/beyond_1wl.ipynb`,
+      `test/test_beyond_1wl.py`, the torch path and the discopy-main
+      compatibility changes, so the PR diff is the notebook alone. The
+      compatibility changes (`unpack_layer`, `@factory` on
+      `path.Matrix`) are reverted but preserved in history at d2e743c
+      should optyx move its discopy pin; the two determinism fixes stay
+      (seeded `chip_mzi`, exact contraction when the bonds fit
+      `max_chi`), since both repaired tests that failed intermittently
+      on this branch's CI.
+- [x] Close the discopy
+      hosting PR discopy#593: closed, discopy#585 can use discopy#399
+      as base.

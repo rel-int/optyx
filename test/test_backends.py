@@ -32,8 +32,9 @@ def _compare_prob_for_outcome(diagram, outcome):
 @pytest.mark.skip(reason="Helper function for testing")
 def chip_mzi(w, l):
     ansatz = photonic.ansatz(w, l)
-    symbs = list(ansatz.free_symbols)
-    s = [(i, np.random.uniform(0, 1)) for i in symbs]
+    symbs = sorted(ansatz.free_symbols, key=str)
+    rng = np.random.default_rng(0)
+    s = [(i, rng.uniform(0, 1)) for i in symbs]
     return ansatz.subs(*s)
 
 PURE_CIRCUITS_TO_TEST = [

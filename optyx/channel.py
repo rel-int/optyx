@@ -720,11 +720,8 @@ class Diagram(frobenius.Diagram):
                 or isinstance(max_steps, bool) or max_steps <= 0:
             raise ValueError("max_steps must be a positive integer.")
         backends = import_module("optyx.core.backends")
-        if backend is None:
-            backend = backends.QuimbBackend(
-                hyperoptimiser=None if max_chi is None
-                else HyperCompressedOptimizer())
-        elif not isinstance(backend, backends.AbstractBackend):
+        if backend is not None \
+                and not isinstance(backend, backends.AbstractBackend):
             raise ValueError(
                 "backend must implement the AbstractBackend interface.")
 
@@ -742,6 +739,13 @@ class Diagram(frobenius.Diagram):
         network = self.at_time(depth - 1)
 
         needed = max(network.truncation_dimensions(), default=1)
+        if backend is None:
+            # The hyperoptimised compressed contraction searches its paths
+            # at random; a network whose bonds fit in max_chi is contracted
+            # exactly instead, which is deterministic.
+            backend = backends.QuimbBackend(
+                hyperoptimiser=HyperCompressedOptimizer()
+                if max_chi is not None and needed > max_chi else None)
         if max_chi is not None and needed > max_chi:
             warnings.warn(
                 f"the contraction needs dimension {needed} but "
@@ -816,23 +820,26 @@ class Diagram(frobenius.Diagram):
                     or value <= 0:
                 raise ValueError(f"{name} must be a positive integer.")
         backends = import_module("optyx.core.backends")
-        backend = backends.QuimbBackend(
-            hyperoptimiser=None if max_chi is None
-            else HyperCompressedOptimizer())
         budgets = []
 
         def state_at(depth):
             network = self.at_time(depth)
             budgets.append(max(network.truncation_dimensions(), default=1))
-            if max_chi is not None and len(budgets) == 1 \
-                    and budgets[0] > max_chi:
+            # As in fix: compress only past max_chi, contract exactly --
+            # hence deterministically -- when the bonds fit.
+            compressed = max_chi is not None and budgets[-1] > max_chi
+            if compressed and all(
+                    budget <= max_chi for budget in budgets[:-1]):
                 warnings.warn(
-                    f"the contraction needs dimension {budgets[0]} but "
+                    f"the contraction needs dimension {budgets[-1]} but "
                     f"max_chi={max_chi}: the result is an approximation "
                     "with those bonds truncated down to max_chi.",
                     UserWarning, stacklevel=3)
+            backend = backends.QuimbBackend(
+                hyperoptimiser=HyperCompressedOptimizer()
+                if compressed else None)
             result = network.eval(backend, **(
-                {"max_bond": max_chi} if max_chi is not None else {}))
+                {"max_bond": max_chi} if compressed else {}))
             state = np.asarray(result.density_matrix)
             discarded = Discard(self.cod).double().to_tensor(
                 list(state.shape))
