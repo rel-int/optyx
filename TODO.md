@@ -6,3 +6,4 @@
 - [x] Make it the first notebook in `docs/notebooks.rst`
 - [x] Show the dual-rail GHZ as a Z spider with DualRail boxes, dropping the `to_dual_rail` path compilation
 - [x] Rework the universal setup class: parameters for dom, cod, classical/quantum memory types, Kraus-defined controlled unitary, per-tick state, initial memory state (default vacuum), feedforward; then the same example as a call showing the fixed point
+- [x] Convert `docs/notebooks/what_is_a_channel.ipynb` to a marimo `.md` notebook, matching the repo-wide Jupyter-to-marimo migration (`discopy/discopy#404`, `rel-int/optyx` main), verified to execute end to end
