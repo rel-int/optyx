@@ -6,11 +6,11 @@ Human prompt (verbatim):
 
 Work items:
 
-- [ ] Convert every `docs/notebooks/*.ipynb` to a marimo `.md` notebook (`marimo convert` + `marimo export md`), verifying each one still runs (or confirming any failure is a pre-existing bug unrelated to the conversion).
-- [ ] Convert every `examples/*.ipynb` to a marimo `.md` notebook the same way.
-- [ ] Wire up the docs build the way DisCoPy did (`docs/export_notebooks.py`, `docs/conf.py`, `docs/notebooks.rst`), dropping `nbsphinx`.
-- [ ] Update `.github/workflows/main.yml`, `pyproject.toml`, `.gitignore`, `CONTRIBUTING.md` for marimo instead of Jupyter/nbsphinx.
-- [ ] File GitHub issues for any pre-existing bugs/staleness found in the notebooks during conversion.
+- [x] Convert every `docs/notebooks/*.ipynb` to a marimo `.md` notebook (`marimo convert` + `marimo export md`), verifying each one still runs (or confirming any failure is a pre-existing bug unrelated to the conversion).
+- [x] Convert every `examples/*.ipynb` to a marimo `.md` notebook the same way.
+- [x] Wire up the docs build the way DisCoPy did (`docs/export_notebooks.py`, `docs/conf.py`, `docs/notebooks.rst`), dropping `nbsphinx`.
+- [x] Update `.github/workflows/main.yml`, `pyproject.toml`, `.gitignore`, `CONTRIBUTING.md` for marimo instead of Jupyter/nbsphinx.
+- [x] File GitHub issues for any pre-existing bugs/staleness found in the notebooks during conversion (#62, #63, #64, #65).
 - [ ] Open a draft PR against `main` with the conversion.
-- [ ] Enumerate every open PR in `rel-int/optyx`.
-- [ ] For each open PR that touches or adds notebooks, convert those notebooks to marimo too and push to the PR's branch.
+- [x] Enumerate every open PR in `rel-int/optyx`.
+- [ ] For each open PR that touches or adds notebooks, convert those notebooks to marimo too and push to the PR's branch (#61, #58, #39, #36, #15).

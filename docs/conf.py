@@ -2,6 +2,10 @@
 #
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
@@ -27,7 +31,6 @@ extensions = [
     'sphinx.ext.viewcode',
     'sphinx.ext.mathjax',
     'myst_parser',
-    'nbsphinx',
     'IPython.sphinxext.ipython_console_highlighting',
 ]
 autosummary_generate = True
@@ -41,7 +44,10 @@ autodoc_inherit_docstrings = False
 napoleon_use_admonition_for_examples = True
 
 templates_path = ['_templates']
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+# The marimo notebooks under ``notebooks/`` are plain-text ``.md`` files; they
+# are rendered to HTML by ``export_notebooks.py`` and embedded from the
+# generated ``.rst`` pages, so they must not be parsed as Sphinx source pages.
+exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', 'notebooks/*.md']
 
 intersphinx_mapping = {
     'discopy': ("https://docs.discopy.org/en/main/", None),
@@ -61,3 +67,10 @@ html_context = {
 }
 
 html_static_path = ['_static']
+
+
+def setup(app):
+    # Render the marimo notebooks (docs/notebooks/*.md) to computed HTML and
+    # generate the pages that embed them, before Sphinx reads the sources.
+    import export_notebooks
+    app.connect('builder-inited', lambda _app: export_notebooks.generate())
