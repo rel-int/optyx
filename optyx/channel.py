@@ -429,12 +429,12 @@ class Diagram(frobenius.Diagram):
                 f"type {iterated.dom}.")
         return iterated
 
-    def check_fixpoint(self, tol: float = 1e-6, max_chi: int = None):
+    def check_fixpoint(self, tol: float = 1e-6):
         """
         The guards :meth:`fix` and :meth:`eigen_fix` share: that this
-        diagram poses a fixpoint problem at all, and that the numbers asked
-        of it are in range. Raises rather than returning, since every
-        failure is a mistake in the call.
+        diagram poses a fixpoint problem at all, and that the requested
+        tolerance is in range. Solver-specific resources are validated by
+        the method that gives them meaning.
 
         >>> from optyx.qubits import Ket
         >>> try:
@@ -450,11 +450,6 @@ class Diagram(frobenius.Diagram):
             raise ValueError(
                 "The diagram has no feedback loop, so it is already its own "
                 "stationary state.")
-        if max_chi is not None and (not isinstance(max_chi, Integral)
-                                    or isinstance(max_chi, bool)
-                                    or max_chi <= 0):
-            raise ValueError(
-                "The truncation bound must be a positive integer.")
         if not isinstance(tol, Real) or isinstance(tol, bool) \
                 or not np.isfinite(tol) or tol <= 0:
             raise ValueError("tol must be a positive finite real number.")
@@ -536,7 +531,8 @@ class Diagram(frobenius.Diagram):
         return kraus
 
     def unroll_certificate(
-            self, tol: float = 1e-6, max_steps: int = None) -> int | None:
+            self, tol: float = 1e-6, max_steps: int = None,
+            max_occupation: int = None) -> int:
         """
         The smallest number of time steps whose last output is certified
         within `tol`, by the stationary boson-sampling bound of Armand Le
@@ -550,7 +546,18 @@ class Diagram(frobenius.Diagram):
         Here `V_ll` is the loop-to-loop block of the one-step optical
         matrix and `qbar` the largest fresh Fock occupation. The
         calculation is on `len(mem)` square matrices only; it builds no
-        Fock-space state.
+        Fock-space state. If `max_occupation` is supplied, it is a cutoff
+        on the *total* loop occupation. The certified error becomes
+
+        .. math::
+            \\Gamma(k) + 2\\Delta_N(k), \\qquad
+            \\Delta_N(k) = \\min\\left\\{1,
+                \\sum_{j=1}^k p_N(j)\\right\\},
+
+        where ``p_N(j)=0`` when the photon support at step ``j`` fits below
+        ``N``. Otherwise its exact transient first and second factorial
+        moments are computed from one-particle matrices. The resulting
+        tails scale respectively as ``1 / N`` and ``1 / N ** 2``.
 
         Loss is read off the diagram, not passed in: the one-step matrix is
         the path matrix of the loop's :meth:`dilate`, so a
@@ -558,12 +565,27 @@ class Diagram(frobenius.Diagram):
         environment in the loop enters `V_ll` as the isometry block it is,
         and shrinks its singular values by the amplitude it leaks.
 
-        Raises `NotImplementedError` when the bound does not apply — a
-        memory that is not all optical modes, more than one loop, boxes
+        With only `tol`, no Fock cutoff is imposed: the method returns the
+        first `k + 1` for which `Gamma(k) <= tol`, namely `k` burn-in steps
+        followed by one readout step. Thus the theorem bounds the required
+        depth and there is no photon-truncation contribution. Supplying
+        `max_occupation=N` instead certifies the same readout against the
+        combined error `Gamma(k) + 2 Delta_N(k)`.
+
+        `max_steps` is a resource ceiling, not a theorem assumption. If it
+        stops the search before the requested tolerance is certified, the
+        method warns with the best depth it did evaluate and the tolerance
+        guaranteed there, then returns that depth. Likewise, reaching more
+        than `N` photons does not immediately fail: it activates the tail
+        bound `Delta_N`. The search succeeds if the combined error still
+        reaches `tol`; otherwise it returns the best evaluated depth and
+        warns separately about its finite-depth and truncation errors.
+        Raises `NotImplementedError` when the theorem itself does not apply
+        — a memory that is not all optical modes, more than one loop, boxes
         with no path matrix, or a lossless loop block with spectral radius
-        one. :meth:`fix` then falls back on :meth:`power_fix`. If
-        `max_steps` is given, `None` means the cap was reached before the
-        bound fell below `tol`.
+        one. :meth:`fix` then falls back on :meth:`power_fix`.
+        `max_occupation` is not a tensor-network bond dimension;
+        compression error is outside this certificate.
 
         >>> from optyx import photonic
         >>> loop = (photonic.Create(1) @ qmode
@@ -584,8 +606,16 @@ class Diagram(frobenius.Diagram):
         self.check_fixpoint(tol)
         if max_steps is not None and (
                 not isinstance(max_steps, Integral)
-                or isinstance(max_steps, bool) or max_steps <= 0):
-            raise ValueError("max_steps must be a positive integer.")
+                or isinstance(max_steps, bool) or max_steps < 2):
+            raise ValueError(
+                "max_steps must be at least 2: one burn-in step and one "
+                "readout step.")
+        if max_occupation is not None and (
+                not isinstance(max_occupation, Integral)
+                or isinstance(max_occupation, bool)
+                or max_occupation < 0):
+            raise ValueError(
+                "max_occupation must be a non-negative integer.")
         loops = [box for box in self.boxes if isinstance(box, Feedback)]
         if len(loops) != 1 or loops[0].dom or any(
                 ob.inside[0].name != "qmode" for ob in loops[0].mem):
@@ -593,42 +623,145 @@ class Diagram(frobenius.Diagram):
                 "The certificate needs a single feedback loop over "
                 "optical modes.")
         loop = loops[0]
+        assert loop.arg.dom == loop.mem
         try:
-            matrix = loop.arg.dilate().to_path()
-            isometry = np.asarray(matrix.array, dtype=complex)
+            path_matrix = loop.arg.dilate().to_path()
+            one_step_isometry = np.asarray(
+                path_matrix.array, dtype=complex)
         except (AssertionError, AttributeError, NotImplementedError,
                 TypeError, ValueError) as error:
             raise NotImplementedError(
-                "The loop has no one-step optical matrix.") from error
-        memory = len(loop.mem.single())
-        visible = len(loop.cod.single())
-        if matrix.dom != memory or matrix.cod < visible + memory \
-                or matrix.selections:
+                "The feedback step has no passive one-particle path "
+                "representation required by the certificate.") from error
+        n_memory_modes = len(loop.mem.single())
+        n_emitted_modes = len(loop.cod.single())
+        if path_matrix.dom != n_memory_modes:
+            raise RuntimeError(
+                "The path conversion did not preserve the feedback input "
+                "boundary.")
+        if path_matrix.cod < n_emitted_modes + n_memory_modes \
+                or path_matrix.selections:
             raise NotImplementedError(
-                "The loop's optical matrix does not split into visible, "
+                "The loop's optical matrix does not split into emitted, "
                 "memory and environment modes.")
-        if isometry.shape != (memory + len(matrix.creations), matrix.cod) \
+        if one_step_isometry.shape != (
+                n_memory_modes + len(path_matrix.creations),
+                path_matrix.cod) \
                 or not np.allclose(
-                    isometry @ isometry.conjugate().T,
-                    np.eye(len(isometry))):
+                    one_step_isometry @ one_step_isometry.conjugate().T,
+                    np.eye(len(one_step_isometry))):
             raise NotImplementedError(
                 "The loop's optical matrix is not an isometry.")
-        block = isometry[:memory, visible:visible + memory]
-        if max(abs(np.linalg.eigvals(block)), default=0) >= 1:
+        memory_block = one_step_isometry[
+            :n_memory_modes,
+            n_emitted_modes:n_emitted_modes + n_memory_modes]
+        if max(abs(np.linalg.eigvals(memory_block)), default=0) >= 1:
             raise NotImplementedError(
-                "The loop block does not satisfy rho(V_ll) < 1: nothing "
-                "ever leaves the loop, so no depth is certified.")
-        qbar = max(matrix.creations, default=0)
+                "The loop block does not satisfy rho(V_ll) < 1: a memory "
+                "direction does not decay, so no depth is certified.")
+        qbar = max(path_matrix.creations, default=0)
         constant = (qbar + 1) * (
             np.sqrt(6 * qbar * (qbar + 1)) + qbar)
-        power, burn_in = np.eye(memory), 0
+
+        memory_block_T = memory_block.T
+        one_particle_correlation = None
+        injection_correlation = None
+        injection_power = None
+        reachable_injection = None
+        loop_adjacency = None
+        if max_occupation is not None:
+            injection = one_step_isometry[
+                n_memory_modes:,
+                n_emitted_modes:n_emitted_modes + n_memory_modes].T
+            occupations = np.asarray(path_matrix.creations, dtype=float)
+            injection_correlation = (
+                injection * occupations) @ injection.conjugate().T
+            one_particle_correlation = np.zeros(
+                (n_memory_modes, n_memory_modes), dtype=complex)
+            injection_power = injection.copy()
+            reachable_injection = injection != 0
+            loop_adjacency = memory_block != 0
+
+        power, burn_in = np.eye(n_memory_modes), 0
+        cumulative_tail = factorial_correction = 0.
+        required_occupation = 0
+        best = None
         while max_steps is None or burn_in < max_steps - 1:
-            power, burn_in = block @ power, burn_in + 1
+            power, burn_in = memory_block @ power, burn_in + 1
             singular = np.clip(
                 np.linalg.svd(power, compute_uv=False), 0, 1)
-            if 4 * constant * np.sum(np.arcsin(singular) ** 2) <= tol:
+            error_n_steps = float(
+                4 * constant * np.sum(np.arcsin(singular) ** 2))
+
+            error_truncation = 0.
+            if max_occupation is not None:
+                one_particle_correlation = (
+                    memory_block_T @ one_particle_correlation
+                    @ memory_block_T.conjugate().T
+                    + injection_correlation)
+                transient_mean = max(
+                    0., float(np.real(np.trace(
+                        one_particle_correlation))))
+                column_survival = np.sum(
+                    abs(injection_power) ** 2, axis=0)
+                factorial_correction += float(np.sum(
+                    occupations * (occupations + 1)
+                    * column_survival ** 2))
+                required_occupation += int(sum(
+                    occupation for occupation, reachable in zip(
+                        path_matrix.creations,
+                        np.any(reachable_injection, axis=0)) if reachable))
+                if required_occupation > max_occupation:
+                    tail = min(
+                        1., transient_mean / (max_occupation + 1))
+                    if max_occupation:
+                        factorial_moment = max(0., float(np.real(
+                            transient_mean ** 2
+                            + np.vdot(
+                                one_particle_correlation,
+                                one_particle_correlation)
+                            - factorial_correction)))
+                        tail = min(
+                            tail, factorial_moment
+                            / (max_occupation * (max_occupation + 1)))
+                    cumulative_tail = min(
+                        1., cumulative_tail + tail)
+                error_truncation = 2 * cumulative_tail
+                reachable_injection = (
+                    loop_adjacency.T.astype(int)
+                    @ reachable_injection.astype(int)).astype(bool)
+                injection_power = (
+                    memory_block_T @ injection_power)
+
+            error_total = min(
+                2., error_n_steps + error_truncation)
+            if best is None or error_total < best[-1]:
+                best = (burn_in, error_n_steps, error_truncation,
+                        required_occupation, error_total)
+            if error_total <= tol:
                 return burn_in + 1
-        return None
+            if max_occupation is not None and error_truncation >= tol:
+                break
+
+        burn_in, error_n_steps, error_truncation, required_occupation, \
+            error_total = best
+        if max_occupation is None:
+            message = (
+                f"tol={tol} is not certified within max_steps={max_steps}. "
+                f"At the best burn-in k={burn_in}, the finite-depth error "
+                f"is {error_n_steps:.6g}, so the certified tolerance is "
+                f"{error_total:.6g}.")
+        else:
+            message = (
+                f"tol={tol} is not certified by the supplied resources. "
+                f"At the best burn-in k={burn_in}, max_steps={max_steps} "
+                f"permits error_n_steps={error_n_steps:.6g}; "
+                f"max_occupation={max_occupation} versus required "
+                f"occupation {required_occupation} permits "
+                f"error_truncation={error_truncation:.6g}; the certified "
+                f"total tolerance is {error_total:.6g}.")
+        warnings.warn(message, UserWarning, stacklevel=2)
+        return burn_in + 1
 
     def truncation_dimensions(self) -> list[int]:
         """
@@ -715,10 +848,16 @@ class Diagram(frobenius.Diagram):
         See :doc:`/notebooks/fixpoints` for the semantic diagram, agreement
         map and contraction planning.
         """
-        self.check_fixpoint(tol, max_chi)
+        self.check_fixpoint(tol)
+        if max_chi is not None and (
+                not isinstance(max_chi, Integral)
+                or isinstance(max_chi, bool) or max_chi <= 0):
+            raise ValueError("max_chi must be a positive integer or None.")
         if not isinstance(max_steps, Integral) \
-                or isinstance(max_steps, bool) or max_steps <= 0:
-            raise ValueError("max_steps must be a positive integer.")
+                or isinstance(max_steps, bool) or max_steps < 2:
+            raise ValueError(
+                "max_steps must be at least 2: one burn-in step and one "
+                "readout step.")
         backends = import_module("optyx.core.backends")
         if backend is None:
             backend = backends.QuimbBackend(
@@ -733,12 +872,7 @@ class Diagram(frobenius.Diagram):
         except NotImplementedError:
             return self.power_fix(
                 tol, max_steps=max_steps, max_chi=max_chi)
-        depth = max_steps if certified is None else certified
-        if certified is None:
-            warnings.warn(
-                f"max_steps={max_steps} stops before the stationary "
-                f"boson-sampling bound reaches tol={tol}: the result is not "
-                "certified.", UserWarning, stacklevel=2)
+        depth = certified
         network = self.at_time(depth - 1)
 
         needed = max(network.truncation_dimensions(), default=1)
@@ -809,7 +943,11 @@ class Diagram(frobenius.Diagram):
         ...     result.density_matrix,
         ...     loop.eigen_fix().density_matrix, atol=1e-2)
         """
-        self.check_fixpoint(tol, max_chi)
+        self.check_fixpoint(tol)
+        if max_chi is not None and (
+                not isinstance(max_chi, Integral)
+                or isinstance(max_chi, bool) or max_chi <= 0):
+            raise ValueError("max_chi must be a positive integer or None.")
         for name, value in {
                 "n_steps": n_steps, "max_steps": max_steps}.items():
             if not isinstance(value, Integral) or isinstance(value, bool) \
@@ -923,7 +1061,12 @@ class Diagram(frobenius.Diagram):
         ...     delay.eigen_fix().density_matrix, [[0, 0], [0, 1]],
         ...     atol=1e-6)
         """
-        self.check_fixpoint(tol, max_truncation)
+        self.check_fixpoint(tol)
+        if not isinstance(max_truncation, Integral) \
+                or isinstance(max_truncation, bool) \
+                or max_truncation <= 0:
+            raise ValueError(
+                "max_truncation must be a positive integer.")
         step = self.one_step()
         memory = step.cod[len(self.cod):]
         transfer = step >> Discard(self.cod) @ self.id(memory)
