@@ -62,3 +62,18 @@ def test_from_bosonic_op():
     sum_2 = np.sign(hamiltonian.eval().tensor.array) # bug in discopy.tensor.Tensor.eval() for Sums (?)
 
     assert np.allclose(sum_2, sum_1)
+
+def test_measure_inflate_mixed_types():
+    dom = qubit @ bit @ qmode @ mode
+    assert Measure(dom).inflate(2).dom == dom.inflate(2)
+
+
+def test_encode_inflate_mixed_types():
+    dom = qubit @ bit @ qmode @ mode
+    encode = Encode(dom, internal_states=([1, 0],))
+    assert encode.inflate(2).dom == dom.inflate(2)
+
+
+def test_dual_rail_only_for_zx_channels():
+    with pytest.raises(TypeError):
+        Channel("id", diagram.Id(diagram.mode)).dual_rail()

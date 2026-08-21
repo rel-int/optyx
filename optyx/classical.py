@@ -620,10 +620,10 @@ class ClassicalFunction(ControlChannel):
             box.name,
             box,
             channel.Ty(
-                *[channel.Ob._classical[ob.name] for ob in box.dom.inside]
+                *[channel.Ob.classical[ob.name] for ob in box.dom.inside]
             ),
             channel.Ty(
-                *[channel.Ob._classical[ob.name] for ob in box.cod.inside]
+                *[channel.Ob.classical[ob.name] for ob in box.cod.inside]
             ),
         )
 
@@ -649,10 +649,10 @@ class BinaryMatrix(ControlChannel):
             box.name,
             box,
             channel.Ty(
-                *[channel.Ob._classical[ob.name] for ob in box.dom.inside]
+                *[channel.Ob.classical[ob.name] for ob in box.dom.inside]
             ),
             channel.Ty(
-                *[channel.Ob._classical[ob.name] for ob in box.cod.inside]
+                *[channel.Ob.classical[ob.name] for ob in box.cod.inside]
             ),
         )
 
