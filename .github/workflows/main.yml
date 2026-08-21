@@ -55,6 +55,10 @@ jobs:
           echo '```'
         } >> "$GITHUB_STEP_SUMMARY"
         coverage report --fail-under=95
+    - name: Test notebooks
+      run:
+        # Execute every marimo notebook and fail if any cell errors.
+        python docs/export_notebooks.py --check
   docs:
     runs-on: ubuntu-latest
     steps:
@@ -76,9 +80,7 @@ jobs:
           ${{ runner.os }}-docs
     - name: Install
       if: steps.cache.outputs.cache-hit != 'true'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y pandoc
+      run:
         pip install .[docs]
     - name: Build
       if: steps.cache.outputs.cache-hit != 'true'

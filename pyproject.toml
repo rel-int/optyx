@@ -46,14 +46,27 @@ test = [
     "pylint",
     "pytest",
     "pyzx",
+    "marimo",
+    # executed by the docs/example notebooks
+    "cotengra",
+    "matplotlib",
+    "pandas",
+    "seaborn",
+    "tqdm",
 ]
 docs = [
     "sphinx",
     "myst-parser",
-    "nbsphinx",
+    "marimo",
     "ipykernel",
     "IPython",
     "sphinx-rtd-theme",
+    # executed by marimo when rendering the notebooks at docs build time
+    "cotengra",
+    "matplotlib",
+    "pandas",
+    "seaborn",
+    "tqdm",
 ]
 
 [project.urls]

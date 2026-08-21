@@ -42,8 +42,6 @@ Doctests in the source are part of the suite (`--doctest-modules` in
 
 ## Build the docs
 
-You'll need [pandoc](https://pandoc.org/) as an external dependency:
-
 ```shell
 pip install -e '.[docs]'
 sphinx-build docs docs/_build/html
