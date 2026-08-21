@@ -8,6 +8,7 @@ API
     optyx.channel
     optyx.core
     optyx.classical
+    optyx.interaction
     optyx.photonic
     optyx.qubits
     optyx.compiler
