@@ -400,3 +400,99 @@ def test_truncation_dimensions_are_the_photon_budget():
         chain = chain >> photonic.Id(len(chain.cod) - 1) @ tail
     assert chain.truncation_dimensions() == [2, 2, 3, 3, 4, 4, 5, 5, 5, 5]
     assert qubits.Z(1, 2).truncation_dimensions() == [2, 2, 2, 2]
+
+
+def trace_norm(left, right):
+    """Trace distance of two density matrices, the smaller zero-padded."""
+    size = max(left.shape[0], right.shape[0])
+    padded = (np.pad(x, [(0, size - x.shape[0])] * 2) for x in (left, right))
+    return np.abs(np.linalg.eigvalsh(next(padded) - next(padded))).sum()
+
+
+def test_unroll_certificate_needs_no_loss():
+    """The certificate reads the depth off the loop block, so a lossless
+    loop gets one wherever the block is a strict contraction — while a
+    loop with no optical matrix to read still needs a loss."""
+    reflectivity = [[.6, .8], [.8, -.6]]
+    assert channel.unroll_certificate(reflectivity, 1, tol=1e-6) == 18
+    with pytest.raises(NotImplementedError, match="No lossless depth"):
+        source().unroll_depth(1e-6, loss=0)
+
+
+def test_unroll_certificate_of_a_delay_is_one_step():
+    """The OBS embedding: a swap makes the loop a delay line, the loop
+    block vanishes, and the fixpoint is reached in a single round trip."""
+    assert channel.unroll_certificate([[0, 1], [1, 0]], 1) == 1
+
+
+def test_unroll_certificate_refuses_a_closed_loop():
+    """The identity keeps all its light, so no depth is ever certified."""
+    with pytest.raises(ValueError, match="keeps too much light"):
+        channel.unroll_certificate(np.eye(2), 2, max_steps=100)
+
+
+def test_unroll_certificate_respects_the_unitarity_floor():
+    """The loop only leaks through the external wires: with L loop modes
+    and one external wire the certificate is at least L."""
+    size = 4
+    rng = np.random.default_rng(7)
+    factors = np.linalg.qr(
+        rng.normal(size=(size, size))
+        + 1j * rng.normal(size=(size, size)))
+    unitary = factors[0] * (
+        np.diag(factors[1]) / np.abs(np.diag(factors[1])))
+    loop_modes = size - 1
+    block = unitary[-loop_modes:, -loop_modes:]
+    for steps in range(1, loop_modes):
+        assert np.isclose(np.linalg.norm(
+            np.linalg.matrix_power(block, steps), 2), 1)
+    assert channel.unroll_certificate(
+        unitary, loop_modes, tol=1e-3) >= loop_modes
+
+
+def test_unroll_certificate_with_loss_matches_unroll_depth():
+    """Damping multiplies every singular value by the transmissivity per
+    round trip, so the certified depth tracks `unroll_depth` up to the
+    constant of the bound."""
+    depth = source().unroll_depth(1e-6, loss=.5)
+    certificate = channel.unroll_certificate(
+        np.eye(1), 1, tol=1e-6, loss=.5)
+    assert depth <= certificate <= depth + 7
+
+
+def test_unroll_certificate_bounds_the_loop_state():
+    """The claim itself, end to end: the certified bound dominates the
+    trace distance between the unrolled loop state and the fixpoint, and
+    decays at the second order of the loop block."""
+    angle = np.arccos(.3)
+    unitary = np.array([
+        [np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
+    closed = (photonic.Create(1) @ qmode
+              >> photonic.Gate(unitary, 2, 2, "U")
+              >> Discard(qmode) @ qmode).feedback(
+                  mem=qmode, state=photonic.Create(0))
+
+    def loop_state(steps):
+        return closed.unroll_with_boundaries(
+            steps - 1, effect=None).eval().density_matrix
+
+    kappa = 2 * (np.sqrt(12) + 1)
+    settled = loop_state(9)
+    for steps in (2, 3, 4):
+        bound = 4 * kappa * np.arcsin(.3 ** steps) ** 2
+        distance = trace_norm(settled, loop_state(steps))
+        assert distance <= bound <= 40 * distance
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"loop_modes": 0}, {"loop_modes": 3}, {"loop_modes": 1.5},
+    {"tol": 0}, {"tol": np.nan}, {"loss": 1}, {"max_photons": -1},
+])
+def test_unroll_certificate_validates_parameters(kwargs):
+    with pytest.raises(ValueError):
+        channel.unroll_certificate(np.eye(2), **{"loop_modes": 1, **kwargs})
+
+
+def test_unroll_certificate_wants_a_unitary():
+    with pytest.raises(ValueError, match="unitary"):
+        channel.unroll_certificate([[1, 0], [1, 1]], 1)
