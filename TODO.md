@@ -8,3 +8,7 @@
 - [WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-22 06:45 Benchmark all five models over the ladder, tensor-network contraction (quimb, GPU via Modal if available) for the qubit models, trimming expensive cells with an explicit log rather than silently
 - [WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-22 06:45 Committed results (CSV + report) with validation: probability conservation and relabelling invariance, exact zeros stated as measured
 - [WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-22 06:45 Lint and tests green (fast smoke test in `test/`), draft PR stacked on #61
+
+> Once you see that the model doesn't separate, don't keep runnning it for higher ks. Focus on the ones that climb
+
+- [WIP] @01AdC8wUqUgpSYLjK56Dvhy9-2026-08-22 14:45 Prune the benchmark accordingly: passive and Bell stop at the 2-FWL rung, active one-hop stops at the CFI pairs it measures zero on; add the relayed-broadcast (flooding) active cell — the one that can still climb — and run it up the CFI rungs pair by pair, stopping at the first rung it fails
