@@ -50,3 +50,5 @@ control-c6-vs-p6,control,qubit-ff,3,exact,trajectories,nan,nan,4500.0,trimmed: e
 regular-24~relabel,1fwl-blind,passive,8,exact,all-pairs,6.938894e-18,0.00e+00,1.2,
 regular-24~relabel,1fwl-blind,bell,8,exact,all-pairs,3.469447e-18,4.22e-15,3.8,
 regular-24~relabel,1fwl-blind,active,8,exact,all-pairs,6.938894e-18,0.00e+00,7.8,
+regular-24~relabel,1fwl-blind,active-flood,8,exact,all-pairs,6.938894e-18,1.11e-16,7.7,
+str-00~relabel,2fwl-blind,active,8,exact,all-pairs,1.387779e-17,3.77e-15,108.4,
