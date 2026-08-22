@@ -37,7 +37,7 @@ FIELDS = ["pair", "rung", "model", "ticks", "engine", "ensemble",
           "separation", "mass_error", "seconds", "notes"]
 
 EDGE_ENSEMBLE_N = 40
-PHOTONIC = ("passive", "bell", "active")
+PHOTONIC = ("passive", "bell", "active", "active-flood")
 RELABEL_SEED = 7
 
 
@@ -74,14 +74,9 @@ def photonic_bins(name, graph, ticks):
     ensemble = None
     if len(graph) > EDGE_ENSEMBLE_N:
         ensemble = edges_of(graph)
-    if name == "active":
-        machine = machine_for(model, graph)
-        bins = aggregate(machine, ticks, engine="branch",
-                         ensemble=ensemble)
-    else:
-        machine = machine_for(model, graph)
-        bins = aggregate(machine, ticks, engine="spacetime",
-                         ensemble=ensemble)
+    machine = machine_for(model, graph)
+    engine = "branch" if name.startswith("active") else "spacetime"
+    bins = aggregate(machine, ticks, engine=engine, ensemble=ensemble)
     return bins, ("all-pairs" if ensemble is None else "edges")
 
 

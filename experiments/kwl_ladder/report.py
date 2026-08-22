@@ -10,7 +10,8 @@ from collections import OrderedDict
 
 RESULTS = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "results")
-MODELS = ("passive", "bell", "active", "qubit", "qubit-ff")
+MODELS = ("passive", "bell", "active", "active-flood", "qubit",
+          "qubit-ff")
 RUNGS = ("control", "1fwl-blind", "2fwl-blind", "3fwl-blind")
 
 

@@ -203,13 +203,16 @@ class BellModel(Model):
 class ActiveModel(Model):
     """The active cell of ``beyond_3wl``: classical bits beside the
     coherent messages, a threshold detector on the tap, the click
-    broadcast one hop, the latched bit re-programming the tap."""
+    broadcast one hop, the latched bit re-programming the tap. With
+    ``flood`` the cell broadcasts its latch instead of its click, so
+    every cell relays the bits it receives and a click spreads one
+    further hop per tick."""
 
-    name = "active"
     atoms = 2
 
-    def __init__(self, tap=0.3, kick=0.5):
-        self.tap, self.kick = tap, kick
+    def __init__(self, tap=0.3, kick=0.5, flood=False):
+        self.tap, self.kick, self.flood = tap, kick, flood
+        self.name = "active-flood" if flood else "active"
 
     def port(self, position):
         return 1 + 2 * position
@@ -239,17 +242,23 @@ class ActiveModel(Model):
             @ classical.BitControlledGate(TBS(kick)) @ bit
             >> Diagram.id(qmode ** modes)
             @ photonic.PhotonThresholdMeasurement() @ bit
-            >> Diagram.id(qmode ** modes)
-            @ classical.CopyBit(degree + 2) @ bit
-            >> Diagram.id(qmode ** modes @ bit ** (degree + 1))
-            @ classical.Or(2))
+            >> (Diagram.id(qmode ** modes)
+                @ classical.Or(2)
+                >> Diagram.id(qmode ** modes)
+                @ classical.CopyBit(degree + 2)
+                if self.flood else
+                Diagram.id(qmode ** modes)
+                @ classical.CopyBit(degree + 2) @ bit
+                >> Diagram.id(qmode ** modes @ bit ** (degree + 1))
+                @ classical.Or(2)))
         n_wires = modes + degree + 2
         gather = ([0] + [i for j in range(degree)
                          for i in (1 + j, modes + j)]
                   + [modes - 1, n_wires - 1, modes + degree])
         channel = channel >> Diagram.permutation(gather, channel.cod)
-        return Box(f"active{degree}", qmode, (qmode @ bit) ** degree,
-                   channel, memory=qmode @ bit, prediction=bit)
+        return Box(f"{self.name}{degree}", qmode,
+                   (qmode @ bit) ** degree, channel,
+                   memory=qmode @ bit, prediction=bit)
 
 
 CZ = (Z(1, 2) @ qubit >> qubit @ H() @ qubit >> qubit @ Z(2, 1)) \
@@ -347,5 +356,5 @@ class QubitFeedforwardModel(Model):
 
 
 MODELS = {model.name: model for model in (
-    PassiveModel(), BellModel(), ActiveModel(), QubitModel(),
-    QubitFeedforwardModel())}
+    PassiveModel(), BellModel(), ActiveModel(),
+    ActiveModel(flood=True), QubitModel(), QubitFeedforwardModel())}
