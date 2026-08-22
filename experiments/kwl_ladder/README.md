@@ -15,13 +15,14 @@ colour refinement (1-FWL), 2-FWL and 3-FWL implementations
 (`dataset.py`; recall k-FWL == tuple (k+1)-WL):
 
 - **control** — two pairs 1-WL already distinguishes;
-- **1fwl-blind** — five pairs colour refinement cannot split but 2-FWL
-  can (BREC basic/regular/extension, and 2C3 vs C6);
-- **2fwl-blind** — five pairs 2-FWL cannot split but 3-FWL can: rook
+- **1fwl-blind** — five pairs colour refinement (tuple 1/2-WL) cannot
+  split but 2-FWL (tuple 3-WL) can (BREC basic/regular/extension, and 2C3 vs C6);
+- **2fwl-blind** — five pairs 2-FWL (tuple 3-WL) cannot split but
+  3-FWL (tuple 4-WL) can: rook
   4×4 vs Shrikhande, two SRG(26,10,3,4) pairs, two distance-regular
   pairs;
 - **3fwl-blind** — five CFI pairs (n = 80 to 106) that our 3-FWL
-  certifies as indistinguishable; they are non-isomorphic by the
+  (tuple 4-WL) certifies as indistinguishable; they are non-isomorphic by the
   Cai-Fürer-Immerman construction, which also guarantees some higher
   k-FWL distinguishes them.
 
