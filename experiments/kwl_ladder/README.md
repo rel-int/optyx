@@ -87,9 +87,60 @@ and below) are exact zeros of the model, not small numbers:
 
 <!-- RESULTS -->
 
+A blank cell was *not run*, by the pruning rule: a model already
+exactly zero on every pair of a lower rung does not climb, so it is not
+run higher — passive and Bell stop after the 2-FWL rung, the active
+family stops after measuring zero on the locally-isomorphic pairs of
+that same rung, and the qubit models stop at the controls. A dash is a
+cell recorded as computationally trimmed. The invariance table repeats
+the cells for a graph against a relabelling of itself: all exact zeros.
+
 ## Reading the table
 
-<!-- FINDINGS -->
+1. **Two-photon interference climbs past 1-WL.** Every model with a
+   photonic two-photon record separates every 1-FWL-blind pair at
+   margins near 1e-3, an order below the controls.
+2. **Entangled drives buy nothing.** The Bell model tracks the passive
+   one at roughly half the margin on the rungs both separate, and is
+   exactly zero from the 2-FWL rung on: detecting the local reference
+   collapses the network photon onto fixed drive-rail superpositions,
+   which is passive linear optics again — still inside the gauge and
+   cellular-algebra ceiling of `beyond_3wl`.
+3. **Classical feed-forward separates exactly the strongly regular
+   pairs.** The one-hop active model splits all three SRG pairs of the
+   2-FWL-blind rung (1.2e-4, 3.3e-6, 1.5e-5 at eight ticks) — and is
+   *exactly* zero on the CFI pair and the distance-regular pair of the
+   same rung. The relayed flood, whose kicked region grows one hop per
+   tick without bound, changes nothing: it separates the rook pair
+   (1.5e-5) and stays exactly zero on both locally-isomorphic pairs.
+   The measured ceiling of measurement-plus-feed-forward photonics at
+   the two-photon level is therefore not a k-WL rung at all: it is the
+   class of pairs whose *grown click neighbourhoods* differ, which the
+   Cai-Fürer-Immerman construction — locally isomorphic by design —
+   defeats at any broadcast radius. Climbing past it needs a different
+   resource: more photons in the post-selected sector, or non-local
+   classical control.
+4. **The commuting qubit cell is blind, and its controlled variant is
+   the simulation wall.** The unitary qubit model measures 3.2e-15 on
+   a pair that colour refinement itself separates: with the CZ star
+   applied before any non-diagonal rotation, the measured ancilla's
+   per-cell trajectory distribution turns out identical for every cell
+   of every graph tried — cells of degree one and two give bitwise the
+   same distribution. The qubit-ff model's doubled network, laden with
+   classical copy spiders, defeated every exact contraction path on a
+   six-vertex graph and the compressed optimizer of cotengra 0.8.2
+   errors on every trial, so its cells are recorded as trimmed — the
+   contraction wall is the classical-simulability boundary showing up
+   on schedule.
+5. **Everything is validated.** Probability mass is 1 to 1e-14 in
+   every cell; the invariance rows are exact zeros; the assembled step
+   matrices equal `CMap.step.to_path()`; the active engine matches
+   optyx's contraction of the driven functor image entry by entry —
+   which is how two discrepancies between the `beyond_3wl` notebook's
+   simulator and its own drawn cell were found and fixed here (kicks
+   on reflections, and a replaced rather than composed kick splitter;
+   reported on #61). The corrected rook/Shrikhande margin is 1.2e-4
+   against the notebook's 7.8e-4 — the separation survives, smaller.
 
 ## Reproducing
 
