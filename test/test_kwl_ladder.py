@@ -82,3 +82,41 @@ def test_qubit_model_is_a_channel(name):
         MODELS[name], graph, 2, cell=0)
     assert abs(distribution.sum() - 1) < 1e-9
     assert distribution.min() > -1e-12
+
+
+def test_active_machine_matches_the_functor_image():
+    from optyx.channel import Diagram, Measure, bit, qmode
+    from optyx.classical import Bit
+    from optyx.core.backends import DiscopyBackend
+    from optyx.photonic import Create
+    bit_atom, qmode_atom = list(bit)[0], list(qmode)[0]
+    graph, n_ticks = adjacency(nx.path_graph(2)), 2
+    model = MODELS["active"]
+    cmap = model(graph)
+    ticks = [Diagram.id().tensor(*[Create(1 if t == 0 else 0)] * 2)
+             for t in range(n_ticks)]
+    memory = Diagram.id().tensor(*[
+        Bit(0) if ob == bit_atom else Create(0) for ob in cmap.memory])
+    unrolled = Diagram.id().tensor(*ticks) @ memory \
+        >> cmap.unroll(n_ticks - 1)
+    measure = Diagram.id().tensor(*[
+        Measure(ob) if ob == qmode_atom else Diagram.id(ob)
+        for ob in unrolled.cod])
+    tensor = DiscopyBackend().eval(unrolled >> measure).tensor
+    dims = tuple(int(dim) for dim in tensor.cod.inside)
+    contracted = np.asarray(tensor.array).real.reshape(dims)
+
+    machine = exact.machine_for(model, graph)
+    joint = {}
+    for (record, left, _), p in exact.run_pair(
+            machine, 0, 1, n_ticks, raw=True).items():
+        counts = [0] * (n_ticks * 4)
+        for t, wire in record:
+            counts[t * 4 + wire] += 1 if wire < 2 else 0
+            if wire >= 2:
+                counts[t * 4 + 2 + wire - 2] = 1
+        key = tuple(counts)
+        joint[key] = joint.get(key, 0.0) + p
+    worst = max(abs(contracted[c] - joint.get(c, 0.0))
+                for c in np.ndindex(dims))
+    assert worst < 1e-10
