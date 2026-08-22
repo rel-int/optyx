@@ -317,7 +317,6 @@ def _select_rung2(candidates, log):
             break
         if sum(c["category"] == candidate["category"]
                for c in chosen) >= 3:
-            spillover.append(candidate)
             log.append(f"2fwl-blind scan: {candidate['id']} skipped for"
                        " category diversity")
             continue
@@ -367,7 +366,8 @@ def _select_rung3(brec, log):
 
 def _fill(rung, chosen, leftovers, wanted_level, log):
     """Top an underfull rung up from measured leftovers of that level."""
-    fillers = sorted((c for c in leftovers if c["level"] == wanted_level),
+    fillers = sorted(
+        (c for c in leftovers if c.get("level") == wanted_level),
                      key=lambda c: (c["cost"], c["id"]))
     for filler in fillers[:5 - len(chosen)]:
         chosen.append(filler)
