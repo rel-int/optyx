@@ -30,8 +30,8 @@ BREC_PATH = "/home/user/graphpku/brec/customize/Data/raw"
 BREC_FILES = ("basic", "regular", "str", "extension", "cfi", "4vtx", "dr")
 DATA_PATH = Path(__file__).parent / "data" / "dataset.json"
 CONVENTION = "k-FWL == tuple (k+1)-WL; 1-FWL == colour refinement"
-FWL3_MAX_N = 70
-CFI_MAX_N = 40
+FWL3_MAX_N = 110
+CFI_MAX_N = 110
 VF2_MAX_N = 30
 
 
@@ -306,7 +306,8 @@ def _select_rung1(candidates, classic, log):
 
 def _select_rung2(candidates, log):
     """The five 2fwl-blind pairs: cheapest fwl2-blind candidates that
-    fwl3 distinguishes, running fwl3 in cost order until five confirm."""
+    fwl3 distinguishes, running fwl3 in cost order until five confirm,
+    with at most three pairs per BREC category for diversity."""
     eligible = sorted(
         (c for c in candidates if (c["w1"], c["w2"]) == ("same", "same")),
         key=lambda c: (c["cost"], c["id"]))
@@ -314,6 +315,12 @@ def _select_rung2(candidates, log):
     for candidate in eligible:
         if len(chosen) == 5:
             break
+        if sum(c["category"] == candidate["category"]
+               for c in chosen) >= 3:
+            spillover.append(candidate)
+            log.append(f"2fwl-blind scan: {candidate['id']} skipped for"
+                       " category diversity")
+            continue
         _deep(candidate, log)
         if candidate["level"] == 3:
             chosen.append(candidate)

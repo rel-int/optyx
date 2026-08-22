@@ -31,8 +31,6 @@ from math import comb
 
 import numpy as np
 
-from models import ActiveModel, BellModel, PassiveModel
-
 EINSUM = {1: "a,ai->i", 2: "ab,ai,bj->ij"}
 
 
@@ -63,6 +61,30 @@ class Layout:
 
     def select(self, array, degree):
         return array[:degree + 2, :]
+
+
+class FrozenLayout(Layout):
+    """A layout carrying precomputed blocks, so a machine can run
+    without optyx — on a worker that only has numpy."""
+
+    def __init__(self, n_drives, blocks, reference=None):
+        self.n_drives, self.cache = n_drives, dict(blocks)
+        if reference is not None:
+            self.reference = np.asarray(reference)
+
+    def block(self, degree, tap):
+        return self.cache[degree, round(tap, 12)]
+
+    @staticmethod
+    def freeze(layout, graph, taps):
+        """Precompute every block a machine on ``graph`` needs."""
+        blocks = {}
+        for degree in sorted({len(nbrs) for nbrs in graph}):
+            for tap in sorted(set(taps)):
+                blocks[degree, round(tap, 12)] = layout.block(
+                    degree, tap)
+        return FrozenLayout(
+            layout.n_drives, blocks, getattr(layout, "reference", None))
 
 
 class PassiveLayout(Layout):
@@ -342,7 +364,7 @@ def aggregate(machine, n_ticks, engine="branch", ensemble=None):
     total = {}
     V = (spacetime_transfer(machine, n_ticks)
          if engine == "spacetime" else None)
-    bell = isinstance(machine.layout, BellLayout)
+    bell = machine.n_drives == 2
     for u, v in pairs:
         injections = bell_injections(machine, u, v) if bell else None
         if engine == "spacetime":
@@ -371,15 +393,20 @@ def separation(bins_left, bins_right):
                          - bins_right.get(key, 0.0)) for key in keys))
 
 
-def machine_for(model, graph, **settings):
-    """The exact machine of a photonic model on a graph."""
+def machine_for(model, graph, frozen=False, **settings):
+    """The exact machine of a photonic model on a graph. ``frozen``
+    precomputes the blocks so the machine pickles without optyx."""
+    from models import ActiveModel, BellModel, PassiveModel
     if isinstance(model, BellModel):
-        return Machine(graph, BellLayout(model), tap=model.tap,
-                       **settings)
-    if isinstance(model, ActiveModel):
-        return Machine(graph, PassiveLayout(PassiveModel(model.tap)),
-                       tap=model.tap, kicked_tap=model.kick, **settings)
-    if isinstance(model, PassiveModel):
-        return Machine(graph, PassiveLayout(model), tap=model.tap,
-                       **settings)
-    raise ValueError(model)
+        layout, taps = BellLayout(model), [model.tap]
+    elif isinstance(model, ActiveModel):
+        layout, taps = PassiveLayout(PassiveModel(model.tap)), \
+            [model.tap, model.kick]
+        settings = {"kicked_tap": model.kick, **settings}
+    elif isinstance(model, PassiveModel):
+        layout, taps = PassiveLayout(model), [model.tap]
+    else:
+        raise ValueError(model)
+    if frozen:
+        layout = FrozenLayout.freeze(layout, graph, taps)
+    return Machine(graph, layout, tap=model.tap, **settings)
