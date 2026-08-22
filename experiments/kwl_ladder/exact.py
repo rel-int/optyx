@@ -304,21 +304,43 @@ def passive_pair_bins(machine, V, n_ticks, u, v, injections=None,
 
     kept = V[:, n_out:]
     gram = kept @ kept.conj().T
+    times = np.arange(n_out) // n_meas
+    cells = np.asarray(machine.cell_of_wire)[np.arange(n_out) % n_meas]
+    relmat = np.full((machine.n, machine.n), 2, dtype=np.int64)
+    np.fill_diagonal(relmat, 0)
+    for c, nbrs in enumerate(machine.graph):
+        relmat[c, list(nbrs)] = 1
+    ru, rv = relmat[cells, u], relmat[cells, v]
+    single = times * 9 + np.minimum(ru, rv) * 3 + np.maximum(ru, rv)
+    base = 9 * n_ticks
+    s_lo = np.minimum.outer(single, single)
+    s_hi = np.maximum.outer(single, single)
+    t_lo = np.minimum.outer(times, times)
+    t_hi = np.maximum.outer(times, times)
+    r_cc = relmat[cells[:, None], cells[None, :]]
+    code = (((s_lo * base + s_hi) * n_ticks + t_lo)
+            * n_ticks + t_hi) * 3 + r_cc
+
+    def decode(key):
+        key, rel = divmod(key, 3)
+        key, t_hi = divmod(key, n_ticks)
+        key, t_lo = divmod(key, n_ticks)
+        s_lo, s_hi = divmod(key, base)
+        singles = tuple(
+            (s // 9, tuple(divmod(s % 9, 3))) for s in (s_lo, s_hi))
+        return (0, singles, ((t_lo, t_hi, rel),))
+
     for x, y, weight, tag in injections:
         a, b = (x @ V)[:n_out], (y @ V)[:n_out]
         perm = np.outer(a, b)
         perm = perm + perm.T
         prob = np.abs(perm) ** 2
         prob[np.arange(n_out), np.arange(n_out)] /= 2
-        for o1 in range(n_out):
-            row = prob[o1, o1:]
-            for off in np.nonzero(row > 1e-24)[0]:
-                o2 = o1 + int(off)
-                t1, w1 = divmod(o1, n_meas)
-                t2, w2 = divmod(o2, n_meas)
-                add(invariant_key(
-                    machine, u, v, ((t1, w1), (t2, w2)), 0, tag),
-                    weight * float(row[off]))
+        mask = np.triu(prob > 1e-24)
+        keys, inverse = np.unique(code[mask], return_inverse=True)
+        masses = np.bincount(inverse, weights=prob[mask])
+        for key, mass in zip(keys, masses):
+            add(decode(int(key)) + tuple(tag), weight * float(mass))
         left_x = float((x @ gram @ x.conj()).real)
         left_y = float((y @ gram @ y.conj()).real)
         cross = y @ gram @ x.conj()

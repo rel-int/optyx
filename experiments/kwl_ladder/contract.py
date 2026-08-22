@@ -25,14 +25,23 @@ from optyx.core.backends import QuimbBackend
 
 
 def backend_for(optimizer, max_bond=None):
-    """A quimb backend: ``greedy`` for the shallow unitary networks,
-    ``hyper`` (kahypar search with slicing) for the classical-control
-    ones whose copy spiders defeat greedy paths."""
+    """A quimb backend: ``greedy`` contracts the toy graphs exactly;
+    ``compressed`` bounds every intermediate bond by ``max_bond``
+    through a compressed hyperoptimizer — the approximation whose error
+    scale the relabelling-invariance runs measure; ``hyper`` searches
+    for an exact path with kahypar and slicing."""
     if optimizer == "greedy":
         params = {"optimize": "greedy"}
         if max_bond is not None:
             params["max_bond"] = max_bond
         return QuimbBackend(contraction_params=params)
+    if optimizer == "compressed":
+        from cotengra import ReusableHyperCompressedOptimizer
+        hyper = ReusableHyperCompressedOptimizer(
+            max_repeats=6, parallel=False)
+        return QuimbBackend(
+            hyperoptimiser=hyper,
+            contraction_params={"max_bond": max_bond or 64})
     from cotengra import ReusableHyperOptimizer
     hyper = ReusableHyperOptimizer(
         max_repeats=12, parallel=False,
