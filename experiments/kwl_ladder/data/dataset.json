@@ -1,0 +1,386 @@
+{
+  "convention": "k-FWL == tuple (k+1)-WL; 1-FWL == colour refinement",
+  "pairs": [
+    {
+      "id": "control-c6-vs-p6",
+      "rung": "control",
+      "category": "classic",
+      "g6": [
+        "EhEG",
+        "EhCG"
+      ],
+      "n": 6,
+      "edges": 6,
+      "max_degree": 2,
+      "level": 1,
+      "verified": {
+        "wl1": "differ",
+        "fwl2": "differ",
+        "fwl3": "differ"
+      }
+    },
+    {
+      "id": "control-k15-vs-p6",
+      "rung": "control",
+      "category": "classic",
+      "g6": [
+        "Esa?",
+        "EhCG"
+      ],
+      "n": 6,
+      "edges": 5,
+      "max_degree": 5,
+      "level": 1,
+      "verified": {
+        "wl1": "differ",
+        "fwl2": "differ",
+        "fwl3": "differ"
+      }
+    },
+    {
+      "id": "regular-24",
+      "rung": "1fwl-blind",
+      "category": "regular",
+      "g6": [
+        "G}GOW[",
+        "G{S_g["
+      ],
+      "n": 8,
+      "edges": 12,
+      "max_degree": 3,
+      "level": 2,
+      "verified": {
+        "wl1": "same",
+        "fwl2": "differ",
+        "fwl3": "differ"
+      }
+    },
+    {
+      "id": "regular-47",
+      "rung": "1fwl-blind",
+      "category": "regular",
+      "g6": [
+        "F}oxw",
+        "F}hXw"
+      ],
+      "n": 7,
+      "edges": 14,
+      "max_degree": 4,
+      "level": 2,
+      "verified": {
+        "wl1": "same",
+        "fwl2": "differ",
+        "fwl3": "differ"
+      }
+    },
+    {
+      "id": "extension-09",
+      "rung": "1fwl-blind",
+      "category": "extension",
+      "g6": [
+        "I?ABCpSD_",
+        "I?AE@pow?"
+      ],
+      "n": 10,
+      "edges": 12,
+      "max_degree": 3,
+      "level": 2,
+      "verified": {
+        "wl1": "same",
+        "fwl2": "differ",
+        "fwl3": "differ"
+      }
+    },
+    {
+      "id": "extension-43",
+      "rung": "1fwl-blind",
+      "category": "extension",
+      "g6": [
+        "I??ED`ow?",
+        "I?AAF?eX?"
+      ],
+      "n": 10,
+      "edges": 11,
+      "max_degree": 3,
+      "level": 2,
+      "verified": {
+        "wl1": "same",
+        "fwl2": "differ",
+        "fwl3": "differ"
+      }
+    },
+    {
+      "id": "classic-2c3-vs-c6",
+      "rung": "1fwl-blind",
+      "category": "classic",
+      "g6": [
+        "EwCW",
+        "EhEG"
+      ],
+      "n": 6,
+      "edges": 6,
+      "max_degree": 2,
+      "level": 2,
+      "verified": {
+        "wl1": "same",
+        "fwl2": "differ",
+        "fwl3": "differ"
+      }
+    },
+    {
+      "id": "str-00",
+      "rung": "2fwl-blind",
+      "category": "str",
+      "g6": [
+        "O~`HW}GPHDaNaGPCcPWaN",
+        "OlfJHsHBGK_\\oHWKeBK_\\"
+      ],
+      "n": 16,
+      "edges": 48,
+      "max_degree": 6,
+      "level": 3,
+      "verified": {
+        "wl1": "same",
+        "fwl2": "same",
+        "fwl3": "differ"
+      }
+    },
+    {
+      "id": "str-08",
+      "rung": "2fwl-blind",
+      "category": "str",
+      "g6": [
+        "Y}uCLIadKUGTPTWFkoAeDRHGPsWRSogrSIXsKRHPPdDeSIWJORHF`_F_",
+        "Y}uCLIacsXGdOtWFkoAiHQggPiWRgogrWIXqKLGpQTHeSIcJOQpF`_F_"
+      ],
+      "n": 26,
+      "edges": 130,
+      "max_degree": 10,
+      "level": 3,
+      "verified": {
+        "wl1": "same",
+        "fwl2": "same",
+        "fwl3": "differ"
+      }
+    },
+    {
+      "id": "str-09",
+      "rung": "2fwl-blind",
+      "category": "str",
+      "g6": [
+        "Y}uCLEcdSTGYPJWFkoAdHROgPYgPxghaoJHXKWdHRGUEPKhJCWkF`_F_",
+        "Y}uCDIbdc[GYPIWakaiYKSh_P^?XdOTX_V@WKKdPQW[E`DNIcSmEWXw?"
+      ],
+      "n": 26,
+      "edges": 130,
+      "max_degree": 10,
+      "level": 3,
+      "verified": {
+        "wl1": "same",
+        "fwl2": "same",
+        "fwl3": "differ"
+      }
+    },
+    {
+      "id": "str-10",
+      "rung": "2fwl-blind",
+      "category": "str",
+      "g6": [
+        "Y}qCkY`algGbPXR`KSZaGUC_RIh@yWQxgQuODWU`K`qd`PDEIW\\IoTh?",
+        "Y}qCCmMlDSIPRCXPKSQhHQooE^`E`pHQoQuHBRc_oo}EHSMILOkEWXB_"
+      ],
+      "n": 26,
+      "edges": 130,
+      "max_degree": 10,
+      "level": 3,
+      "verified": {
+        "wl1": "same",
+        "fwl2": "same",
+        "fwl3": "differ"
+      }
+    },
+    {
+      "id": "str-11",
+      "rung": "2fwl-blind",
+      "category": "str",
+      "g6": [
+        "Y}qCCmMlDSIQRBWokcadAROKE]XEXPHecTJ_AlWGooveDEcISRDEX_p_",
+        "Y}qDKeLdDOgqX_QXiIR@XV@?RLOTh`J@oKZdAqi`AyQadRaKKobM_Bw_"
+      ],
+      "n": 26,
+      "edges": 130,
+      "max_degree": 10,
+      "level": 3,
+      "verified": {
+        "wl1": "same",
+        "fwl2": "same",
+        "fwl3": "differ"
+      }
+    }
+  ],
+  "log": [
+    "fwl3 control-c6-vs-p6[0] (n=6): 0.00s",
+    "fwl3 control-c6-vs-p6[1] (n=6): 0.00s",
+    "fwl3 control-k15-vs-p6[0] (n=6): 0.00s",
+    "fwl3 control-k15-vs-p6[1] (n=6): 0.00s",
+    "fwl3 classic-2c3-vs-c6[0] (n=6): 0.00s",
+    "fwl3 classic-2c3-vs-c6[1] (n=6): 0.00s",
+    "fwl3 regular-24[0] (n=8): 0.00s",
+    "fwl3 regular-24[1] (n=8): 0.00s",
+    "fwl3 regular-47[0] (n=7): 0.00s",
+    "fwl3 regular-47[1] (n=7): 0.00s",
+    "fwl3 extension-09[0] (n=10): 0.00s",
+    "fwl3 extension-09[1] (n=10): 0.00s",
+    "fwl3 extension-43[0] (n=10): 0.00s",
+    "fwl3 extension-43[1] (n=10): 0.00s",
+    "fwl3 str-00[0] (n=16): 0.01s",
+    "fwl3 str-00[1] (n=16): 0.01s",
+    "fwl3 str-08[0] (n=26): 0.27s",
+    "fwl3 str-08[1] (n=26): 0.10s",
+    "fwl3 str-09[0] (n=26): 0.07s",
+    "fwl3 str-09[1] (n=26): 0.08s",
+    "fwl3 str-10[0] (n=26): 0.21s",
+    "fwl3 str-10[1] (n=26): 0.05s",
+    "fwl3 str-11[0] (n=26): 0.07s",
+    "fwl3 str-11[1] (n=26): 0.06s",
+    "3fwl-blind scan: cfi-05 measured level 2 before fwl3",
+    "3fwl-blind scan: cfi-12 measured level 2 before fwl3",
+    "3fwl-blind scan: cfi-18 measured level 2 before fwl3",
+    "3fwl-blind scan: cfi-31 measured level 2 before fwl3",
+    "3fwl-blind scan: cfi-57 measured level 2 before fwl3",
+    "fwl3 dr-18[0] (n=32): 0.07s",
+    "fwl3 dr-18[1] (n=32): 0.13s",
+    "3fwl-blind scan: dr-18 measured level 3",
+    "fwl3 dr-01[0] (n=30): 0.04s",
+    "fwl3 dr-01[1] (n=30): 0.09s",
+    "3fwl-blind scan: dr-01 measured level 3",
+    "fwl3 dr-02[0] (n=30): 0.09s",
+    "fwl3 dr-02[1] (n=30): 0.09s",
+    "3fwl-blind scan: dr-02 measured level 3",
+    "fwl3 dr-19[0] (n=32): 0.06s",
+    "fwl3 dr-19[1] (n=32): 0.16s",
+    "3fwl-blind scan: dr-19 measured level 3",
+    "fwl3 dr-03[0] (n=38): 0.36s",
+    "fwl3 dr-03[1] (n=38): 0.43s",
+    "3fwl-blind scan: dr-03 measured level 3",
+    "fwl3 dr-04[0] (n=38): 0.48s",
+    "fwl3 dr-04[1] (n=38): 0.38s",
+    "3fwl-blind scan: dr-04 measured level 3",
+    "fwl3 dr-05[0] (n=38): 0.38s",
+    "fwl3 dr-05[1] (n=38): 0.31s",
+    "3fwl-blind scan: dr-05 measured level 3",
+    "fwl3 dr-00[0] (n=63): 5.69s",
+    "fwl3 dr-00[1] (n=63): 2.04s",
+    "3fwl-blind scan: dr-00 measured level 3",
+    "fwl3 dr-06[0] (n=50): 1.50s",
+    "fwl3 dr-06[1] (n=50): 1.60s",
+    "3fwl-blind scan: dr-06 measured level 3",
+    "fwl3 dr-07[0] (n=50): 1.26s",
+    "fwl3 dr-07[1] (n=50): 1.33s",
+    "3fwl-blind scan: dr-07 measured level 3",
+    "fwl3 dr-08[0] (n=50): 1.19s",
+    "fwl3 dr-08[1] (n=50): 1.39s",
+    "3fwl-blind scan: dr-08 measured level 3",
+    "fwl3 dr-09[0] (n=50): 1.23s",
+    "fwl3 dr-09[1] (n=50): 1.54s",
+    "3fwl-blind scan: dr-09 measured level 3",
+    "fwl3 dr-10[0] (n=46): 0.87s",
+    "fwl3 dr-10[1] (n=46): 1.13s",
+    "3fwl-blind scan: dr-10 measured level 3",
+    "fwl3 dr-11[0] (n=46): 0.89s",
+    "fwl3 dr-11[1] (n=46): 1.04s",
+    "3fwl-blind scan: dr-11 measured level 3",
+    "fwl3 dr-12[0] (n=46): 1.30s",
+    "fwl3 dr-12[1] (n=46): 1.22s",
+    "3fwl-blind scan: dr-12 measured level 3",
+    "fwl3 dr-13[0] (n=46): 1.20s",
+    "fwl3 dr-13[1] (n=46): 1.35s",
+    "3fwl-blind scan: dr-13 measured level 3",
+    "fwl3 dr-14[0] (n=46): 0.86s",
+    "fwl3 dr-14[1] (n=46): 0.91s",
+    "3fwl-blind scan: dr-14 measured level 3",
+    "fwl3 dr-15[0] (n=46): 1.05s",
+    "fwl3 dr-15[1] (n=46): 1.36s",
+    "3fwl-blind scan: dr-15 measured level 3",
+    "fwl3 dr-16[0] (n=46): 0.92s",
+    "fwl3 dr-16[1] (n=46): 0.93s",
+    "3fwl-blind scan: dr-16 measured level 3",
+    "fwl3 dr-17[0] (n=46): 1.03s",
+    "fwl3 dr-17[1] (n=46): 1.00s",
+    "3fwl-blind scan: dr-17 measured level 3",
+    "fwl3 4vtx-00[0] (n=63): 5.64s",
+    "fwl3 4vtx-00[1] (n=63): 4.21s",
+    "3fwl-blind scan: 4vtx-00 measured level 3",
+    "fwl3 4vtx-01[0] (n=63): 7.40s",
+    "fwl3 4vtx-01[1] (n=63): 3.28s",
+    "3fwl-blind scan: 4vtx-01 measured level 3",
+    "fwl3 4vtx-02[0] (n=63): 5.18s",
+    "fwl3 4vtx-02[1] (n=63): 7.99s",
+    "3fwl-blind scan: 4vtx-02 measured level 3",
+    "fwl3 4vtx-03[0] (n=63): 5.06s",
+    "fwl3 4vtx-03[1] (n=63): 4.24s",
+    "3fwl-blind scan: 4vtx-03 measured level 3",
+    "fwl3 4vtx-04[0] (n=63): 6.17s",
+    "fwl3 4vtx-04[1] (n=63): 4.75s",
+    "3fwl-blind scan: 4vtx-04 measured level 3",
+    "fwl3 4vtx-05[0] (n=63): 4.93s",
+    "fwl3 4vtx-05[1] (n=63): 7.93s",
+    "3fwl-blind scan: 4vtx-05 measured level 3",
+    "fwl3 4vtx-06[0] (n=63): 4.52s",
+    "fwl3 4vtx-06[1] (n=63): 5.87s",
+    "3fwl-blind scan: 4vtx-06 measured level 3",
+    "fwl3 4vtx-07[0] (n=63): 3.61s",
+    "fwl3 4vtx-07[1] (n=63): 5.97s",
+    "3fwl-blind scan: 4vtx-07 measured level 3",
+    "fwl3 4vtx-08[0] (n=63): 5.92s",
+    "fwl3 4vtx-08[1] (n=63): 6.50s",
+    "3fwl-blind scan: 4vtx-08 measured level 3",
+    "fwl3 4vtx-09[0] (n=63): 6.14s",
+    "fwl3 4vtx-09[1] (n=63): 5.28s",
+    "3fwl-blind scan: 4vtx-09 measured level 3",
+    "fwl3 4vtx-10[0] (n=63): 4.74s",
+    "fwl3 4vtx-10[1] (n=63): 6.14s",
+    "3fwl-blind scan: 4vtx-10 measured level 3",
+    "fwl3 4vtx-11[0] (n=63): 5.33s",
+    "fwl3 4vtx-11[1] (n=63): 4.21s",
+    "3fwl-blind scan: 4vtx-11 measured level 3",
+    "fwl3 4vtx-12[0] (n=63): 6.35s",
+    "fwl3 4vtx-12[1] (n=63): 3.73s",
+    "3fwl-blind scan: 4vtx-12 measured level 3",
+    "fwl3 4vtx-13[0] (n=63): 5.58s",
+    "fwl3 4vtx-13[1] (n=63): 4.40s",
+    "3fwl-blind scan: 4vtx-13 measured level 3",
+    "fwl3 4vtx-14[0] (n=63): 4.27s",
+    "fwl3 4vtx-14[1] (n=63): 5.49s",
+    "3fwl-blind scan: 4vtx-14 measured level 3",
+    "fwl3 4vtx-15[0] (n=63): 3.77s",
+    "fwl3 4vtx-15[1] (n=63): 6.27s",
+    "3fwl-blind scan: 4vtx-15 measured level 3",
+    "fwl3 4vtx-16[0] (n=63): 5.54s",
+    "fwl3 4vtx-16[1] (n=63): 5.37s",
+    "3fwl-blind scan: 4vtx-16 measured level 3",
+    "fwl3 4vtx-17[0] (n=63): 5.53s",
+    "fwl3 4vtx-17[1] (n=63): 4.54s",
+    "3fwl-blind scan: 4vtx-17 measured level 3",
+    "fwl3 4vtx-18[0] (n=63): 5.93s",
+    "fwl3 4vtx-18[1] (n=63): 5.16s",
+    "3fwl-blind scan: 4vtx-18 measured level 3",
+    "fwl3 4vtx-19[0] (n=63): 4.63s",
+    "fwl3 4vtx-19[1] (n=63): 6.82s",
+    "3fwl-blind scan: 4vtx-19 measured level 3",
+    "3fwl-blind: only 0 of 5 pairs found, no further measured candidates at the required level",
+    "vf2 control-c6-vs-p6: non-isomorphic",
+    "vf2 control-k15-vs-p6: non-isomorphic",
+    "vf2 regular-24: non-isomorphic",
+    "vf2 regular-47: non-isomorphic",
+    "vf2 extension-09: non-isomorphic",
+    "vf2 extension-43: non-isomorphic",
+    "vf2 classic-2c3-vs-c6: non-isomorphic",
+    "vf2 str-00: non-isomorphic",
+    "vf2 str-08: non-isomorphic",
+    "vf2 str-09: non-isomorphic",
+    "vf2 str-10: non-isomorphic",
+    "vf2 str-11: non-isomorphic",
+    "total build time: 278.64s"
+  ]
+}
