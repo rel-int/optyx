@@ -86,7 +86,25 @@ Separations at T = 8 (photonic) and T = 4 (qubit), largest bin-wise
 difference between the two ensembles; `0.0e+00`-scale entries (1e-16
 and below) are exact zeros of the model, not small numbers:
 
-<!-- RESULTS -->
+| pair | rung | passive | bell | active | active-flood | qubit | qubit-ff |
+|---|---|---|---|---|---|---|---|
+| control-c6-vs-p6 | control | 2.8e-02 | 2.0e-02 | 2.8e-02 |  | 3.2e-15 | — |
+| control-k15-vs-p6 | control | 1.0e-02 | 6.2e-03 | 1.0e-02 |  |  |  |
+| regular-24 | 1fwl-blind | 3.0e-03 | 1.5e-03 | 3.0e-03 |  |  |  |
+| regular-47 | 1fwl-blind | 3.3e-03 | 1.3e-03 | 2.7e-03 |  |  |  |
+| extension-09 | 1fwl-blind | 3.3e-03 | 1.8e-03 | 3.3e-03 |  |  |  |
+| extension-43 | 1fwl-blind | 4.1e-03 | 2.4e-03 | 4.1e-03 |  |  |  |
+| classic-2c3-vs-c6 | 1fwl-blind | 9.3e-03 | 4.5e-03 | 9.3e-03 |  |  |  |
+| str-00 | 2fwl-blind | 6.9e-18 | 3.5e-18 | 1.2e-04 | 1.5e-05 |  |  |
+| str-08 | 2fwl-blind | 1.7e-18 | 1.7e-18 | 3.3e-06 |  |  |  |
+| str-09 | 2fwl-blind | 5.2e-18 | 3.5e-18 | 1.5e-05 |  |  |  |
+| cfi-73 | 2fwl-blind | 8.7e-19 | 8.7e-19 | 8.7e-19 | 1.7e-18 |  |  |
+| dr-18 | 2fwl-blind | 3.5e-18 | 3.5e-18 | 8.7e-19 | 1.4e-17 |  |  |
+| cfi-83 | 3fwl-blind | 1.4e-17 | 8.7e-19 |  |  |  |  |
+| cfi-88 | 3fwl-blind | 3.5e-18 | 3.5e-18 |  |  |  |  |
+| cfi-95 | 3fwl-blind | 1.7e-18 | 8.7e-19 |  |  |  |  |
+| cfi-98 | 3fwl-blind | 8.7e-19 |  |  |  |  |  |
+| cfi-97 | 3fwl-blind | 8.7e-19 |  |  |  |  |  |
 
 A blank cell was *not run*, by the pruning rule: a model already
 exactly zero on every pair of a lower rung does not climb, so it is not
@@ -95,6 +113,11 @@ family stops after measuring zero on the locally-isomorphic pairs of
 that same rung, and the qubit models stop at the controls. A dash is a
 cell recorded as computationally trimmed. The invariance table repeats
 the cells for a graph against a relabelling of itself: all exact zeros.
+
+| pair | rung | passive | bell | active | active-flood | qubit | qubit-ff |
+|---|---|---|---|---|---|---|---|
+| regular-24 | 1fwl-blind | 6.9e-18 | 3.5e-18 | 6.9e-18 | 6.9e-18 |  |  |
+| str-00 | 2fwl-blind |  |  | 1.4e-17 |  |  |  |
 
 ## Reading the table
 
