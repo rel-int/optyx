@@ -106,6 +106,7 @@ omit = [
     "optyx/_version.py",
     "optyx/__init__.py",
     "optyx/*/__init__.py",
+    "experiments/*",
     "test/*",
 ]
 [tool.coverage.report]
