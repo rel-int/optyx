@@ -103,7 +103,8 @@ def run_cell(record, name, ticks, qubit_ticks, invariance):
         from models import MODELS
         model = MODELS[name]
         used_ticks = qubit_ticks
-        optimizer = "hyper" if name == "qubit-ff" else "greedy"
+        optimizer = "greedy" if (
+            name == "qubit" and len(left) <= 6) else "hyper"
         one = contract.summary(model, left, used_ticks, optimizer)
         two = contract.summary(model, right, used_ticks, optimizer)
         sep = float(np.abs(one - two).max())
