@@ -92,6 +92,33 @@ class PassiveLayout(Layout):
     memory, tap``."""
 
 
+class ActiveLayout(Layout):
+    """The passive layout with the active cell's kicked optics: the
+    bit-controlled ``TBS(kick)`` composes *after* the tap splitter on
+    the memory and tap arms, it does not replace it."""
+
+    def __init__(self, model):
+        super().__init__(model)
+        self.kick = model.kick
+
+    def block(self, degree, tap):
+        key = (degree, round(tap, 12))
+        if key not in self.cache:
+            from models import PassiveModel
+            from optyx.channel import Diagram, qmode
+            from optyx.photonic import TBS
+            kicked = round(tap, 12) == round(self.kick, 12)
+            box = PassiveModel(self.model.tap).vertex(degree)
+            channel = box.channel
+            if kicked:
+                channel = channel >> Diagram.id(
+                    qmode ** (degree + 1)) @ TBS(self.kick)
+            array = np.asarray(
+                channel.to_path().array, dtype=complex)
+            self.cache[key] = self.select(array, degree)
+        return self.cache[key]
+
+
 class BellLayout(Layout):
     """Rows ``d1, d2, ports, memory``; columns ``d1', d2', ports,
     memory, tap``. The reference rails never mix with the network:
@@ -149,16 +176,20 @@ def assemble(graph, taps, layout):
 
 
 class Machine:
-    """A graph's step matrices, plain and kicked. A detection at cell
-    ``c`` re-programs the taps of ``c`` and, when ``broadcast``, of its
-    neighbours, from the next tick on; ``kicked_tap == tap`` is the
-    passive machine."""
+    """A graph's step matrices, plain and kicked. A click at cell
+    ``c`` at tick ``t`` re-programs the taps of the ball of radius
+    ``min(t' - t, radius)`` around ``c`` at every later tick ``t'``:
+    the bit reaches the neighbours one tick after the click and, when
+    the cells relay it, one further hop per tick. ``radius=1`` is the
+    one-hop broadcast of ``beyond_3wl``, ``radius=None`` the relayed
+    flood, ``radius=0`` the own-cell kick; ``kicked_tap == tap`` is
+    the passive machine."""
 
     def __init__(self, graph, layout, tap=0.3, kicked_tap=None,
-                 broadcast=True):
+                 broadcast=True, radius=1):
         self.graph, self.layout, self.tap = graph, layout, tap
         self.kicked_tap = tap if kicked_tap is None else kicked_tap
-        self.broadcast = broadcast
+        self.radius = (radius if broadcast else 0)
         n = self.n = len(graph)
         k = self.n_drives = layout.n_drives
         self.S = assemble(graph, [self.tap] * n, layout)
@@ -167,13 +198,30 @@ class Machine:
         self.cell_of_wire = [w // k for w in range(k * n)] \
             + list(range(n))
         self.adj = [set(nbrs) for nbrs in graph]
+        self.balls = [self._balls(cell) for cell in range(n)]
         self.cache = {}
 
-    def step(self, kicked):
+    def _balls(self, cell):
+        balls, ball, frontier = [], {cell}, {cell}
+        while True:
+            balls.append(frozenset(ball))
+            frontier = set().union(
+                *(self.adj[c] for c in frontier)) - ball
+            if not frontier:
+                return balls
+            ball |= frontier
+
+    def ball(self, cell, hops):
+        balls = self.balls[cell]
+        return balls[min(hops, len(balls) - 1)]
+
+    def step(self, clicks, tick):
         region = set()
-        for cell in kicked:
-            region |= {cell} | (self.adj[cell] if self.broadcast
-                                else set())
+        for t, cell in clicks:
+            hops = tick - t
+            if self.radius is not None:
+                hops = min(hops, self.radius)
+            region |= self.ball(cell, hops)
         key = frozenset(region)
         if key not in self.cache:
             taps = [self.tap] * self.n
@@ -230,19 +278,19 @@ def run_pair(machine, u, v, n_ticks, injection=None, ctx=(), raw=False):
         injection = np.zeros((n_in, n_in), dtype=complex)
         du, dv = machine.drive(u), machine.drive(v)
         injection[du, dv] = injection[dv, du] = 1 / 2 ** .5
-    branches = {(): (frozenset(), injection)}
+    branches = {(): ((), injection)}
     for t in range(n_ticks):
         new = {}
-        for record, (kicked, A) in branches.items():
+        for record, (clicks, A) in branches.items():
             k = A.ndim
-            S = machine.step(kicked)
+            S = machine.step(clicks, t)
             B = np.einsum(EINSUM[k], A, *([S] * k), optimize=True)
             keep = B[(K,) * k]
             if (np.abs(keep) ** 2).sum() > 1e-24:
                 full = np.zeros((n_in,) * k, dtype=complex)
                 offset = n_in - keep.shape[0]
                 full[(slice(offset, None),) * k] = keep
-                new[record] = (kicked, full)
+                new[record] = (clicks, full)
             for d in range(1, k + 1):
                 for wires, mult in detections(n_meas, d):
                     amp = (mult * comb(k, d)) ** .5 \
@@ -255,13 +303,16 @@ def run_pair(machine, u, v, n_ticks, injection=None, ctx=(), raw=False):
                     if k == d:
                         add(rec, 0, float(np.abs(amp) ** 2))
                     else:
-                        cells = frozenset(
-                            machine.cell_of_wire[w] for w in wires)
+                        taps = machine.n_drives * machine.n
+                        cells = tuple(sorted(
+                            {machine.cell_of_wire[w] for w in wires
+                             if w >= taps}))
                         full = np.zeros(n_in, dtype=complex)
                         full[n_in - amp.shape[0]:] = amp
-                        new[rec] = (kicked | cells, full)
+                        new[rec] = (clicks + tuple(
+                            (t, cell) for cell in cells), full)
         branches = new
-    for record, (kicked, A) in branches.items():
+    for record, (clicks, A) in branches.items():
         p = float((np.abs(A) ** 2).sum())
         if p > 1e-24:
             add(record, A.ndim, p)
@@ -422,9 +473,10 @@ def machine_for(model, graph, frozen=False, **settings):
     if isinstance(model, BellModel):
         layout, taps = BellLayout(model), [model.tap]
     elif isinstance(model, ActiveModel):
-        layout, taps = PassiveLayout(PassiveModel(model.tap)), \
-            [model.tap, model.kick]
-        settings = {"kicked_tap": model.kick, **settings}
+        assert round(model.tap, 12) != round(model.kick, 12)
+        layout, taps = ActiveLayout(model), [model.tap, model.kick]
+        settings = {"kicked_tap": model.kick,
+                    "radius": None if model.flood else 1, **settings}
     elif isinstance(model, PassiveModel):
         layout, taps = PassiveLayout(model), [model.tap]
     else:
