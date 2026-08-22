@@ -47,3 +47,6 @@ str-00,2fwl-blind,active-flood,8,exact,all-pairs,1.516097e-05,3.77e-15,111.5,
 cfi-73,2fwl-blind,active-flood,8,exact,edges,1.734723e-18,6.66e-16,174.5,
 dr-18,2fwl-blind,active-flood,8,exact,all-pairs,1.387779e-17,5.33e-15,1716.6,
 control-c6-vs-p6,control,qubit-ff,3,exact,trajectories,nan,nan,4500.0,trimmed: exact contraction of the classical-control network did not terminate on the six-vertex control; compressed optimizer trials error in cotengra 0.8.2
+regular-24~relabel,1fwl-blind,passive,8,exact,all-pairs,6.938894e-18,0.00e+00,1.2,
+regular-24~relabel,1fwl-blind,bell,8,exact,all-pairs,3.469447e-18,4.22e-15,3.8,
+regular-24~relabel,1fwl-blind,active,8,exact,all-pairs,6.938894e-18,0.00e+00,7.8,
