@@ -61,15 +61,17 @@ def transfer(step, n_out, n_ticks):
     return matrix
 
 
-def amplitudes(step, n_out, n_ticks):
-    """``A[t, v]``: the amplitude of one photon injected into drive
-    ``v`` at tick ``t``, over the spacetime columns of :func:`transfer`.
-    Distinct slots give orthonormal rows."""
+def amplitudes(step, n_out, n_ticks, drives=None):
+    """``A[t, v]``: the amplitude of one photon injected into the
+    ``v``-th drive row at tick ``t``, over the spacetime columns of
+    :func:`transfer`; the drives are the first ``n_out`` rows unless
+    given. Distinct slots give orthonormal rows."""
     n = step.shape[0]
-    result = np.zeros((n_ticks, n_out, n_ticks * n_out + n - n_out),
+    drives = list(range(n_out)) if drives is None else list(drives)
+    result = np.zeros((n_ticks, len(drives), n_ticks * n_out + n - n_out),
                       dtype=complex)
     for tick in range(n_ticks):
-        later = transfer(step, n_out, n_ticks - tick)[:n_out]
+        later = transfer(step, n_out, n_ticks - tick)[drives]
         result[tick, :, tick * n_out:n_ticks * n_out] = \
             later[:, :(n_ticks - tick) * n_out]
         result[tick, :, n_ticks * n_out:] = later[:, (n_ticks - tick) * n_out:]
@@ -144,12 +146,19 @@ def bins(nodes, total):
     return result
 
 
+def drives(cmap):
+    """The boundary wires that are drives: the first port of a box.
+    Any other boundary wire is a dangling dart, never injected and
+    discarded at every tick."""
+    return [i for i, (_, port) in enumerate(cmap.boundary) if port == 0]
+
+
 def slots_of(cmap, n_ticks):
     """The slot amplitudes of a map driven for ``n_ticks`` and the
     columns of its last outputs."""
-    n_out = len(cmap.dom)
-    return (amplitudes(assemble(cmap), n_out, n_ticks),
-            np.arange((n_ticks - 1) * n_out, n_ticks * n_out))
+    n_out, injected = len(cmap.dom), drives(cmap)
+    return (amplitudes(assemble(cmap), n_out, n_ticks, injected),
+            (n_ticks - 1) * n_out + np.array(injected))
 
 
 def read(slots, measured, certificate="two-photon"):
@@ -161,7 +170,7 @@ def read(slots, measured, certificate="two-photon"):
 
 def statistics(cmap, n_ticks, certificate="two-photon"):
     """The count distributions of the map driven for ``n_ticks`` and
-    read on its last outputs, and the total probability."""
+    read on its last drives, and the total probability."""
     return read(*slots_of(cmap, n_ticks), certificate)
 
 
@@ -170,17 +179,17 @@ def joint(cmap, n_ticks, first, second):
     photons injected at the slots ``first`` and ``second``, as an array
     indexed by the count of every output, for grounding the certificate
     in the contraction of the functor image."""
-    n_out = len(cmap.dom)
     slots, measured = slots_of(cmap, n_ticks)
     a, b = slots[first], slots[second]
     amplitude = np.outer(a, b) + np.outer(b, a)
-    result = np.zeros((3,) * n_out)
+    position = {column: k for k, column in enumerate(measured)}
+    result = np.zeros((3,) * len(measured))
     for i in range(amplitude.shape[0]):
         for j in range(i, amplitude.shape[1]):
-            counts = [0] * n_out
+            counts = [0] * len(measured)
             for wire in (i, j):
-                if wire in measured:
-                    counts[wire - measured[0]] += 1
+                if wire in position:
+                    counts[position[wire]] += 1
             probability = np.abs(amplitude[i, j]) ** 2 / (2 if i == j else 1)
             result[tuple(counts)] += probability
     return result

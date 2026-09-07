@@ -86,7 +86,12 @@ class Cell(Model):
     cells: the box of a vertex reads the drive, the in-darts and the
     memory and writes the output, the out-darts and the memory, and an
     edge pairs the ports of its two endpoints, so each endpoint's
-    out-dart is the other's in-dart at the next tick."""
+    out-dart is the other's in-dart at the next tick. An isolated
+    vertex gets ``dangling`` darts left open: read from the
+    environment, i.e. the vacuum, and written back to it, i.e.
+    discarded."""
+
+    dangling = 0
 
     def unitary(self, degree):
         """The cell on modes ``(drive, darts, memory)``."""
@@ -99,14 +104,19 @@ class Cell(Model):
         return Create(1)
 
     def vertex(self, degree):
-        modes = degree + 2
-        name = f"{self.name}{degree}"
-        gate = Gate(self.unitary(degree), modes, modes, name)
-        return Box(name, qmode, qmode ** degree, gate, memory=qmode)
+        darts = degree or self.dangling
+        modes = darts + 2
+        name = f"{self.name}{darts}"
+        gate = Gate(self.unitary(darts), modes, modes, name)
+        return Box(name, qmode, qmode ** darts, gate, memory=qmode)
 
 
 class InvariantCell(Cell):
-    """The invariant cell with ``(W, psi)`` shared by every degree."""
+    """The invariant cell with ``(W, psi)`` shared by every degree. An
+    isolated vertex has no dart to reflect, so it gets the degree-one
+    cell with its dart open, the ``d -> 0`` limit of the ansatz."""
+
+    dangling = 1
 
     def __init__(self, W, psi, name):
         self.W, self.psi, self.name = np.asarray(W, dtype=complex), psi, name

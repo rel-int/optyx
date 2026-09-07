@@ -85,8 +85,13 @@ def test_rotation_systems_and_relabelling_on_a_path():
 
 
 def test_certificates_conserve_probability():
-    cmap = CELLS["canonical"](adjacency(nx.path_graph(4)))
-    for certificate in ("two-photon", "one-photon"):
-        nodes, total, mass = statistics(cmap, 3, certificate)
-        assert abs(mass - 1) < 1e-12
-        assert np.allclose(nodes.sum(axis=1), 1, atol=1e-12)
+    path, isolated = adjacency(nx.path_graph(4)), ((), (2,), (1,))
+    for graph in (path, isolated):
+        cmap = CELLS["canonical"](graph)
+        for certificate in ("two-photon", "one-photon"):
+            nodes, total, mass = statistics(cmap, 3, certificate)
+            assert abs(mass - 1) < 1e-12
+            assert len(nodes) == len(graph)
+            assert np.allclose(nodes.sum(axis=1), 1, atol=1e-12)
+    assert score(CELLS["canonical"], isolated, relabelled(isolated)) \
+        <= 1e-14
