@@ -138,7 +138,7 @@ def run_rotations(records, names, ticks, certificate):
     done = existing(path, ("pair", "side", "cell", "ticks"), "spread")
     handle, writer = writer_for(path, ROTATION_FIELDS)
     for record in records:
-        if record["rung"] == "2fwl-blind":
+        if record["rung"] not in RUNGS[:2]:
             continue
         for side, graph in enumerate(graphs_of(record)):
             for name in names:

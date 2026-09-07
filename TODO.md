@@ -107,6 +107,6 @@ The handout, verbatim:
 - [x] `experiments/invariant_qmapnn/engine.py`: the step matrix assembled from the functor image, checked against `CMap.step.to_path()`; the spacetime transfer over injection slots; the two-photon, one-photon and coherent-state certificates read on the final output modes (§5, §6, H4)
 - [x] `experiments/invariant_qmapnn/run.py` + `report.py`: one resumable CSV row per (pair, cell, T), regimes R1 (canonical, Grover point) and R2 (20 seeds), pruning as in PR #69, the V2 rotation table and the V3 relabelling rows (§4, §7)
 - [x] `test/test_invariant_qmapnn.py`: V1 Schur lemma, assembled == `CMap.step.to_path()`, the triangle and path functor-image grounding, V2 on P4 for both cells, V3 on P4, V4 (§7, §9)
-- [WIP] @session_01BVf5U3AGWKwGHPMNh2SxvR-2026-09-07 12:11 Run controls, the 1-FWL rung at T = 2, 3, 4, the rook/Shrikhande sanity row at T = 2, the rotation and relabelling tables, H4; commit `results/`
-- [ ] `experiments/invariant_qmapnn/README.md`: rendered tables, the §4b ceiling theorem, findings against H1–H4, the relation to `docs/quantum_map_neural_networks.md` E4/E5 and PR #69, and the tensions with the handout (dart pairs are native to `CMap`; the ladder's cells are already port-symmetric)
-- [ ] `pflake8` clean, `coverage run -m pytest` green, `AGENTS.md`/`CONTRIBUTING.md` pointers if needed
+- [x] Run controls, the 1-FWL rung at T = 2, 3, 4, the rook/Shrikhande sanity row at T = 2, the rotation and relabelling tables, H4; commit `results/`
+- [x] `experiments/invariant_qmapnn/README.md`: rendered tables, the §4b ceiling theorem, findings against H1–H4, the relation to `docs/quantum_map_neural_networks.md` E4/E5 and PR #69, and the tensions with the handout (dart pairs are native to `CMap`; the ladder's cells are already port-symmetric)
+- [x] `pflake8` clean, `coverage run -m pytest` green, `AGENTS.md`/`CONTRIBUTING.md` pointers if needed
