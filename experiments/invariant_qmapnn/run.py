@@ -23,7 +23,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from cells import CELLS, SEEDS, rotate  # noqa: E402
-from engine import bins, statistics  # noqa: E402
+from engine import bins, read, slots_of  # noqa: E402
 from ladder import graphs_of, load_pairs, relabelled, separation  # noqa: E402
 
 RESULTS = os.path.join(
@@ -39,16 +39,20 @@ ROTATIONS = (1, 2, 3)
 NAMED = ("canonical", "grover", "ladder", "generic")
 
 
-def scored(cell, left, right, ticks, certificate):
-    """The separation, its L1 counterpart and the mass error of two
-    graphs under one cell, one certificate and one number of ticks."""
-    results = [statistics(cell(graph), ticks, certificate)
-               for graph in (left, right)]
-    one, two = (bins(nodes, total) for nodes, total, _ in results)
-    keys = set(one) | set(two)
-    l1 = sum(abs(one.get(key, 0.) - two.get(key, 0.)) for key in keys)
-    return separation(one, two), l1, max(
-        abs(mass - 1) for _, _, mass in results)
+def scored(cell, left, right, ticks, certificates):
+    """For every certificate, the separation, its L1 counterpart and
+    the mass error of two graphs under one cell and one number of
+    ticks; the slot amplitudes are shared by the certificates."""
+    slots = [slots_of(cell(graph), ticks) for graph in (left, right)]
+    scores = {}
+    for certificate in certificates:
+        results = [read(*slot, certificate) for slot in slots]
+        one, two = (bins(nodes, total) for nodes, total, _ in results)
+        keys = set(one) | set(two)
+        l1 = sum(abs(one.get(key, 0.) - two.get(key, 0.)) for key in keys)
+        scores[certificate] = (separation(one, two), l1, max(
+            abs(mass - 1) for _, _, mass in results))
+    return scores
 
 
 def existing(path, fields):
@@ -88,13 +92,13 @@ def run_rows(records, names, ticks, certificates, invariance):
                     right = relabelled(left)
                 pair = record["id"] + ("~relabel" if invariance else "")
                 for n_ticks in ([2] if rung == "2fwl-blind" else ticks):
-                    for certificate in certificates:
-                        key = (pair, name, str(n_ticks), certificate)
-                        if key in done:
-                            continue
-                        t0 = time.time()
-                        sep, l1, mass = scored(
-                            cell, left, right, n_ticks, certificate)
+                    wanted = [c for c in certificates
+                              if (pair, name, str(n_ticks), c) not in done]
+                    if not wanted:
+                        continue
+                    t0 = time.time()
+                    scores = scored(cell, left, right, n_ticks, wanted)
+                    for certificate, (sep, l1, mass) in scores.items():
                         row = {
                             "pair": pair, "rung": rung, "cell": name,
                             "ticks": n_ticks, "certificate": certificate,
@@ -136,7 +140,7 @@ def run_rotations(records, names, ticks, certificate):
                         continue
                     t0 = time.time()
                     scores = [scored(CELLS[name], graph, rotate(graph, seed),
-                                     n_ticks, certificate)
+                                     n_ticks, [certificate])[certificate]
                               for seed in ROTATIONS]
                     row = {
                         "pair": record["id"], "rung": record["rung"],

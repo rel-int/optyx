@@ -144,14 +144,25 @@ def bins(nodes, total):
     return result
 
 
+def slots_of(cmap, n_ticks):
+    """The slot amplitudes of a map driven for ``n_ticks`` and the
+    columns of its last outputs."""
+    n_out = len(cmap.dom)
+    return (amplitudes(assemble(cmap), n_out, n_ticks),
+            np.arange((n_ticks - 1) * n_out, n_ticks * n_out))
+
+
+def read(slots, measured, certificate="two-photon"):
+    """The count distributions of one certificate and its total
+    probability."""
+    nodes, total = CERTIFICATES[certificate](slots, measured)
+    return nodes, total, float(total.sum())
+
+
 def statistics(cmap, n_ticks, certificate="two-photon"):
     """The count distributions of the map driven for ``n_ticks`` and
     read on its last outputs, and the total probability."""
-    n_out = len(cmap.dom)
-    slots = amplitudes(assemble(cmap), n_out, n_ticks)
-    measured = np.arange((n_ticks - 1) * n_out, n_ticks * n_out)
-    nodes, total = CERTIFICATES[certificate](slots, measured)
-    return nodes, total, float(total.sum())
+    return read(*slots_of(cmap, n_ticks), certificate)
 
 
 def joint(cmap, n_ticks, first, second):
@@ -160,9 +171,8 @@ def joint(cmap, n_ticks, first, second):
     indexed by the count of every output, for grounding the certificate
     in the contraction of the functor image."""
     n_out = len(cmap.dom)
-    slots = amplitudes(assemble(cmap), n_out, n_ticks)
+    slots, measured = slots_of(cmap, n_ticks)
     a, b = slots[first], slots[second]
-    measured = np.arange((n_ticks - 1) * n_out, n_ticks * n_out)
     amplitude = np.outer(a, b) + np.outer(b, a)
     result = np.zeros((3,) * n_out)
     for i in range(amplitude.shape[0]):
