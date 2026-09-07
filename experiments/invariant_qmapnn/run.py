@@ -2,7 +2,8 @@
 The invariant QMapNN benchmark: every cell against the controls and the
 1-FWL-blind rung of the ladder dataset at ``T = 2, 3, 4``, one CSV row
 per (pair, cell, ticks, certificate), the rook/Shrikhande sanity row at
-``T = 2``, the rotation-system table and the relabelling rows.
+``T = 2`` for the canonical cell, the rotation-system table and the
+relabelling rows.
 
 Pruning follows PR #69: a cell exactly zero on every pair of a rung does
 not climb to the next. Rows are appended to ``results/results.csv`` and
@@ -34,7 +35,7 @@ ROTATION_FIELDS = ["pair", "rung", "side", "cell", "ticks", "spread",
                    "mass_error", "seconds"]
 EXACT_ZERO = 1e-15
 RUNGS = ("control", "1fwl-blind", "2fwl-blind")
-SANITY = "str-00"
+SANITY, SANITY_CELL = "str-00", "canonical"
 ROTATIONS = (1, 2, 3)
 NAMED = ("canonical", "grover", "ladder", "generic")
 
@@ -88,7 +89,8 @@ def run_rows(records, names, ticks, certificates, invariance):
                 if record["rung"] != rung:
                     continue
                 if rung == "2fwl-blind" and (
-                        record["id"] != SANITY or invariance):
+                        record["id"] != SANITY or invariance
+                        or name != SANITY_CELL):
                     continue
                 left, right = graphs_of(record)
                 if invariance:
