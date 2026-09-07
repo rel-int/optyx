@@ -1,0 +1,22 @@
+pair,rung,cell,ticks,certificate,separation,l1,mass_error,seconds,notes
+control-c6-vs-p6,control,canonical,2,two-photon,9.850953e-03,2.772567e-02,1.11e-15,0.9,
+control-c6-vs-p6,control,canonical,2,one-photon,7.714278e-03,1.542856e-02,0.00e+00,1.0,
+control-c6-vs-p6,control,canonical,2,coherent,8.971729e-03,3.788900e-02,3.40e-03,0.9,1 - mass is the Poisson weight beyond two photons
+control-c6-vs-p6,control,canonical,3,two-photon,1.338634e-02,3.857771e-02,2.11e-15,1.0,
+control-c6-vs-p6,control,canonical,3,one-photon,1.087261e-02,2.174523e-02,0.00e+00,1.1,
+control-c6-vs-p6,control,canonical,3,coherent,4.436605e-02,1.914780e-01,9.90e-02,0.9,1 - mass is the Poisson weight beyond two photons
+control-c6-vs-p6,control,canonical,4,two-photon,4.749746e-03,1.604476e-02,1.89e-15,0.9,
+control-c6-vs-p6,control,canonical,4,one-photon,3.753218e-03,9.030109e-03,0.00e+00,1.0,
+control-c6-vs-p6,control,canonical,4,coherent,3.802759e-02,1.596499e-01,2.98e-02,1.1,1 - mass is the Poisson weight beyond two photons
+control-k15-vs-p6,control,canonical,2,two-photon,2.986447e-02,9.683469e-02,9.99e-16,2.2,
+control-k15-vs-p6,control,canonical,2,one-photon,2.314283e-02,5.399995e-02,0.00e+00,2.4,
+control-k15-vs-p6,control,canonical,2,coherent,7.201449e-02,1.573350e-01,4.43e-03,2.4,1 - mass is the Poisson weight beyond two photons
+control-k15-vs-p6,control,canonical,3,two-photon,2.386843e-02,9.224497e-02,1.55e-15,2.4,
+control-k15-vs-p6,control,canonical,3,one-photon,1.968847e-02,5.186573e-02,0.00e+00,2.2,
+control-k15-vs-p6,control,canonical,3,coherent,1.289435e-01,5.174515e-01,9.58e-02,2.3,1 - mass is the Poisson weight beyond two photons
+control-k15-vs-p6,control,canonical,4,two-photon,7.214629e-03,2.289403e-02,2.66e-15,2.5,
+control-k15-vs-p6,control,canonical,4,one-photon,4.204080e-03,1.282431e-02,0.00e+00,2.4,
+control-k15-vs-p6,control,canonical,4,coherent,1.216204e-01,3.356580e-01,3.10e-02,2.2,1 - mass is the Poisson weight beyond two photons
+regular-24,1fwl-blind,canonical,2,two-photon,1.795101e-04,2.692652e-04,4.44e-16,4.2,
+regular-24,1fwl-blind,canonical,2,one-photon,0.000000e+00,0.000000e+00,0.00e+00,4.2,
+regular-24,1fwl-blind,canonical,2,coherent,0.000000e+00,0.000000e+00,3.37e-03,4.1,1 - mass is the Poisson weight beyond two photons
