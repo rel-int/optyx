@@ -55,11 +55,14 @@ def scored(cell, left, right, ticks, certificates):
     return scores
 
 
-def existing(path, fields):
+def existing(path, fields, value="separation"):
+    """The rows already in a CSV, keyed by ``fields``, so that the
+    benchmark resumes where it stopped and pruning reads the scores
+    it skips."""
     if not os.path.exists(path):
-        return set()
+        return {}
     with open(path) as handle:
-        return {tuple(row[field] for field in fields)
+        return {tuple(row[field] for field in fields): float(row[value])
                 for row in csv.DictReader(handle)}
 
 
@@ -92,8 +95,11 @@ def run_rows(records, names, ticks, certificates, invariance):
                     right = relabelled(left)
                 pair = record["id"] + ("~relabel" if invariance else "")
                 for n_ticks in ([2] if rung == "2fwl-blind" else ticks):
-                    wanted = [c for c in certificates
-                              if (pair, name, str(n_ticks), c) not in done]
+                    keys = {c: (pair, name, str(n_ticks), c)
+                            for c in certificates}
+                    climbed |= any(done[key] > EXACT_ZERO
+                                   for key in keys.values() if key in done)
+                    wanted = [c for c, key in keys.items() if key not in done]
                     if not wanted:
                         continue
                     t0 = time.time()
@@ -127,7 +133,7 @@ def run_rotations(records, names, ticks, certificate):
     """The rotation-system table: each graph of a pair under three
     shuffled rotation systems against its sorted one."""
     path = os.path.join(RESULTS, "rotations.csv")
-    done = existing(path, ("pair", "side", "cell", "ticks"))
+    done = existing(path, ("pair", "side", "cell", "ticks"), "spread")
     handle, writer = writer_for(path, ROTATION_FIELDS)
     for record in records:
         if record["rung"] == "2fwl-blind":

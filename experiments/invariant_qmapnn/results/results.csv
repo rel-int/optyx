@@ -120,3 +120,83 @@ classic-2c3-vs-c6,1fwl-blind,ladder,3,coherent,0.000000e+00,0.000000e+00,1.59e-0
 classic-2c3-vs-c6,1fwl-blind,ladder,4,two-photon,1.135397e-03,3.858765e-03,2.44e-15,1.1,
 classic-2c3-vs-c6,1fwl-blind,ladder,4,one-photon,1.153946e-03,2.307892e-03,0.00e+00,1.1,
 classic-2c3-vs-c6,1fwl-blind,ladder,4,coherent,2.081668e-17,2.320193e-17,5.43e-03,1.1,1 - mass is the Poisson weight beyond two photons
+str-00,2fwl-blind,ladder,2,two-photon,5.551115e-17,2.289835e-16,1.78e-15,143.4,
+str-00,2fwl-blind,ladder,2,one-photon,5.551115e-17,1.110223e-16,0.00e+00,143.4,
+str-00,2fwl-blind,ladder,2,coherent,1.040834e-17,2.135878e-17,1.08e-02,143.4,1 - mass is the Poisson weight beyond two photons
+control-c6-vs-p6,control,generic,2,two-photon,4.616875e-02,1.498001e-01,1.33e-15,1.0,
+control-c6-vs-p6,control,generic,2,one-photon,3.921120e-02,7.842240e-02,0.00e+00,1.0,
+control-c6-vs-p6,control,generic,2,coherent,3.290864e-02,1.188424e-01,3.71e-02,1.0,1 - mass is the Poisson weight beyond two photons
+control-c6-vs-p6,control,generic,3,two-photon,2.790454e-02,8.813759e-02,1.44e-15,0.9,
+control-c6-vs-p6,control,generic,3,one-photon,1.948070e-02,4.411643e-02,0.00e+00,0.9,
+control-c6-vs-p6,control,generic,3,coherent,2.820123e-02,1.067946e-01,2.05e-02,0.9,1 - mass is the Poisson weight beyond two photons
+control-c6-vs-p6,control,generic,4,two-photon,1.694175e-02,4.429680e-02,1.33e-15,0.9,
+control-c6-vs-p6,control,generic,4,one-photon,1.036994e-02,2.073989e-02,0.00e+00,0.9,
+control-c6-vs-p6,control,generic,4,coherent,4.371549e-02,1.825094e-01,2.17e-02,0.9,1 - mass is the Poisson weight beyond two photons
+control-k15-vs-p6,control,generic,2,two-photon,5.096538e-02,2.685888e-01,1.33e-15,3.1,
+control-k15-vs-p6,control,generic,2,one-photon,4.818416e-02,1.411845e-01,0.00e+00,3.1,
+control-k15-vs-p6,control,generic,2,coherent,5.567267e-02,2.913669e-01,3.71e-02,3.1,1 - mass is the Poisson weight beyond two photons
+control-k15-vs-p6,control,generic,3,two-photon,3.130708e-02,1.286505e-01,7.77e-16,2.4,
+control-k15-vs-p6,control,generic,3,one-photon,1.646335e-02,5.806462e-02,0.00e+00,2.4,
+control-k15-vs-p6,control,generic,3,coherent,1.279151e-01,4.910153e-01,2.05e-02,2.4,1 - mass is the Poisson weight beyond two photons
+control-k15-vs-p6,control,generic,4,two-photon,2.217744e-02,6.661195e-02,1.33e-15,2.7,
+control-k15-vs-p6,control,generic,4,one-photon,1.166125e-02,2.834059e-02,0.00e+00,2.7,
+control-k15-vs-p6,control,generic,4,coherent,1.561791e-01,5.486692e-01,1.84e-02,2.7,1 - mass is the Poisson weight beyond two photons
+regular-24,1fwl-blind,generic,2,two-photon,2.782984e-03,9.567221e-03,2.11e-15,4.3,
+regular-24,1fwl-blind,generic,2,one-photon,1.522531e-03,5.001703e-03,0.00e+00,4.3,
+regular-24,1fwl-blind,generic,2,coherent,6.507840e-03,2.436745e-02,1.45e-03,4.3,1 - mass is the Poisson weight beyond two photons
+regular-24,1fwl-blind,generic,3,two-photon,7.982631e-03,3.758977e-02,8.88e-16,4.2,
+regular-24,1fwl-blind,generic,3,one-photon,4.493878e-03,1.986437e-02,0.00e+00,4.2,
+regular-24,1fwl-blind,generic,3,coherent,3.986427e-02,1.721930e-01,6.98e-03,4.2,1 - mass is the Poisson weight beyond two photons
+regular-24,1fwl-blind,generic,4,two-photon,4.389841e-03,1.714021e-02,1.22e-15,4.4,
+regular-24,1fwl-blind,generic,4,one-photon,2.433159e-03,9.236761e-03,0.00e+00,4.4,
+regular-24,1fwl-blind,generic,4,coherent,3.292630e-02,1.265145e-01,1.70e-03,4.4,1 - mass is the Poisson weight beyond two photons
+regular-47,1fwl-blind,generic,2,two-photon,9.876855e-04,2.294322e-03,2.22e-16,9.8,
+regular-47,1fwl-blind,generic,2,one-photon,5.726475e-04,1.282687e-03,0.00e+00,9.8,
+regular-47,1fwl-blind,generic,2,coherent,2.513686e-02,7.049975e-02,2.11e-03,9.8,1 - mass is the Poisson weight beyond two photons
+regular-47,1fwl-blind,generic,3,two-photon,2.492568e-03,8.312751e-03,1.55e-15,9.9,
+regular-47,1fwl-blind,generic,3,one-photon,2.119458e-03,4.730818e-03,0.00e+00,9.9,
+regular-47,1fwl-blind,generic,3,coherent,4.073768e-02,1.298680e-01,1.93e-03,9.9,1 - mass is the Poisson weight beyond two photons
+regular-47,1fwl-blind,generic,4,two-photon,3.791214e-03,1.508109e-02,2.00e-15,10.0,
+regular-47,1fwl-blind,generic,4,one-photon,2.869947e-03,8.250077e-03,0.00e+00,10.0,
+regular-47,1fwl-blind,generic,4,coherent,1.593940e-02,6.954364e-02,2.37e-03,10.0,1 - mass is the Poisson weight beyond two photons
+extension-09,1fwl-blind,generic,2,two-photon,1.974381e-02,6.627282e-02,1.44e-15,3.8,
+extension-09,1fwl-blind,generic,2,one-photon,1.091480e-02,3.706404e-02,0.00e+00,3.8,
+extension-09,1fwl-blind,generic,2,coherent,3.754857e-02,1.752914e-01,8.17e-03,3.8,1 - mass is the Poisson weight beyond two photons
+extension-09,1fwl-blind,generic,3,two-photon,9.342212e-03,4.445591e-02,8.88e-16,4.0,
+extension-09,1fwl-blind,generic,3,one-photon,6.130780e-03,2.415451e-02,0.00e+00,4.0,
+extension-09,1fwl-blind,generic,3,coherent,5.693599e-02,2.074970e-01,9.29e-03,4.0,1 - mass is the Poisson weight beyond two photons
+extension-09,1fwl-blind,generic,4,two-photon,4.727479e-03,1.873148e-02,2.66e-15,3.6,
+extension-09,1fwl-blind,generic,4,one-photon,2.389592e-03,9.657842e-03,0.00e+00,3.6,
+extension-09,1fwl-blind,generic,4,coherent,4.420543e-02,1.502656e-01,6.46e-03,3.6,1 - mass is the Poisson weight beyond two photons
+extension-43,1fwl-blind,generic,2,two-photon,1.532726e-02,5.155691e-02,1.22e-15,3.7,
+extension-43,1fwl-blind,generic,2,one-photon,1.385791e-02,2.920247e-02,0.00e+00,3.7,
+extension-43,1fwl-blind,generic,2,coherent,2.954547e-02,1.158598e-01,1.02e-02,3.7,1 - mass is the Poisson weight beyond two photons
+extension-43,1fwl-blind,generic,3,two-photon,3.193178e-03,1.371185e-02,1.33e-15,3.7,
+extension-43,1fwl-blind,generic,3,one-photon,1.949414e-03,7.166346e-03,0.00e+00,3.7,
+extension-43,1fwl-blind,generic,3,coherent,2.838391e-02,1.815143e-01,2.08e-02,3.7,1 - mass is the Poisson weight beyond two photons
+extension-43,1fwl-blind,generic,4,two-photon,3.030179e-03,1.221010e-02,9.99e-16,3.6,
+extension-43,1fwl-blind,generic,4,one-photon,1.828188e-03,6.250228e-03,0.00e+00,3.6,
+extension-43,1fwl-blind,generic,4,coherent,3.868913e-02,1.607833e-01,1.32e-02,3.6,1 - mass is the Poisson weight beyond two photons
+classic-2c3-vs-c6,1fwl-blind,generic,2,two-photon,6.618643e-03,2.477435e-02,1.55e-15,1.2,
+classic-2c3-vs-c6,1fwl-blind,generic,2,one-photon,7.588048e-03,1.517610e-02,0.00e+00,1.2,
+classic-2c3-vs-c6,1fwl-blind,generic,2,coherent,8.583714e-04,2.788107e-03,2.98e-02,1.2,1 - mass is the Poisson weight beyond two photons
+classic-2c3-vs-c6,1fwl-blind,generic,3,two-photon,1.083628e-02,3.557700e-02,1.44e-15,1.0,
+classic-2c3-vs-c6,1fwl-blind,generic,3,one-photon,6.137542e-03,1.929708e-02,0.00e+00,1.0,
+classic-2c3-vs-c6,1fwl-blind,generic,3,coherent,4.763576e-02,2.369098e-01,1.78e-02,1.0,1 - mass is the Poisson weight beyond two photons
+classic-2c3-vs-c6,1fwl-blind,generic,4,two-photon,4.141622e-03,1.991100e-02,1.11e-15,1.1,
+classic-2c3-vs-c6,1fwl-blind,generic,4,one-photon,3.726062e-03,1.129160e-02,0.00e+00,1.1,
+classic-2c3-vs-c6,1fwl-blind,generic,4,coherent,4.756685e-02,2.041920e-01,2.17e-02,1.1,1 - mass is the Poisson weight beyond two photons
+str-00,2fwl-blind,generic,2,two-photon,1.578892e-03,9.405051e-03,5.00e-15,141.6,
+str-00,2fwl-blind,generic,2,one-photon,8.033541e-04,4.819850e-03,0.00e+00,141.6,
+str-00,2fwl-blind,generic,2,coherent,1.497868e-02,5.820985e-02,3.32e-03,141.6,1 - mass is the Poisson weight beyond two photons
+control-c6-vs-p6,control,seed-01,2,two-photon,2.090707e-03,7.636509e-03,1.55e-15,0.9,
+control-c6-vs-p6,control,seed-01,3,two-photon,3.068037e-03,1.202618e-02,1.11e-15,1.0,
+control-c6-vs-p6,control,seed-01,4,two-photon,1.765498e-03,5.960448e-03,1.33e-15,0.9,
+control-k15-vs-p6,control,seed-01,2,two-photon,6.254847e-03,2.734131e-02,1.33e-15,2.4,
+control-k15-vs-p6,control,seed-01,3,two-photon,7.290712e-03,3.596485e-02,4.44e-16,2.2,
+control-k15-vs-p6,control,seed-01,4,two-photon,3.215647e-03,1.476919e-02,1.33e-15,2.5,
+regular-24,1fwl-blind,seed-01,2,two-photon,3.335741e-05,5.003612e-05,1.78e-15,4.1,
+regular-24,1fwl-blind,seed-01,3,two-photon,2.059728e-03,7.276955e-03,1.78e-15,4.3,
+regular-24,1fwl-blind,seed-01,4,two-photon,4.298058e-04,1.337991e-03,2.22e-15,4.2,
+regular-47,1fwl-blind,seed-01,2,two-photon,4.058731e-06,6.088097e-06,9.99e-16,9.5,
+regular-47,1fwl-blind,seed-01,3,two-photon,7.121652e-04,2.518020e-03,1.55e-15,10.2,
