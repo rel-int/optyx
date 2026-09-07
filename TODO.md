@@ -110,3 +110,22 @@ The handout, verbatim:
 - [x] Run controls, the 1-FWL rung at T = 2, 3, 4, the rook/Shrikhande sanity row at T = 2, the rotation and relabelling tables, H4; commit `results/`
 - [x] `experiments/invariant_qmapnn/README.md`: rendered tables, the §4b ceiling theorem, findings against H1–H4, the relation to `docs/quantum_map_neural_networks.md` E4/E5 and PR #69, and the tensions with the handout (dart pairs are native to `CMap`; the ladder's cells are already port-symmetric)
 - [x] `pflake8` clean, `coverage run -m pytest` green, `AGENTS.md`/`CONTRIBUTING.md` pointers if needed
+
+## Inherited from PR #69
+
+The `TODO.md` of the branch this one is stacked on, kept as it was:
+
+### PR #69 TODO
+
+> Let's see how far we can climb up the k-WL ladder. Use Cai et al. and the BREC benchmark to construct a dataset of graphs of increasing k-WL indistinguishability (say 5 graphs for each k). Then benchmark the following models: 1. passive photonic QMapNN with a single photon per cell, 2. passive photonic QMapNN with a dual-rail Bell state input at each time step, 3. active photonic QMapNN with both classical and quantum messages, 4. Qubit QMapNN with a qubit circuit and quantum messages (only the prediction measured), 5. Qubit QMapNN with both classical and quantum messages. In each case, the model should be simply a functor turning the CMap representing the graph into an optyx.interaction.CMap. The interpretation of the cells should be physical, i.e. a CPTP map + optionally measurements and classical feedforward. You can use the modal GPUs for large graphs and possibly some tensor network approximation methods if the graph is too big.
+
+- [x] Dataset: pairs of increasing k-WL indistinguishability from Cai-Fürer-Immerman and BREC, about five per rung, verified with our own 1-FWL / 2-FWL / 3-FWL — 2 controls, 5 + 5 + 5 measured rungs; every BREC dr and 4vtx pair measures 3-FWL-distinguishable, the 3-FWL-blind rung is CFI at n = 80..106
+- [x] The graph as a CMap and the five models as functors into `optyx.interaction.CMap`, every cell a physical CPTP map (plus the relayed-flood active variant)
+- [x] Exact few-photon certificates for the photonic models validated against optyx's own contraction of the functor image — which surfaced and fixed two discrepancies between the `beyond_3wl` Machine and its drawn cell (kicks on reflections; replaced rather than composed kick splitter), reported on #61
+- [x] Benchmark over the ladder with the pruning rule; qubit models contract through quimb, the qubit-ff wall recorded as trimmed; Modal fan-out implemented and validated but unreachable from this sandbox (the egress proxy blocks gRPC), so all numbers are local
+- [x] Committed results (CSV + report + README findings) with probability conservation at 1e-14 and exact-zero relabelling invariance
+- [x] Lint and tests green (functor-image smoke tests in `test/`), draft PR #69 stacked on #61
+
+> Once you see that the model doesn't separate, don't keep runnning it for higher ks. Focus on the ones that climb
+
+- [x] Prune the benchmark accordingly: passive and Bell stop at the 2-FWL rung, the qubit models stop at the controls (the unitary cell measures blind even there; the classical-control cell does not contract), and the active family — the one that climbs — separates every strongly regular pair, with both one-hop and unbounded-relay broadcast exactly zero on the locally-isomorphic CFI and distance-regular pairs of the same rung, so its ceiling is local distinguishability, not a k-WL level
