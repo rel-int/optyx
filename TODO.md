@@ -111,6 +111,13 @@ The handout, verbatim:
 - [x] `experiments/invariant_qmapnn/README.md`: rendered tables, the §4b ceiling theorem, findings against H1–H4, the relation to `docs/quantum_map_neural_networks.md` E4/E5 and PR #69, and the tensions with the handout (dart pairs are native to `CMap`; the ladder's cells are already port-symmetric)
 - [x] `pflake8` clean, `coverage run -m pytest` green, `AGENTS.md`/`CONTRIBUTING.md` pointers if needed
 
+> For the graph pairs you tested, let's see if the same photonic QMapNN with distinguishable photons can get the same separation
+
+- [WIP] @session_01BVf5U3AGWKwGHPMNh2SxvR-2026-09-08 07:37 `engine.py`: a `distinguishable` two-herald certificate, the pair statistics as products of single-photon probabilities, grounded on the triangle against optyx's `inflate` of the driven functor image with orthogonal internal states
+- [ ] Run it on the same pairs, cells and ticks as the two-photon rows (canonical at T = 2, 3, 4 and the sanity row, the ladder cell, the 20 seeds); render the column beside the bosonic one
+- [ ] README findings: the distinguishable column against the two-photon and one-photon ones, tests and lint green
+
+
 ## Inherited from PR #69
 
 The `TODO.md` of the branch this one is stacked on, kept as it was:
