@@ -78,17 +78,30 @@ def amplitudes(step, n_out, n_ticks, drives=None):
     return result
 
 
-def count_statistics(pairs, measured):
+def bosons(a, b):
+    """The joint amplitudes of two indistinguishable photons, squared:
+    ``|a_i b_j + a_j b_i|^2``."""
+    return np.abs(np.outer(a, b) + np.outer(b, a)) ** 2
+
+
+def distinguishable(a, b):
+    """The joint probabilities of two distinguishable photons, which
+    never interfere: ``|a_i|^2 |b_j|^2 + |a_j|^2 |b_i|^2``."""
+    a, b = np.abs(a) ** 2, np.abs(b) ** 2
+    return np.outer(a, b) + np.outer(b, a)
+
+
+def count_statistics(pairs, measured, joint_of=bosons):
     """The per-mode and total count distributions of two photons in
     orthogonal single-photon states ``a, b``, averaged over the
-    ``(a, b)`` pairs: ``|a_i b_j + a_j b_i|^2`` is the probability of
+    ``(a, b)`` pairs: ``joint_of(a, b)[i, j]`` is the probability of
     one photon in each of two modes, half of it that of two in one."""
     n_out = len(measured)
     nodes, total = np.zeros((n_out, 3)), np.zeros(3)
     rest = np.ones(pairs[0][0].shape[0], dtype=bool)
     rest[measured] = False
     for a, b in pairs:
-        joint = np.abs(np.outer(a, b) + np.outer(b, a)) ** 2
+        joint = joint_of(a, b)
         diagonal = np.diag(joint)
         nodes[:, 2] += diagonal[measured] / 2
         nodes[:, 1] += joint[measured].sum(axis=1) - diagonal[measured]
@@ -104,6 +117,13 @@ def two_photon(slots, measured):
     """The two-herald certificate: uniform over pairs of distinct slots."""
     return count_statistics(
         list(combinations(slots.reshape(-1, slots.shape[-1]), 2)), measured)
+
+
+def two_distinguishable(slots, measured):
+    """The two-herald certificate with distinguishable photons."""
+    return count_statistics(
+        list(combinations(slots.reshape(-1, slots.shape[-1]), 2)), measured,
+        distinguishable)
 
 
 def one_photon(slots, measured):
@@ -131,8 +151,9 @@ def coherent(slots, measured, mean_photons=2):
         poisson(intensity.sum())
 
 
-CERTIFICATES = {"two-photon": two_photon, "one-photon": one_photon,
-                "coherent": coherent}
+CERTIFICATES = {"two-photon": two_photon,
+                "distinguishable": two_distinguishable,
+                "one-photon": one_photon, "coherent": coherent}
 
 
 def bins(nodes, total):
@@ -174,22 +195,20 @@ def statistics(cmap, n_ticks, certificate="two-photon"):
     return read(*slots_of(cmap, n_ticks), certificate)
 
 
-def joint(cmap, n_ticks, first, second):
+def joint(cmap, n_ticks, first, second, joint_of=bosons):
     """The joint distribution of the counts on the last outputs for two
     photons injected at the slots ``first`` and ``second``, as an array
     indexed by the count of every output, for grounding the certificate
     in the contraction of the functor image."""
     slots, measured = slots_of(cmap, n_ticks)
-    a, b = slots[first], slots[second]
-    amplitude = np.outer(a, b) + np.outer(b, a)
+    probabilities = joint_of(slots[first], slots[second])
     position = {column: k for k, column in enumerate(measured)}
     result = np.zeros((3,) * len(measured))
-    for i in range(amplitude.shape[0]):
-        for j in range(i, amplitude.shape[1]):
+    for i in range(probabilities.shape[0]):
+        for j in range(i, probabilities.shape[1]):
             counts = [0] * len(measured)
             for wire in (i, j):
                 if wire in position:
                     counts[position[wire]] += 1
-            probability = np.abs(amplitude[i, j]) ** 2 / (2 if i == j else 1)
-            result[tuple(counts)] += probability
+            result[tuple(counts)] += probabilities[i, j] / (2 if i == j else 1)
     return result

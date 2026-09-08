@@ -86,7 +86,8 @@ def ensemble_table(table, ticks="4"):
 
 
 def certificate_table(table, cell="canonical", ticks="4"):
-    certificates = ("two-photon", "one-photon", "coherent")
+    certificates = ("two-photon", "distinguishable", "one-photon",
+                    "coherent")
     values = {(r["pair"], r["certificate"]): float(r["separation"])
               for r in table if r["cell"] == cell and r["ticks"] == ticks}
     lines = [[pair, rung] + [

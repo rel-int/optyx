@@ -18,7 +18,8 @@ sys.path.insert(0, os.path.join(
 
 from cells import (  # noqa: E402
     CELLS, dart_permutation, haar_unitary, invariant_cell, rotate)
-from engine import assemble, bins, joint, statistics  # noqa: E402
+from engine import (  # noqa: E402
+    assemble, bins, bosons, distinguishable, joint, statistics)
 from ladder import adjacency, relabelled, separation  # noqa: E402
 
 
@@ -73,6 +74,36 @@ def test_two_photon_certificate_matches_the_contraction():
         contracted - certificate[tuple(map(slice, dims))]).max() < 1e-14
 
 
+@pytest.mark.parametrize("states, joint_of", [
+    (([1, 0], [0, 1]), distinguishable), (([1, 0], [1, 0]), bosons)])
+def test_distinguishable_certificate_matches_the_inflated_contraction(
+        states, joint_of):
+    from optyx.channel import Diagram, Discard, Measure, qmode
+    from optyx.core.backends import QuimbBackend
+    from optyx.photonic import Create
+    n_ticks, slots = 2, ((0, 0), (1, 1))
+    cmap = CELLS["canonical"](adjacency(nx.path_graph(2)))
+    n = len(cmap.dom)
+    photons = dict(zip(slots, states))
+    drive = Diagram.id().tensor(*[
+        Create(1, internal_states=(photons[tick, vertex],))
+        if (tick, vertex) in photons else Create(0)
+        for tick in range(n_ticks) for vertex in range(n)])
+    memory = Diagram.id().tensor(*[Create(0)] * len(cmap.memory))
+    readout = Diagram.id().tensor(
+        *[Discard(qmode)] * (n_ticks - 1) * n) @ Measure(qmode ** n)
+    diagram = (drive @ memory >> cmap.unroll(n_ticks - 1) >> readout)
+    tensor = QuimbBackend(contraction_params={"optimize": "greedy"}).eval(
+        diagram.inflate(2)).tensor
+    dims = tuple(int(dim) for dim in tensor.cod.inside)
+    contracted = np.asarray(tensor.array).real.reshape(dims)
+    block = contracted[tuple(slice(0, 3) for _ in dims)]
+    assert abs(contracted.sum() - 1) < 1e-12
+    assert abs(block.sum() - 1) < 1e-12
+    certificate = joint(cmap, n_ticks, *slots, joint_of)
+    assert np.abs(block - certificate).max() < 1e-14
+
+
 def test_rotation_systems_and_relabelling_on_a_path():
     path = adjacency(nx.path_graph(4))
     for name in ("canonical", "ladder"):
@@ -88,7 +119,7 @@ def test_certificates_conserve_probability():
     path, isolated = adjacency(nx.path_graph(4)), ((), (2,), (1,))
     for graph in (path, isolated):
         cmap = CELLS["canonical"](graph)
-        for certificate in ("two-photon", "one-photon"):
+        for certificate in ("two-photon", "distinguishable", "one-photon"):
             nodes, total, mass = statistics(cmap, 3, certificate)
             assert abs(mass - 1) < 1e-12
             assert len(nodes) == len(graph)
