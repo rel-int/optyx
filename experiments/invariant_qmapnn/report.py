@@ -67,13 +67,13 @@ def main_table(table):
         + ["#69 passive T=8"], lines)
 
 
-def ensemble_table(table, ticks="4"):
+def ensemble_table(table, ticks="4", certificate="two-photon"):
     lines = []
     for pair, rung in pairs_of(table):
         values = [float(r["separation"]) for r in table
                   if r["pair"] == pair and r["cell"].startswith("seed-")
                   and r["ticks"] == ticks
-                  and r["certificate"] == "two-photon"]
+                  and r["certificate"] == certificate]
         if not values:
             continue
         lines.append([
