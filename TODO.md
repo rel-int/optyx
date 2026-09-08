@@ -114,8 +114,8 @@ The handout, verbatim:
 > For the graph pairs you tested, let's see if the same photonic QMapNN with distinguishable photons can get the same separation
 
 - [x] `engine.py`: a `distinguishable` two-herald certificate, the pair statistics as products of single-photon probabilities, grounded on the triangle against optyx's `inflate` of the driven functor image with orthogonal internal states
-- [ ] Run it on the same pairs, cells and ticks as the two-photon rows (canonical at T = 2, 3, 4 and the sanity row, the ladder cell, the 20 seeds); render the column beside the bosonic one
-- [ ] README findings: the distinguishable column against the two-photon and one-photon ones, tests and lint green
+- [x] Run it on the same pairs, cells and ticks as the two-photon rows (canonical at T = 2, 3, 4 and the sanity row, the ladder cell, the 20 seeds); render the column beside the bosonic one
+- [x] README findings: the distinguishable column against the two-photon and one-photon ones, tests and lint green
 
 
 ## Inherited from PR #69

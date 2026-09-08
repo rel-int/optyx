@@ -134,7 +134,10 @@ in the same pulse; the same-pulse pairs are a subset of this ensemble.
 - **Exact zeros.** Entries at or below `1e-15` are reported as exact
   zeros, distinct from small numbers.
 
-Two single-particle certificates share the same readout, for H4:
+Two single-particle certificates share the same readout, for H4, and a
+fourth, `distinguishable`, replaces the bosonic pair statistics by those
+of two photons that cannot interfere (see the section on distinguishable
+photons below):
 **one-photon**, the one-herald ensemble, uniform over slots; and
 **coherent**, a coherent state of the same amplitude in every slot with
 two photons injected on average, whose outputs are coherent states of
@@ -430,6 +433,85 @@ probability to `5e-15` or better (`mass_error` in the CSV); the
 contracted functor image on the triangle and the path sums to
 `1 - 1e-15`.
 
+## Distinguishable photons
+
+> For the graph pairs you tested, let's see if the same photonic QMapNN
+> with distinguishable photons can get the same separation
+
+Two distinguishable photons — orthogonal internal states, say two
+frequencies — never interfere: the joint probability of finding one in
+each of two columns is the product of single-photon probabilities,
+`|a_i|^2 |b_j|^2 + |a_j|^2 |b_i|^2`, where the bosonic certificate has
+`|a_i b_j + a_j b_i|^2`; the same slot ensemble, the same readout, the
+same score (`distinguishable` in `engine.py`). It is grounded in optyx's
+own semantics of distinguishability: the driven `CMap` with `Create(1,
+internal_states=...)` on the two slots is inflated with
+`Diagram.inflate(2)` and contracted, and matches the certificate at
+`7e-18` on the two-vertex path, where the two photons meet inside a cell
+(`test_distinguishable_certificate_matches_the_inflated_contraction`,
+which also re-derives the bosonic certificate by giving both photons the
+*same* internal state), and at `2e-16` on a single vertex with a loop
+edge, the smallest map where a photon comes back to meet the next one.
+The inflated triangle exceeds the memory of an exact contraction.
+
+**Same separation from three ticks on, none at two.** For the canonical
+cell:
+
+| pair | rung | bosons T=2 | distinguishable T=2 | bosons T=3 | distinguishable T=3 | bosons T=4 | distinguishable T=4 |
+|---|---|---|---|---|---|---|---|
+| control-c6-vs-p6 | control | 9.9e-03 | 1.1e-02 | 1.3e-02 | 1.4e-02 | 4.7e-03 | 4.9e-03 |
+| control-k15-vs-p6 | control | 3.0e-02 | 3.2e-02 | 2.4e-02 | 2.6e-02 | 7.2e-03 | 7.8e-03 |
+| regular-24 | 1fwl-blind | 1.8e-04 | exact 0 | 8.3e-03 | 8.5e-03 | 8.8e-03 | 9.2e-03 |
+| regular-47 | 1fwl-blind | 9.7e-05 | exact 0 | 2.8e-04 | 3.0e-04 | 2.4e-03 | 2.5e-03 |
+| extension-09 | 1fwl-blind | 5.3e-05 | exact 0 | 3.0e-03 | 3.1e-03 | 1.5e-03 | 1.6e-03 |
+| extension-43 | 1fwl-blind | 5.3e-05 | exact 0 | 3.3e-03 | 3.3e-03 | 5.6e-05 | 1.1e-04 |
+| classic-2c3-vs-c6 | 1fwl-blind | 1.1e-03 | exact 0 | 3.4e-02 | 3.6e-02 | 2.2e-02 | 2.4e-02 |
+| str-00 | 2fwl-blind | exact 0 | exact 0 |  |  |  |  |
+
+At `T = 3` and `T = 4` the distinguishable photons separate every
+control and every 1-FWL-blind pair, at the same magnitude as the
+indistinguishable ones and in fact slightly *above* them on every row
+but one (extension-43 at `T = 4`, `1.1e-4` against `5.6e-5`): the
+bosonic cross term is a small correction to a separation carried by the
+classical two-walker statistics, which are already products of the
+one-photon marginals that exceed 1-WL at `T >= 3`. At `T = 2` the
+distinguishable certificate is an exact zero on all five 1-FWL-blind
+pairs, like the one-photon one, while the bosonic certificate reads
+`5.3e-5` to `1.1e-3`: two ticks is the regime where only two-photon
+interference sees past colour refinement. The rook/Shrikhande row is an
+exact zero for distinguishable photons too, as it must be — the
+products of single-photon probabilities are 2-walk necklaces, inside
+the same treewidth-2 window.
+
+The twenty seeds with distinguishable photons, at `T = 2` and `T = 4`; the bosonic ensemble is in the results section above:
+
+| pair | rung | seeds | separating | max | median | min |
+|---|---|---|---|---|---|---|
+| control-c6-vs-p6 | control | 20 | 20 | 2.5e-02 | 2.3e-03 | 2.0e-06 |
+| control-k15-vs-p6 | control | 20 | 20 | 7.8e-02 | 5.7e-03 | 6.1e-06 |
+| regular-24 | 1fwl-blind | 20 | 0 | exact 0 | exact 0 | exact 0 |
+| regular-47 | 1fwl-blind | 20 | 0 | exact 0 | exact 0 | exact 0 |
+| extension-09 | 1fwl-blind | 20 | 0 | exact 0 | exact 0 | exact 0 |
+| extension-43 | 1fwl-blind | 20 | 0 | exact 0 | exact 0 | exact 0 |
+| classic-2c3-vs-c6 | 1fwl-blind | 20 | 0 | exact 0 | exact 0 | exact 0 |
+
+| pair | rung | seeds | separating | max | median | min |
+|---|---|---|---|---|---|---|
+| control-c6-vs-p6 | control | 20 | 20 | 1.2e-02 | 2.2e-03 | 1.9e-05 |
+| control-k15-vs-p6 | control | 20 | 20 | 1.5e-02 | 5.6e-03 | 2.3e-05 |
+| regular-24 | 1fwl-blind | 20 | 20 | 9.7e-03 | 1.0e-03 | 8.5e-06 |
+| regular-47 | 1fwl-blind | 20 | 20 | 3.9e-03 | 2.7e-04 | 2.0e-06 |
+| extension-09 | 1fwl-blind | 20 | 20 | 1.3e-02 | 8.9e-04 | 7.3e-06 |
+| extension-43 | 1fwl-blind | 20 | 20 | 1.7e-02 | 1.3e-03 | 7.8e-06 |
+| classic-2c3-vs-c6 | 1fwl-blind | 20 | 20 | 1.7e-02 | 2.9e-03 | 3.3e-05 |
+
+So the answer to the question is *yes* for `T >= 3` and *no* for
+`T = 2`: on these pairs the invariant QMapNN's climb past 1-WL does not
+need photon indistinguishability, it needs two (or one) photons and
+three ticks; what indistinguishability buys is the separation at the
+shortest depth, and the `T = 2` column is the row where the quantum
+statistics are the mechanism.
+
 ## Where this sits in the ceiling discussion
 
 `docs/quantum_map_neural_networks.md` proposes, as E4, climbing with more
@@ -467,6 +549,7 @@ python experiments/invariant_qmapnn/run.py --cells canonical,grover,ladder,gener
 python experiments/invariant_qmapnn/run.py                     # the 20 seeds
 python experiments/invariant_qmapnn/run.py --rotations --cells canonical,ladder,generic --ticks 4
 python experiments/invariant_qmapnn/run.py --invariance --cells canonical,ladder,generic,seed-01 --ticks 4
+python experiments/invariant_qmapnn/run.py --certificates distinguishable --cells canonical,ladder,seed-01,...,seed-20
 python experiments/invariant_qmapnn/report.py                  # render the tables
 ```
 
