@@ -4,6 +4,6 @@
 
 - [x] Read the handout and PRs #58, #61, #69 and #70
 - [x] Reproduce PR #70's two-photon, distinguishable, one-photon certificates in plain numpy and test the bosonic/distinguishable relation to machine precision
-- [WIP] @session_01WGNp5f7SuLkuPa7kaXJveh-2026-09-11 `theory/plo_gnn_wl_theorems.md`: the handout, verbatim
-- [WIP] @session_01WGNp5f7SuLkuPa7kaXJveh-2026-09-11 `theory/distinguishable_vs_indistinguishable.md`: the difference in expressive power between distinguishable and indistinguishable photonic GNNs
-- [ ] Open the pull request
+- [x] `theory/plo_gnn_wl_theorems.md`: the handout, verbatim
+- [x] `theory/distinguishable_vs_indistinguishable.md`: the difference in expressive power between distinguishable and indistinguishable photonic GNNs
+- [x] Open the pull request
