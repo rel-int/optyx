@@ -1,8 +1,5 @@
 import pyzx
 from optyx import qubits
-from pytket import Circuit
-from pytket.extensions.qiskit import AerBackend
-from pytket.utils import probs_from_counts
 from optyx import channel
 from optyx.core import zx
 import numpy as np
