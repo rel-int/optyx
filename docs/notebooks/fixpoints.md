@@ -52,8 +52,11 @@ print(f"dom={loop(.25).dom}  cod={loop(.25).cod}  mem={loop(.25).mem}")
 
 ## 2. Stream semantics
 
-`stream` returns a `Stream`: the underlying `discopy.stream.Stream` and one
-`FeedbackBoundary` per loop, in the order `unroll` uses them.
+A feedback loop carries its boundary as ordinary attributes: the initial
+`state` and the final `effect` chosen at `feedback`. The default `state` is
+the identity — an open wire — and a channel's default `effect` discards the
+memory. `boundary()` reads the pair back across every loop of a diagram, in
+the order `unroll` plugs them.
 
 ```python {.marimo}
 loop_ = loop(.25)
@@ -63,7 +66,7 @@ print(f"mem={loop_.mem}  state={loop_.state}  effect={loop_.effect}")
 The boundary is the **memory wire only**. The inputs and outputs of each tick
 stay open — they are the domain and codomain of the stream at that tick.
 
-`now` opens every loop again: one tick, from `dom @ mem` to `cod @ mem`.
+`one_step()` opens every loop again: one tick, from `dom @ mem` to `cod @ mem`.
 
 ```python {.marimo}
 step = loop(.25).one_step()
@@ -79,13 +82,6 @@ last. That is what the loop becomes:
 Equation(loop(.25), loop(.25).unroll(2), symbol=r"$\mapsto$").draw(
     figsize=(11, 4))
 ```
-
-`stream` and `now` are methods, not properties. On a `discopy.stream.Stream`,
-`now` and `mem` are fields of a value already built, so attribute syntax costs
-nothing; only `later` is a property, and it forces the tail. Here nothing is
-built yet: each call reinterprets the diagram to find the memory of every nested
-loop, and a cached `.stream` property was considered and rejected, so attribute
-syntax would promise a field and deliver a rebuild.
 <!---->
 ## 3. Fixed-point semantics
 
