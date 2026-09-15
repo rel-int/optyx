@@ -107,10 +107,12 @@ the result as an `EvalResult`, so `density_matrix` and `prob_dist` read it
 like any other evaluation. The depth comes from `unroll_certificate`, the
 stationary boson-sampling bound of Armand Le Douarec, computed from the
 loop's one-step optical matrix — loss included, since loss is part of the
-diagram. Where the bound does not apply (qubit or classical memories, boxes
-with no optical matrix), `fix` falls back on `power_fix`, which iterates
-`at_time` and stops when successive states agree within the tolerance,
-warning if `max_steps` arrives first. `fix` also warns separately when `chi`
+diagram. Where the bound does not apply, `certificate_obstruction` names
+the reason — a qubit or classical memory, a nested loop, a box with no
+Kraus map or no path matrix — and `fix` warns with it before falling back
+on `power_fix`, which iterates `at_time` and stops when successive states
+agree within the tolerance, warning if `max_steps` arrives first. `fix`
+also warns separately when `chi`
 truncates the contraction below the photon budget. `eigen_fix` skips the
 unrolling altogether and diagonalises the transfer matrix of one step,
 following [Biriukov and

@@ -220,13 +220,12 @@ def test_power_iteration_warns_on_a_periodic_loop():
 
 def test_power_fix_converges_to_eigen():
     """The fallback iteration agrees with the eigensolve on a mixing
-    qubit loop, and `fix` reaches it silently when the certificate does
-    not apply."""
+    qubit loop, and `fix` warns with the obstruction when it falls back,
+    so an uncertified result is never silent."""
     exact = rotation(0.25).eigen_fix().density_matrix
     assert np.linalg.norm(
         rotation(0.25).power_fix(1e-3).density_matrix - exact) < 1e-2
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
+    with pytest.warns(UserWarning, match="falling back on power_fix"):
         by_fix = rotation(0.25).fix(tol=1e-3).density_matrix
     assert np.linalg.norm(by_fix - exact) < 1e-2
 
@@ -245,7 +244,7 @@ def test_fixpoint_of_a_closed_loop():
     assert closed.one_step() == Diagram.id(qmode)
     with pytest.raises(ValueError, match="not unique"):
         closed.eigen_fix()
-    with pytest.raises(NotImplementedError, match="rho"):
+    with pytest.raises(ValueError, match="rho"):
         closed.unroll_certificate()
     result = closed.power_fix(tol=1e-2, max_steps=3)
     assert result.density_matrix.shape == ()
@@ -368,13 +367,20 @@ def test_loss_in_the_diagram_shortens_the_certificate():
 
 
 def test_certificate_refuses_what_it_cannot_certify():
-    """Qubit memories, several loops and undamped loop blocks all raise
-    `NotImplementedError`, which is what sends `fix` to `power_fix`."""
-    with pytest.raises(NotImplementedError, match="optical modes"):
+    """Each obstruction is pinned down and named: qubit memories, nested
+    loops and undamped loop blocks raise `ValueError` with the reason,
+    the same message `fix` warns with before falling back on
+    `power_fix`."""
+    with pytest.raises(ValueError, match="optical modes"):
         source().unroll_certificate()
-    with pytest.raises(NotImplementedError, match="rho"):
+    with pytest.raises(ValueError, match="rho"):
         Diagram.id(qmode).feedback(
             state=photonic.Create(0)).unroll_certificate()
+    inner = Diagram.swap(qmode, qmode).feedback(state=photonic.Create(0))
+    outer = ((photonic.Create(1) >> inner) @ qmode).feedback(
+        mem=qmode, state=photonic.Create(0))
+    assert outer.certificate_obstruction() \
+        == "the loop contains a nested feedback loop"
 
 
 def test_backend_uses_existing_interface():

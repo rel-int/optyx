@@ -535,6 +535,60 @@ class Diagram(frobenius.Diagram):
             env = env @ box_env
         return kraus
 
+    def certificate_obstruction(self) -> str | None:
+        """
+        The reason the stationary boson-sampling bound of
+        :meth:`unroll_certificate` does not apply to this diagram, or
+        `None` when it does. Each condition is checked in turn, so the
+        message names the first thing that fails rather than an exception
+        caught along the way: :meth:`unroll_certificate` raises with it
+        and :meth:`fix` warns with it before falling back on
+        :meth:`power_fix`.
+
+        >>> from optyx import photonic, qubits
+        >>> loop = (photonic.Create(1) @ qmode >> photonic.BS).feedback(
+        ...     mem=qmode, state=photonic.Create(0))
+        >>> assert loop.certificate_obstruction() is None
+        >>> wait = Diagram.swap(qubit, qubit).feedback(
+        ...     state=qubits.Ket(0))
+        >>> print((qubits.Ket(0) >> wait).certificate_obstruction())
+        the diagram is not a single feedback loop over optical modes
+        """
+        loops = [box for box in self.boxes if isinstance(box, Feedback)]
+        if len(loops) != 1 or loops[0].dom or any(
+                ob.inside[0].name != "qmode" for ob in loops[0].mem):
+            return ("the diagram is not a single feedback loop over "
+                    "optical modes")
+        loop = loops[0]
+        if any(isinstance(box, Feedback) for box in loop.arg.boxes):
+            return "the loop contains a nested feedback loop"
+        for box in loop.arg.boxes:
+            if not isinstance(box, Channel):
+                return f"{box} has no Kraus map"
+        dilation = loop.arg.dilate()
+        for box in dilation.boxes:
+            if type(box).to_path is diagram.Box.to_path:
+                return f"{box} has no path matrix"
+        matrix = dilation.to_path()
+        isometry = np.asarray(matrix.array, dtype=complex)
+        memory = len(loop.mem.single())
+        visible = len(loop.cod.single())
+        if matrix.dom != memory or matrix.cod < visible + memory \
+                or matrix.selections:
+            return ("the loop's optical matrix does not split into "
+                    "visible, memory and environment modes")
+        if isometry.shape != (memory + len(matrix.creations), matrix.cod) \
+                or not np.allclose(
+                    isometry @ isometry.conjugate().T,
+                    np.eye(len(isometry))):
+            return "the loop's optical matrix is not an isometry"
+        block = isometry[:memory, visible:visible + memory]
+        if max(abs(np.linalg.eigvals(block)), default=0) >= 1:
+            return ("the loop block does not satisfy rho(V_ll) < 1: "
+                    "nothing ever leaves the loop, so no depth is "
+                    "certified")
+        return None
+
     def unroll_certificate(
             self, tol: float = 1e-6, max_steps: int = None) -> int | None:
         """
@@ -558,10 +612,11 @@ class Diagram(frobenius.Diagram):
         environment in the loop enters `V_ll` as the isometry block it is,
         and shrinks its singular values by the amplitude it leaks.
 
-        Raises `NotImplementedError` when the bound does not apply — a
-        memory that is not all optical modes, more than one loop, boxes
-        with no path matrix, or a lossless loop block with spectral radius
-        one. :meth:`fix` then falls back on :meth:`power_fix`. If
+        Raises `ValueError` with the :meth:`certificate_obstruction` when
+        the bound does not apply — a memory that is not all optical modes,
+        more than one loop, a box with no Kraus map or no path matrix, or
+        a lossless loop block with spectral radius one. :meth:`fix` warns
+        with the same obstruction and falls back on :meth:`power_fix`. If
         `max_steps` is given, `None` means the cap was reached before the
         bound fell below `tol`.
 
@@ -586,38 +641,16 @@ class Diagram(frobenius.Diagram):
                 not isinstance(max_steps, Integral)
                 or isinstance(max_steps, bool) or max_steps <= 0):
             raise ValueError("max_steps must be a positive integer.")
-        loops = [box for box in self.boxes if isinstance(box, Feedback)]
-        if len(loops) != 1 or loops[0].dom or any(
-                ob.inside[0].name != "qmode" for ob in loops[0].mem):
-            raise NotImplementedError(
-                "The certificate needs a single feedback loop over "
-                "optical modes.")
-        loop = loops[0]
-        try:
-            matrix = loop.arg.dilate().to_path()
-            isometry = np.asarray(matrix.array, dtype=complex)
-        except (AssertionError, AttributeError, NotImplementedError,
-                TypeError, ValueError) as error:
-            raise NotImplementedError(
-                "The loop has no one-step optical matrix.") from error
+        obstruction = self.certificate_obstruction()
+        if obstruction is not None:
+            raise ValueError(f"The bound does not apply: {obstruction}.")
+        loop = next(
+            box for box in self.boxes if isinstance(box, Feedback))
+        matrix = loop.arg.dilate().to_path()
+        isometry = np.asarray(matrix.array, dtype=complex)
         memory = len(loop.mem.single())
         visible = len(loop.cod.single())
-        if matrix.dom != memory or matrix.cod < visible + memory \
-                or matrix.selections:
-            raise NotImplementedError(
-                "The loop's optical matrix does not split into visible, "
-                "memory and environment modes.")
-        if isometry.shape != (memory + len(matrix.creations), matrix.cod) \
-                or not np.allclose(
-                    isometry @ isometry.conjugate().T,
-                    np.eye(len(isometry))):
-            raise NotImplementedError(
-                "The loop's optical matrix is not an isometry.")
         block = isometry[:memory, visible:visible + memory]
-        if max(abs(np.linalg.eigvals(block)), default=0) >= 1:
-            raise NotImplementedError(
-                "The loop block does not satisfy rho(V_ll) < 1: nothing "
-                "ever leaves the loop, so no depth is certified.")
         qbar = max(matrix.creations, default=0)
         constant = (qbar + 1) * (
             np.sqrt(6 * qbar * (qbar + 1)) + qbar)
@@ -678,10 +711,10 @@ class Diagram(frobenius.Diagram):
         certified within `tol` — whenever the bound applies to this diagram.
         Loss is part of the diagram, so a lossy loop is certified through
         the same call with no extra input. Where the certificate does not
-        apply (qubit or classical memories, boxes with no optical matrix),
-        :meth:`power_fix` iterates instead, watching the distance between
-        successive states. Where the transfer matrix fits in memory,
-        :meth:`eigen_fix` is exact with no depth at all.
+        apply, :meth:`power_fix` iterates instead, watching the distance
+        between successive states, with a warning naming the
+        :meth:`certificate_obstruction`. Where the transfer matrix fits in
+        memory, :meth:`eigen_fix` is exact with no depth at all.
 
         Parameters:
             tol : The error the certified depth approximates the fixed point
@@ -728,11 +761,15 @@ class Diagram(frobenius.Diagram):
             raise ValueError(
                 "backend must implement the AbstractBackend interface.")
 
-        try:
-            certified = self.unroll_certificate(tol, max_steps)
-        except NotImplementedError:
+        obstruction = self.certificate_obstruction()
+        if obstruction is not None:
+            warnings.warn(
+                f"falling back on power_fix because {obstruction}: the "
+                "stopping distance is observed rather than certified.",
+                UserWarning, stacklevel=2)
             return self.power_fix(
                 tol, max_steps=max_steps, max_chi=max_chi)
+        certified = self.unroll_certificate(tol, max_steps)
         depth = max_steps if certified is None else certified
         if certified is None:
             warnings.warn(
