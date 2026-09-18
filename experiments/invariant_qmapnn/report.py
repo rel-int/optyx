@@ -97,6 +97,19 @@ def certificate_table(table, cell="canonical", ticks="4"):
     return markdown(["pair", "rung"] + list(certificates), lines)
 
 
+def ticks_table(table, certificates, cell="canonical", ticks=("2", "3", "4")):
+    """One column per certificate and number of ticks, for one cell."""
+    columns = [(c, t) for t in ticks for c in certificates]
+    values = {(r["pair"], r["certificate"], r["ticks"]): float(r["separation"])
+              for r in table if r["cell"] == cell}
+    lines = [[pair, rung] + [
+        cell_text(values[pair, c, t]) if (pair, c, t) in values else ""
+        for c, t in columns] for pair, rung in pairs_of(table)
+        if any((pair, c, t) in values for c, t in columns)]
+    return markdown(["pair", "rung"] + [f"{c} T={t}" for c, t in columns],
+                    lines)
+
+
 def rotation_table(table, ticks="4"):
     cells = ("canonical", "ladder", "generic")
     spread = {}
@@ -127,6 +140,12 @@ if __name__ == "__main__":
             ("Separations", main_table(table)),
             ("Seed ensemble (T = 4)", ensemble_table(table)),
             ("Certificates (canonical, T = 4)", certificate_table(table)),
+            ("Light inputs (canonical)", ticks_table(
+                table, ("two-photon", "distinguishable", "coherent"))),
+            ("Seed ensemble, coherent (T = 2)",
+             ensemble_table(table, "2", "coherent")),
+            ("Seed ensemble, coherent (T = 4)",
+             ensemble_table(table, "4", "coherent")),
             ("Rotation systems (T = 4)",
              rotation_table(rows("rotations.csv"))),
             ("Relabelling invariance (T = 4)", invariance_table(table))):

@@ -21,10 +21,11 @@ ladder's per-cell trajectory multiset, and the distribution of the
 total count: :func:`bins`. Two single-particle certificates share the
 same readout: one heralded photon, and a coherent-state drive of
 matched mean photon number whose counts are Poisson in the intensity
-of the coherent sum of the slot amplitudes.
+of the coherent sum of the slot amplitudes, :func:`intensities`.
 """
 
-from itertools import combinations
+from itertools import combinations, product
+from math import factorial
 
 import numpy as np
 
@@ -136,17 +137,27 @@ def one_photon(slots, measured):
     return nodes, total
 
 
-def coherent(slots, measured, mean_photons=2):
-    """A coherent state of the same amplitude in every slot, with
+def intensities(slots, mean_photons=2):
+    """The mean photon number in every spacetime column under a
+    coherent state of the same amplitude in every slot, with
     ``mean_photons`` injected in total: the outputs are coherent states
-    of the summed amplitudes and the counts are Poisson."""
+    of the summed amplitudes."""
     n_slots = slots.shape[0] * slots.shape[1]
-    intensity = mean_photons / n_slots * np.abs(
-        slots.reshape(n_slots, -1).sum(axis=0)[measured]) ** 2
+    return mean_photons / n_slots * np.abs(
+        slots.reshape(n_slots, -1).sum(axis=0)) ** 2
 
-    def poisson(rate):
-        return np.exp(-rate) * np.array([1, rate, rate ** 2 / 2])
 
+def poisson(rate, cutoff=2):
+    """The photon count distribution of a coherent state, up to
+    ``cutoff`` photons."""
+    return np.exp(-rate) * np.array(
+        [rate ** k / factorial(k) for k in range(cutoff + 1)])
+
+
+def coherent(slots, measured, mean_photons=2):
+    """The coherent-state certificate: the counts of every output are
+    Poisson in its intensity, and so is their total."""
+    intensity = intensities(slots, mean_photons)[measured]
     return np.stack([poisson(rate) for rate in intensity]), \
         poisson(intensity.sum())
 
@@ -211,4 +222,24 @@ def joint(cmap, n_ticks, first, second, joint_of=bosons):
                 if wire in position:
                     counts[position[wire]] += 1
             result[tuple(counts)] += probabilities[i, j] / (2 if i == j else 1)
+    return result
+
+
+def coherent_joint(cmap, n_ticks, mean_photons, cutoff):
+    """The joint distribution of the counts on the last outputs under
+    the coherent-state drive truncated at ``cutoff`` photons in total:
+    a Poisson mixture over the photon number of the multinomial with
+    the intensities as weights, for grounding the certificate in the
+    contraction of the functor image."""
+    slots, measured = slots_of(cmap, n_ticks)
+    weights = intensities(slots, mean_photons) / mean_photons
+    inside, rest = weights[measured], 1 - weights[measured].sum()
+    result = np.zeros((cutoff + 1,) * len(measured))
+    for counts in product(range(cutoff + 1), repeat=len(measured)):
+        k = sum(counts)
+        for n in range(k, cutoff + 1):
+            result[counts] += poisson(mean_photons, n)[n] * (
+                factorial(n) / factorial(n - k) * rest ** (n - k)
+                * np.prod([w ** c / factorial(c)
+                           for w, c in zip(inside, counts)]))
     return result
