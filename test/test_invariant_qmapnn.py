@@ -2,7 +2,8 @@
 ``experiments/invariant_qmapnn``: the Schur lemma on the cell, the
 assembled step matrix against ``CMap.step.to_path()``, the two-photon
 certificate against optyx's contraction of the driven functor image on
-a triangle, and the rotation-system, relabelling and probability
+a triangle, the distinguishable and coherent-state certificates against
+it on a path, and the rotation-system, relabelling and probability
 validations on a path — all at toy sizes."""
 
 import os
@@ -11,15 +12,18 @@ import sys
 import networkx as nx
 import numpy as np
 import pytest
+from optyx.interaction import CMap
 
 sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "experiments", "invariant_qmapnn"))
 
 from cells import (  # noqa: E402
-    CELLS, dart_permutation, haar_unitary, invariant_cell, rotate)
+    CELLS, coherent_drive, dart_permutation, haar_unitary, invariant_cell,
+    rotate)
 from engine import (  # noqa: E402
-    assemble, bins, bosons, distinguishable, joint, statistics)
+    assemble, bins, bosons, coherent_joint, distinguishable, joint, poisson,
+    statistics)
 from ladder import adjacency, relabelled, separation  # noqa: E402
 
 
@@ -102,6 +106,36 @@ def test_distinguishable_certificate_matches_the_inflated_contraction(
     assert abs(block.sum() - 1) < 1e-12
     certificate = joint(cmap, n_ticks, *slots, joint_of)
     assert np.abs(block - certificate).max() < 1e-14
+
+
+def looped_vertex(cell):
+    """One vertex whose two darts are paired with each other: the
+    smallest map where a photon comes back to meet the next ones."""
+    return CMap([cell.vertex(2)], [((0, 1), (0, 2))])
+
+
+@pytest.mark.parametrize("build", [
+    lambda cell: cell(adjacency(nx.path_graph(2))), looped_vertex])
+def test_coherent_certificate_matches_the_contraction(build):
+    from optyx.channel import Diagram, Discard, Measure, qmode
+    from optyx.core.backends import DiscopyBackend
+    from optyx.photonic import Create
+    n_ticks, mean_photons, cutoff = 2, .5, 2
+    cmap = build(CELLS["canonical"])
+    n = len(cmap.dom)
+    drive = coherent_drive(mean_photons, n_ticks * n, cutoff)
+    memory = Diagram.id().tensor(*[Create(0)] * len(cmap.memory))
+    readout = Diagram.id().tensor(
+        *[Discard(qmode)] * (n_ticks - 1) * n) @ Measure(qmode ** n)
+    tensor = DiscopyBackend().eval(
+        drive @ memory >> cmap.unroll(n_ticks - 1) >> readout).tensor
+    dims = tuple(int(dim) for dim in tensor.cod.inside)
+    contracted = np.asarray(tensor.array).real.reshape(dims) \
+        * np.exp(-mean_photons)
+    assert abs(contracted.sum() - poisson(mean_photons, cutoff).sum()) \
+        < 1e-12
+    certificate = coherent_joint(cmap, n_ticks, mean_photons, cutoff)
+    assert np.abs(contracted - certificate).max() < 1e-14
 
 
 def test_rotation_systems_and_relabelling_on_a_path():

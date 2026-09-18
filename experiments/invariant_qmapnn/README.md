@@ -141,10 +141,11 @@ photons below):
 **one-photon**, the one-herald ensemble, uniform over slots; and
 **coherent**, a coherent state of the same amplitude in every slot with
 two photons injected on average, whose outputs are coherent states of
-the *coherent sum* of the slot amplitudes and whose counts are Poisson.
-Both are functions of the single-particle transfer matrix alone. On the
-coherent rows `1 - mass` is the Poisson weight beyond two photons, not
-an error.
+the *coherent sum* of the slot amplitudes and whose counts are Poisson
+(`intensities`, see the section on coherent states below for its
+grounding). Both are functions of the single-particle transfer matrix
+alone. On the coherent rows `1 - mass` is the Poisson weight beyond two
+photons, not an error.
 
 ## The readout
 
@@ -377,14 +378,14 @@ sharply than expected.** Three certificates share the readout:
 
 The coherent drive is *exactly zero* on every 1-FWL-blind pair for both
 invariant cells, at every `T`, while separating the controls at `1e-2`
-to `1e-1`. This is a theorem rather than an observation: a coherent
-state of the same amplitude in every slot injects the all-ones vector,
-and an `S_N`-equivariant *linear* map sends a vector constant on the
-colour-refinement classes to a vector constant on them, so the output
-intensities are a function of the stable 1-WL colouring — the coherent
-model is a linear message-passing network and inherits its 1-WL bound.
-The `generic` cell escapes it (`1.6e-2` to `4.8e-2` on the same pairs)
-only because it is not equivariant, i.e. by reading the rotation
+to `1e-1`. This is a theorem rather than an observation — a coherent
+state of the same amplitude in every slot injects the all-ones vector
+into a *linear* evolution built locally from the graph by invariant
+cells, so every intensity is a function of the stable colour-refinement
+colouring; the section on coherent states below gives the induction and
+the pattern reading, two walks glued at their end, a tree. The
+`generic` cell escapes it (`1.6e-2` to `4.8e-2` on the same pairs)
+only because it is not invariant, i.e. by reading the rotation
 system. The one-photon certificate — the intensity of *incoherent*
 light, a sum of squared moduli — already exceeds 1-WL at `T >= 3`
 (`8.3e-5` to `1.8e-2` for the canonical cell) but is exactly zero on
@@ -512,6 +513,111 @@ three ticks; what indistinguishability buys is the separation at the
 shortest depth, and the `T = 2` column is the row where the quantum
 statistics are the mechanism.
 
+## Coherent states
+
+> Can you run a test to check whether the same photonic graph neural
+> networks with _coherent states_ injected instead of photons
+> (distinguishable or indistinguishable) can distinguish the graphs?
+
+A coherent state `|alpha>` of the same amplitude in every drive slot,
+two photons on average in total, replaces the heralded photons: the
+same map, the same readout, the same score (`coherent` in `engine.py`).
+Passive linear optics sends a coherent state to a coherent state, so
+every output mode at the last tick carries a coherent state whose
+amplitude is the *coherent sum* of the slot amplitudes — the all-ones
+vector pushed through the spacetime transfer matrix — and photon
+counting on it is Poisson in the intensity `|sum_slots M[slot, v]|^2`
+(`intensities`), independently mode by mode. The certificate is
+grounded in optyx's own contraction: `cells.coherent_drive` builds the
+coherent state in the ZW calculus, the Fock state of `cutoff` photons
+split by a `W` spider with one half projected on the effect that leaves
+`alpha^n / sqrt(n!)` on the other, then split again over every slot;
+contracted through the driven `CMap` on the two-vertex path and on a
+single vertex whose two darts are paired with each other, it matches the
+Poisson mixture of the multinomials in the certificate's intensities at
+`5.6e-16` for a cutoff of three photons and at `1.1e-16` at two, with
+exactly the truncated Poisson mass
+(`test_coherent_certificate_matches_the_contraction`, at cutoff two, in
+CI). A `zw.ZBox` built from a list of amplitudes cannot be conjugated,
+which is filed as
+[#74](https://github.com/rel-int/optyx/issues/74); the drive uses an
+array.
+
+**No: the coherent drive is exactly zero on every 1-FWL-blind pair, at
+every depth, for every cell.** For the canonical cell, beside the two
+kinds of photons:
+
+| pair | rung | two-photon T=2 | distinguishable T=2 | coherent T=2 | two-photon T=3 | distinguishable T=3 | coherent T=3 | two-photon T=4 | distinguishable T=4 | coherent T=4 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| control-c6-vs-p6 | control | 9.9e-03 | 1.1e-02 | 9.0e-03 | 1.3e-02 | 1.4e-02 | 4.4e-02 | 4.7e-03 | 4.9e-03 | 3.8e-02 |
+| control-k15-vs-p6 | control | 3.0e-02 | 3.2e-02 | 7.2e-02 | 2.4e-02 | 2.6e-02 | 1.3e-01 | 7.2e-03 | 7.8e-03 | 1.2e-01 |
+| regular-24 | 1fwl-blind | 1.8e-04 | exact 0 | exact 0 | 8.3e-03 | 8.5e-03 | exact 0 | 8.8e-03 | 9.2e-03 | exact 0 |
+| regular-47 | 1fwl-blind | 9.7e-05 | exact 0 | exact 0 | 2.8e-04 | 3.0e-04 | exact 0 | 2.4e-03 | 2.5e-03 | exact 0 |
+| extension-09 | 1fwl-blind | 5.3e-05 | exact 0 | exact 0 | 3.0e-03 | 3.1e-03 | exact 0 | 1.5e-03 | 1.6e-03 | exact 0 |
+| extension-43 | 1fwl-blind | 5.3e-05 | exact 0 | exact 0 | 3.3e-03 | 3.3e-03 | exact 0 | 5.6e-05 | 1.1e-04 | exact 0 |
+| classic-2c3-vs-c6 | 1fwl-blind | 1.1e-03 | exact 0 | exact 0 | 3.4e-02 | 3.6e-02 | exact 0 | 2.2e-02 | 2.4e-02 | exact 0 |
+| str-00 | 2fwl-blind | exact 0 | exact 0 | exact 0 |  |  |  |  |  |  |
+
+The twenty seeds with coherent states, at `T = 2` and `T = 4`:
+
+| pair | rung | seeds | separating | max | median | min |
+|---|---|---|---|---|---|---|
+| control-c6-vs-p6 | control | 20 | 20 | 4.8e-02 | 1.0e-02 | 2.0e-04 |
+| control-k15-vs-p6 | control | 20 | 20 | 1.4e-01 | 5.0e-02 | 1.2e-03 |
+| regular-24 | 1fwl-blind | 20 | 0 | exact 0 | exact 0 | exact 0 |
+| regular-47 | 1fwl-blind | 20 | 0 | exact 0 | exact 0 | exact 0 |
+| extension-09 | 1fwl-blind | 20 | 0 | exact 0 | exact 0 | exact 0 |
+| extension-43 | 1fwl-blind | 20 | 0 | exact 0 | exact 0 | exact 0 |
+| classic-2c3-vs-c6 | 1fwl-blind | 20 | 0 | exact 0 | exact 0 | exact 0 |
+
+| pair | rung | seeds | separating | max | median | min |
+|---|---|---|---|---|---|---|
+| control-c6-vs-p6 | control | 20 | 20 | 2.6e-02 | 8.1e-03 | 5.4e-04 |
+| control-k15-vs-p6 | control | 20 | 20 | 1.5e-01 | 2.4e-02 | 2.2e-03 |
+| regular-24 | 1fwl-blind | 20 | 0 | exact 0 | exact 0 | exact 0 |
+| regular-47 | 1fwl-blind | 20 | 0 | exact 0 | exact 0 | exact 0 |
+| extension-09 | 1fwl-blind | 20 | 0 | exact 0 | exact 0 | exact 0 |
+| extension-43 | 1fwl-blind | 20 | 0 | exact 0 | exact 0 | exact 0 |
+| classic-2c3-vs-c6 | 1fwl-blind | 20 | 0 | exact 0 | exact 0 | exact 0 |
+
+Every one of the 300 seeded rows on the 1-FWL-blind rung — twenty
+seeds, five pairs, three depths — is an exact zero, and every one of
+the 120 on the controls separates (`9.6e-5` to `1.7e-1`), where the
+same seeds with photons of either kind separate all 300 at `T >= 3`.
+The rook/Shrikhande sanity row is an exact zero as well.
+
+**Why: colour refinement bounds any node-uniform coherent drive.** The
+readout of a coherent drive is a function of the output intensities
+alone, and the intensities come from a *linear* evolution of one
+amplitude per wire, built locally from the graph by cells that commute
+with every permutation of their darts. Write `c_t(u)` for the colour
+of `u` after `t` rounds of colour refinement. The cell of `u` sends the
+in-dart from `v` to the out-dart to `v` as `e^{i psi}` times the
+in-dart amplitude minus its mean over the in-darts of `u`, plus a term
+that depends only on that mean, the memory and the drive; the output
+and the memory of `u` depend only on the mean, the memory and the
+drive. So by induction on the tick, the amplitude of the dart `u -> v`
+is a function of `(c_t(u), c_{t-1}(v))` and those of the memory and the
+output of `u` are functions of `c_t(u)`: the induction step reads the
+multiset of in-dart amplitudes at `u`, i.e. of the pairs
+`(c(u), c(w))` over the neighbours `w`, which is what colour refinement
+computes. Two graphs with the same stable colouring have the same
+multiset of intensities and the same total, hence the same readout; the
+drive may even vary from tick to tick, as long as it is the same at
+every node. In the walk language of the ceiling theorem: the intensity
+`|sum_s M[s, v]|^2 = sum_{s, s'} M[s, v] conj(M[s', v])` is a sum over
+*pairs of walks glued at their end only*, their starts summed over
+freely — a tree, treewidth one, hence 1-WL by Dvořák — where the
+one-photon intensity `sum_s |M[s, v]|^2` glues the two walks at both
+ends, a closed walk, treewidth two. The three kinds of light are three
+pattern classes of one linear-optical network:
+
+| light | statistic | pattern | bound |
+|---|---|---|---|
+| coherent | `\|sum_s M[s, v]\|^2` | two walks glued at one end: a tree | 1-WL (exact zeros measured) |
+| distinguishable photons | `\|M[s, i]\|^2 \|M[s', j]\|^2 + ...` | two 2-walk necklaces | 2-FWL, above 1-WL from `T = 3` |
+| indistinguishable photons | `\|M[s, i] M[s', j] + M[s, j] M[s', i]\|^2` | a 4-walk necklace | 2-FWL, above 1-WL from `T = 2` |
+
 ## Where this sits in the ceiling discussion
 
 `docs/quantum_map_neural_networks.md` proposes, as E4, climbing with more
@@ -526,12 +632,12 @@ is literally one of them — so its ceiling is at most that one; the
 theorem above locates it exactly, for the two-photon certificate, at
 2-FWL (`C^3`) by the treewidth of the necklace patterns, and the
 `p`-photon caution says where E4 can still climb: the necklaces of `2p`
-walks leave the treewidth-2 window. Below the ceiling, the three
+walks leave the treewidth-2 window. Below the ceiling, the
 certificates order the mechanisms inside one invariant model —
-phase-locked linear drive at 1-WL, incoherent intensities and two-photon
-interference above it — which is the H4 row the proposal wanted for the
-paper, measured here with the Poisson model of the coherent drive rather
-than a Fock truncation.
+coherent drive at 1-WL, incoherent intensities, distinguishable and
+indistinguishable pairs above it — which is the H4 row the proposal
+wanted for the paper, measured here with the Poisson model of the
+coherent drive, grounded on a Fock truncation of it in optyx.
 
 What this experiment does not do: no cell is trained (E3), no photon
 sector above two is run (E4), and no feed-forward is in the loop, so the
@@ -550,6 +656,7 @@ python experiments/invariant_qmapnn/run.py                     # the 20 seeds
 python experiments/invariant_qmapnn/run.py --rotations --cells canonical,ladder,generic --ticks 4
 python experiments/invariant_qmapnn/run.py --invariance --cells canonical,ladder,generic,seed-01 --ticks 4
 python experiments/invariant_qmapnn/run.py --certificates distinguishable --cells canonical,ladder,seed-01,...,seed-20
+python experiments/invariant_qmapnn/run.py --certificates coherent --cells seed-01,...,seed-20
 python experiments/invariant_qmapnn/report.py                  # render the tables
 ```
 

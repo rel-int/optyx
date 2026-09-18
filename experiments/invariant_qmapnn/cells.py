@@ -29,9 +29,12 @@ parameters, and :class:`GenericCell`, a Haar-random unitary per degree
 which is not.
 """
 
+from math import factorial
+
 import numpy as np
 
-from optyx.channel import qmode
+from optyx.channel import Channel, qmode
+from optyx.core import zw
 from optyx.interaction import Box
 from optyx.photonic import Create, Gate
 
@@ -79,6 +82,20 @@ def rotate(graph, seed):
     rng = np.random.default_rng(seed)
     return tuple(tuple(int(u) for u in rng.permutation(nbrs))
                  for nbrs in graph)
+
+
+def coherent_drive(mean_photons, n_slots, cutoff):
+    """A coherent state of the same amplitude in ``n_slots`` drive
+    slots, ``mean_photons`` in total, truncated at ``cutoff`` photons
+    in total: the Fock state of ``cutoff`` photons split in two, one
+    half projected on the effect that leaves ``alpha ** n / sqrt(n!)``
+    on the other, which the ``W`` spider then splits over the slots."""
+    alpha = (mean_photons / n_slots) ** .5
+    effect = np.array([
+        alpha ** (cutoff - m) * (factorial(m) / factorial(cutoff)) ** .5
+        for m in range(cutoff + 1)], dtype=complex)
+    return Channel("coherent", zw.Create(cutoff) >> zw.W(2)
+                   >> zw.Id(1) @ zw.ZBox(1, 0, effect) >> zw.W(n_slots))
 
 
 class Cell(Model):

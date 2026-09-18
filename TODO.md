@@ -118,6 +118,13 @@ The handout, verbatim:
 - [x] README findings: the distinguishable column against the two-photon and one-photon ones, tests and lint green
 
 
+> Can you run a test to check whether the same photonic graph neural networks with _coherent states_ injected instead of photons (distinguishable or indistinguishable) can distinguish the graphs? Also rename the PR as "Distinguishing power of linear optical graph neural networks" and, once the experiments are done, edit the PR description to 1. define the linear optical GNN construction, 2. describe the different types of light input coherent, distinguishable photons, indistinguishable photons, 3. give the results, 4. give a version of standard GNNs that can distinguish the same graphs (give a reference only), beyond 1-fWL, but probably bounded by 2-fWL as these photonic cases.
+
+- [x] `engine.py`: ground the `coherent` certificate in optyx's own contraction of the driven functor image with a coherent state on every drive slot, in CI beside the two-photon and distinguishable groundings
+- [x] Run the coherent certificate on the same pairs, cells and ticks as the bosonic and distinguishable rows (canonical at `T = 2, 3, 4`, the sanity row, the ladder cell, the 20 seeds); render its columns beside them
+- [x] README findings: coherent against distinguishable and indistinguishable photons, with the 1-WL bound of the coherent drive written up; tests and lint green
+- [x] Rename the PR and rewrite its description: the construction, the three kinds of light, the results, and a classical GNN reference beyond 1-FWL and within 2-FWL
+
 ## Inherited from PR #69
 
 The `TODO.md` of the branch this one is stacked on, kept as it was:
