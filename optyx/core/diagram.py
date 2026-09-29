@@ -88,18 +88,18 @@ boxes is done using the :code:`<<` operator:
 
 >>> from optyx.core.zw import Create, W
 >>> split_photon = Create(1) >> W(2)
->>> split_photon.draw(path="docs/_static/seq_comp_example.png")
+>>> split_photon.draw(path="docs/_static/seq_comp_example.svg")
 
-.. image:: /_static/seq_comp_example.png
+.. image:: /_static/seq_comp_example.svg
     :align: center
 
 We can also compose boxes in parallel (tensor) using the :code:`@` operator :
 
 >>> from optyx.photonic import BS, Phase
 >>> beam_splitter_phase = (BS @ Phase(0.5)).get_kraus()
->>> beam_splitter_phase.draw(path="docs/_static/parallel_comp_example.png")
+>>> beam_splitter_phase.draw(path="docs/_static/parallel_comp_example.svg")
 
-.. image:: /_static/parallel_comp_example.png
+.. image:: /_static/parallel_comp_example.svg
     :align: center
 
 A beam-splitter from the :class:`photonic` calculus can be
@@ -107,9 +107,9 @@ expressed using the :class:`zw` calculus:
 
 >>> from optyx.photonic import BS
 >>> beam_splitter = BS.get_kraus()
->>> beam_splitter.draw(path="docs/_static/bs_zw.png")
+>>> beam_splitter.draw(path="docs/_static/bs_zw.svg")
 
-.. image:: /_static/bs_zw.png
+.. image:: /_static/bs_zw.svg
     :align: center
 
 Optyx diagrams can combine the generators from
