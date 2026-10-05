@@ -7,8 +7,10 @@ network: an (L+x)-mode interferometer whose first L outputs are fed back into
 its first L inputs one tick later, with a product Fock state injected into the
 other x inputs at every tick.
 
-- [WIP] @session_01WTPb48z2J6m377hUPTvFTz-2026-10-05 08:30 `optyx/recurrent.py`: Fock sectors and creation operators on them, one tick as a pure trajectory with a definite loop photon number, loop loss unravelled by sampling the photons lost, detector efficiency as binomial thinning
-- [WIP] @session_01WTPb48z2J6m377hUPTvFTz-2026-10-05 08:30 certified burn-in depth from the singular values of the loop block (the stationary boson sampling bound) and the exact stationary mean loop photon number
-- [WIP] @session_01WTPb48z2J6m377hUPTvFTz-2026-10-05 08:30 exact joint distribution of a window by enumerating trajectories
-- [WIP] @session_01WTPb48z2J6m377hUPTvFTz-2026-10-05 08:30 tests against permanents of the unrolled interferometer, with and without loss
-- [WIP] @session_01WTPb48z2J6m377hUPTvFTz-2026-10-05 08:30 API docs entry
+- [x] `optyx/recurrent.py`: Fock sectors and creation operators on them, one tick as a pure trajectory with a definite loop photon number, loop loss unravelled by sampling the photons lost, detector efficiency as binomial thinning
+- [x] certified burn-in depth from the singular values of the loop block (the stationary boson sampling bound) and the exact stationary mean loop photon number
+- [x] exact joint distribution of a window by enumerating trajectories
+- [x] tests against permanents of the unrolled interferometer, with and without loss
+- [x] API docs entry
+- [ ] notebook in `docs/notebooks`: memory and time per tick against loss, and the loopback experiment geometry (numbers so far in the wiki paper plan)
+- [ ] validate against `Diagram.fix` of `armand/minimal-sbs-certificate` once feedback is on main
