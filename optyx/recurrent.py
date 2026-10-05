@@ -94,7 +94,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
-from itertools import combinations_with_replacement, product
+from itertools import product
 from math import comb, factorial, prod
 
 import numpy as np
@@ -111,10 +111,25 @@ def sector(modes: int, photons: int) -> np.ndarray:
     >>> len(sector(4, 3)) == comb(4 + 3 - 1, 3)
     True
     """
-    rows = [np.bincount(np.asarray(choice, dtype=int), minlength=modes)
-            for choice in combinations_with_replacement(range(modes), photons)]
-    occupations = np.array(rows, dtype=int).reshape(-1, modes)
-    return occupations[np.lexsort(occupations.T[::-1])]
+    if modes == 1:
+        return np.array([[photons]], dtype=np.int8)
+    return np.vstack([
+        np.hstack([np.full((len(rest), 1), first, dtype=np.int8), rest])
+        for first in range(photons + 1)
+        for rest in [sector(modes - 1, photons - first)]])
+
+
+def encode(occupations: np.ndarray, photons: int) -> np.ndarray:
+    """
+    One integer per row of `occupations`, the digits of base `photons + 1`.
+
+    >>> encode(np.array([[1, 2], [2, 0]]), 2).tolist()
+    [7, 2]
+    """
+    values = np.zeros(len(occupations), dtype=np.int64)
+    for mode in reversed(range(occupations.shape[1])):
+        values = values * (photons + 1) + occupations[:, mode]
+    return values
 
 
 @lru_cache(maxsize=None)
@@ -123,7 +138,7 @@ def keys(modes: int, photons: int) -> tuple:
     The sorted integer keys of the occupations of :func:`sector` and the
     permutation sorting them, to look occupations up in the sector.
     """
-    values = sector(modes, photons) @ (photons + 1) ** np.arange(modes)
+    values = encode(sector(modes, photons), photons)
     order = np.argsort(values)
     return values[order], order
 
@@ -135,10 +150,8 @@ def position(occupations: np.ndarray, photons: int) -> np.ndarray:
     >>> position(np.array([[1, 1], [2, 0]]), 2).tolist()
     [1, 2]
     """
-    modes = occupations.shape[1]
-    values, order = keys(modes, photons)
-    return order[np.searchsorted(
-        values, occupations @ (photons + 1) ** np.arange(modes))]
+    values, order = keys(occupations.shape[1], photons)
+    return order[np.searchsorted(values, encode(occupations, photons))]
 
 
 @lru_cache(maxsize=None)
@@ -148,15 +161,15 @@ def pairs(modes: int, photons: int, mode: int) -> tuple:
     `mode` and `mode + 1`: for every total :math:`s` of these two modes, an
     array with one group per row, ordered by the occupation of `mode`.
 
-    >>> pairs(2, 1, 0)
-    ((1, array([[0, 1]])),)
+    >>> [(total, groups.tolist()) for total, groups in pairs(2, 1, 0)]
+    [(1, [[0, 1]])]
     """
     occupations = sector(modes, photons)
     total = occupations[:, mode] + occupations[:, mode + 1]
     rest = occupations.copy()
     rest[:, [mode, mode + 1]] = 0
     order = np.lexsort((occupations[:, mode],
-                       rest @ (photons + 1) ** np.arange(modes), total))
+                       encode(rest, photons), total)).astype(np.int32)
     return tuple(
         (int(s), order[total[order] == s].reshape(-1, s + 1))
         for s in np.unique(total))
@@ -480,9 +493,11 @@ efficiency=1.0)
         """
         vector = self.evolve(state)
         occupations = sector(self.modes, state.photons + sum(self.inputs))
-        patterns, inverse = np.unique(
-            occupations[:, self.loop:], axis=0, return_inverse=True)
-        inverse = inverse.reshape(-1)
+        external = occupations[:, self.loop:]
+        _, first, inverse = np.unique(
+            encode(external, state.photons + sum(self.inputs)),
+            return_index=True, return_inverse=True)
+        patterns, inverse = external[first], inverse.reshape(-1)
         weights = np.bincount(inverse, np.abs(vector) ** 2, len(patterns))
         order = np.argsort(inverse, kind="stable")
         bounds = np.concatenate(
