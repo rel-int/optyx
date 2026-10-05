@@ -14,3 +14,4 @@ other x inputs at every tick.
 - [x] API docs entry
 - [ ] notebook in `docs/notebooks`: memory and time per tick against loss, and the loopback experiment geometry (numbers so far in the wiki paper plan)
 - [ ] validate against `Diagram.fix` of `armand/minimal-sbs-certificate` once feedback is on main
+- [ ] measure each external mode as soon as no later rotation touches it, so that a tick holds the loop sector times a few external modes rather than the whole (L+x)-mode sector (the lossless loopback geometry, L=5, x=20, runs out of 14 GB)
