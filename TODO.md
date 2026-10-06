@@ -14,7 +14,7 @@ other x inputs at every tick.
 - [x] API docs entry
 - [ ] notebook in `docs/notebooks`: memory and time per tick against loss, and the loopback experiment geometry (numbers so far in the wiki paper plan)
 - [ ] validate against `Diagram.fix` of `armand/minimal-sbs-certificate` once feedback is on main
-- [ ] measure each external mode as soon as no later rotation touches it, so that a tick holds the loop sector times a few external modes rather than the whole (L+x)-mode sector (the lossless loopback geometry, L=5, x=20, runs out of 14 GB)
+- [x] measure each external mode as soon as no later rotation touches it, so that a tick holds the loop sector times a few external modes rather than the whole (L+x)-mode sector (the lossless loopback geometry, L=5, x=20, runs out of 14 GB)
 
 ---
 
@@ -30,7 +30,7 @@ other x inputs at every tick.
 
 Passive (phase 1), each point validated against the NumPy sampler and its exact tests:
 
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-06 11:05 progressive measurement of the external modes, so that a tick holds the loop sector times a few modes (prerequisite: fixes the memory wall and changes what the JAX kernel holds)
+- [x] progressive measurement of the external modes, so that a tick holds the loop sector times a few modes (prerequisite: fixes the memory wall and changes what the JAX kernel holds)
 - [ ] fixed-shape kernels: per-sector rotation groups stacked over rotations, interferometer as one `lax.scan`, measurement by static sector-to-pattern maps, `segment_sum`, `jax.random.categorical` and mask-then-gather collapse, loss Kraus as static index shifts
 - [ ] occupation indices computed by combinatorial ranking instead of stored tables
 - [ ] rotations built from the diagram's parameters (or a branch-free Givens decomposition), so that gradients reach the phases

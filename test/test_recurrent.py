@@ -6,7 +6,7 @@ import pytest
 from scipy.stats import unitary_group
 
 from optyx.recurrent import (
-    Recurrent, LoopState, sector, position, givens, interfere)
+    Recurrent, LoopState, Sweep, sector, position, givens, interfere)
 
 
 def permanent(matrix):
@@ -77,6 +77,8 @@ def assert_close(left, right):
     (2, (1, ), 1., 3),
     (2, (1, 0), .6, 2),
     (1, (1, 1), .8, 2),
+    (1, (1, 0, 0), .9, 2),
+    (2, (0, 1, 1), 1., 2),
 ])
 def test_distribution_matches_permanents(loop, inputs, transmissivity, ticks):
     unitary = unitary_group.rvs(loop + len(inputs), random_state=loop + ticks)
@@ -167,6 +169,44 @@ def test_givens_and_index():
     assert np.allclose(product @ np.diag(phases), unitary)
     assert sector(3, 0).tolist() == [[0, 0, 0]]
     assert position(sector(3, 4), 4).tolist() == list(range(len(sector(3, 4))))
+
+
+@pytest.mark.parametrize("loop, inputs", [
+    (2, (1, 0, 2)), (3, (0, 0, 1, 0)), (1, (2, 1)), (2, (0, 0))])
+def test_detections_match_the_dense_interferometer(loop, inputs):
+    modes = loop + len(inputs)
+    unitary = unitary_group.rvs(modes, random_state=modes)
+    network = Recurrent(unitary, loop, inputs)
+    rng = np.random.default_rng(3)
+    occupations = sector(loop, 2)
+    state = LoopState(occupations, rng.normal(size=len(occupations))
+                      + 1j * rng.normal(size=len(occupations))).normalised()
+    photons = 2 + sum(inputs)
+    vector = np.zeros(len(sector(modes, photons)), dtype=complex)
+    vector[position(np.hstack([occupations, np.tile(
+        inputs, (len(occupations), 1))]), photons)] = state.amplitudes
+    output, rows = interfere(unitary, vector, photons), sector(modes, photons)
+    detected = list(network.detections(state))
+    assert np.isclose(sum(weight for _, weight, _ in detected), 1)
+    for pattern, weight, after in detected:
+        mask = (rows[:, loop:] == pattern).all(axis=1)
+        assert np.isclose(weight, np.sum(np.abs(output[mask]) ** 2))
+        expected = LoopState(rows[mask][:, :loop], output[mask]).normalised()
+        assert np.allclose(np.abs(np.vdot(
+            expected.amplitudes, after.amplitudes[position(
+                expected.occupations, after.photons)])), 1)
+
+
+def test_sweep_holds_the_loop_and_the_occupied_inputs():
+    unitary = unitary_group.rvs(12, random_state=0)
+    network = Recurrent(unitary, 3, (1, 0, 2, 0, 0, 0, 1, 0, 0))
+    sweep = network.sweep()
+    assert sweep is network.sweep() and sweep.columns == (0, 1, 2, 3, 5, 9)
+    widths = sweep.widths()
+    assert max(width + grows for width, grows in zip(widths, sweep.grows)) \
+        == 3 + 3 + 1
+    assert widths[-1] == 3
+    assert Sweep.from_unitary(np.eye(2), 1, (0, )).widths() == [1, 1]
 
 
 def test_loop_state():

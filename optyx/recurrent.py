@@ -18,18 +18,22 @@ detected history is pure and has a definite photon number: the input is a
 product Fock state, the evolution is passive and the photons lost on the way
 are sampled rather than traced out. One tick is then:
 
-1. append the injected photons and apply the interferometer to the
-   :math:`N + |q|` photons in the :math:`L + x` modes, one rotation of its
-   :func:`givens` decomposition at a time,
-2. sample the pattern on the external outputs and collapse the loop on it,
-3. sample how many photons each loop mode loses and collapse again,
+1. hold the :math:`N + |q|` photons of the loop and the injected photons in
+   the modes they occupy,
+2. measure the external outputs one at a time along a :class:`Sweep`: bring
+   the output to a held mode by a chain of rotations, sample its photon
+   number and collapse,
+3. map the held modes left at the end onto the loop and sample how many
+   photons each loop mode loses, collapsing again,
 4. thin the detected pattern binomially, which is exact for inefficient
    detectors since loss before a number measurement is classical.
 
-:meth:`Recurrent.sample` iterates this. A tick holds one vector of the
-:math:`(N + |q|)`-photon sector of the :math:`L + x` modes and applies
-:math:`(L + x)(L + x - 1) / 2` rotations to it, so its memory and time are
-governed by the loop photon number :math:`N`, whose stationary mean is
+:meth:`Recurrent.sample` iterates this. With :math:`k` occupied external
+inputs, a tick holds one vector of the :math:`(N + |q|)`-photon sector of at
+most :math:`L + k + 1` modes, the vacuum inputs never enter and every
+measured output leaves, and applies at most :math:`x (L + k)` rotations to
+it, plus :math:`L (L - 1) / 2` to land on the loop. So its memory and time
+are governed by the loop photon number :math:`N`, whose stationary mean is
 :meth:`Recurrent.occupation`. Started from the vacuum, the loop forgets its
 initial state at the rate certified by :meth:`Recurrent.burn_in`, so the
 window sampled after that many ticks is within the requested total variation
@@ -53,7 +57,8 @@ gives the exact joint distribution of a window in
 the circuit a measurement depends on, then measuring and collapsing, is the
 progressive simulation of Novák et al. [NRM+25]_ for loop-based time-bin
 interferometers; here the cut is the loop itself, whatever the
-interferometer.
+interferometer, and within a tick each external output is measured as soon
+as the held modes reach it.
 
 Classes
 -------
@@ -65,7 +70,7 @@ Classes
 
     Recurrent
     LoopState
-    Measurement
+    Sweep
 
 Functions
 ---------
@@ -81,9 +86,13 @@ Functions
     position
     pairs
     twomode
+    eliminate
     givens
     interfere
     rotate
+    pad
+    marginal
+    collapse
 
 Example
 -------
@@ -111,7 +120,7 @@ tick the photon injected one tick earlier:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from itertools import product
 from math import comb, factorial, prod
@@ -130,8 +139,8 @@ def sector(modes: int, photons: int) -> np.ndarray:
     >>> len(sector(4, 3)) == comb(4 + 3 - 1, 3)
     True
     """
-    if modes == 1:
-        return np.array([[photons]], dtype=np.int8)
+    if modes == 0:
+        return np.zeros((int(photons == 0), 0), dtype=np.int8)
     return np.vstack([
         np.hstack([np.full((len(rest), 1), first, dtype=np.int8), rest])
         for first in range(photons + 1)
@@ -221,12 +230,37 @@ def twomode(matrix: np.ndarray, photons: int) -> np.ndarray:
     return np.real_if_close(result)
 
 
+def eliminate(matrix: np.ndarray, column: int) -> list:
+    """
+    Zero the entries of `column` below the diagonal of `matrix` in place, by
+    rotations of adjacent rows from the bottom up: the rotations
+    :math:`(i, r)` acting as :math:`r` on rows :math:`i, i + 1`, in the
+    order they are applied.
+
+    >>> matrix = np.array([[0], [0.6], [0.8]], dtype=complex)
+    >>> [mode for mode, _ in eliminate(matrix, 0)]
+    [1, 0]
+    >>> np.abs(matrix).round(3).tolist()
+    [[1.0], [0.0], [0.0]]
+    """
+    rotations = []
+    for row in range(len(matrix) - 1, column, -1):
+        top, bottom = matrix[row - 1, column], matrix[row, column]
+        if abs(bottom) <= 1e-15:
+            continue
+        rotation = np.array([[np.conj(top), np.conj(bottom)], [-bottom, top]]
+                            ) / np.hypot(abs(top), abs(bottom))
+        matrix[row - 1:row + 1] = rotation @ matrix[row - 1:row + 1]
+        rotations.append((row - 1, rotation))
+    return rotations
+
+
 def givens(unitary: np.ndarray) -> tuple:
     """
     The phases :math:`d` and the rotations of adjacent modes
     :math:`(i_1, u_1), \\dots, (i_K, u_K)` with
     :math:`U = u_1 \\cdots u_K \\, \\mathrm{diag}(d)`, the decomposition of
-    the Reck scheme.
+    the Reck scheme, one :func:`eliminate` per column.
 
     >>> unitary = np.array([[0, 1j], [1, 0]])
     >>> phases, rotations = givens(unitary)
@@ -236,18 +270,10 @@ def givens(unitary: np.ndarray) -> tuple:
     >>> bool(np.allclose(rotation @ np.diag(phases), unitary))
     True
     """
-    current, rotations = np.array(unitary, dtype=complex), []
-    size = len(current)
-    for column in range(size - 1):
-        for row in range(size - 1, column, -1):
-            top, bottom = current[row - 1, column], current[row, column]
-            norm = np.hypot(abs(top), abs(bottom))
-            if abs(bottom) <= 1e-15:
-                continue
-            rotation = np.array(
-                [[np.conj(top), np.conj(bottom)], [-bottom, top]]) / norm
-            current[row - 1:row + 1] = rotation @ current[row - 1:row + 1]
-            rotations.append((row - 1, rotation.conj().T))
+    current = np.array(unitary, dtype=complex)
+    rotations = [(mode, rotation.conj().T)
+                 for column in range(len(current) - 1)
+                 for mode, rotation in eliminate(current, column)]
     return np.diag(current), rotations
 
 
@@ -337,27 +363,216 @@ class LoopState:
 
 
 @dataclass
-class Measurement:
+class Sweep:
     """
-    The output of one tick grouped by the pattern on the external outputs:
-    pattern `patterns[i]` has probability `weights[i]` and occurs in the
-    rows `rows[i]` of the loop `occupations` and output amplitudes `vector`.
+    The progressive measurement of the external outputs of a recurrent
+    network whose photons are in the input modes `columns`, the loop and the
+    occupied external inputs.
+
+    The state of one tick lives in the modes spanned by the images of these
+    inputs, the *held* modes, :math:`k + L` of them for :math:`k` occupied
+    inputs. Measuring the external output :math:`e_j` needs only the span of
+    :math:`e_j` and the held modes: when :math:`e_j` is not in the span, a
+    vacuum mode along its orthogonal part joins the held modes, then the
+    rotations `chains[j]` (applied in order) bring :math:`e_j` to the first
+    held mode, which is measured and dropped. The held modes left after the
+    last external output are in the span of the loop, `final` maps them onto
+    it. The sweep never holds more than :math:`L + k + 1` modes, and the
+    schedule does not depend on the outcomes.
+
+    Parameters:
+        loop : The number :math:`L` of loop modes.
+        columns : The occupied input modes, the loop first.
+        grows : Whether a vacuum mode joins before each external output.
+        chains : The rotations bringing each external output to the first
+            held mode.
+        final : The phases and rotations of :func:`givens` mapping the held
+            modes left at the end, padded with vacuum, onto the loop.
+
+    >>> sweep = Sweep.from_unitary([[0, 1], [1, 0]], loop=1, columns=(0, 1))
+    >>> sweep.grows, sweep.chains
+    ((False,), ([],))
     """
-    patterns: np.ndarray
-    weights: np.ndarray
-    rows: list
-    occupations: np.ndarray
-    vector: np.ndarray
+    loop: int
+    columns: tuple
+    grows: tuple
+    chains: tuple
+    final: tuple
+    tables: dict = field(default_factory=dict, repr=False)
 
-    def pattern(self, index: int) -> tuple:
-        """ The pattern of outcome `index`. """
-        return tuple(int(n) for n in self.patterns[index])
+    @classmethod
+    def from_unitary(cls, unitary, loop: int, columns: tuple,
+                     tol: float = 1e-9) -> Sweep:
+        """
+        The sweep of the mode matrix `unitary` with photons in `columns`.
+        """
+        unitary = np.asarray(unitary, dtype=complex)
+        basis, grows, chains = unitary[:, list(columns)], [], []
+        for target in np.eye(len(unitary))[loop:]:
+            residual = target - basis @ (basis.conj().T @ target)
+            grows.append(bool(np.linalg.norm(residual) > tol))
+            if grows[-1]:
+                basis = np.hstack([
+                    basis, residual[:, None] / np.linalg.norm(residual)])
+            overlaps = (basis.conj().T @ target)[:, None]
+            chains.append(eliminate(overlaps, 0))
+            change = np.eye(basis.shape[1], dtype=complex)
+            for mode, rotation in chains[-1]:
+                change[mode:mode + 2] = rotation @ change[mode:mode + 2]
+            basis = (basis @ change.conj().T)[:, 1:]
+        final = givens(complete(basis[:loop]))
+        return cls(loop, tuple(columns), tuple(grows), tuple(chains), final)
 
-    def collapse(self, index: int) -> LoopState:
-        """ The loop state left by outcome `index`. """
-        rows = self.rows[index]
-        return LoopState(
-            self.occupations[rows], self.vector[rows]).normalised()
+    def widths(self) -> list:
+        """
+        The number of held modes before each external output and at the end.
+
+        >>> Sweep.from_unitary(np.eye(3), loop=1, columns=(0, 2)).widths()
+        [2, 2, 1]
+        """
+        result = [len(self.columns)]
+        for grows in self.grows:
+            result.append(result[-1] + grows - 1)
+        return result
+
+    def probed(self) -> list:
+        """
+        The number of held modes when each external output is measured.
+
+        >>> Sweep.from_unitary(np.eye(3), loop=1, columns=(0, 2)).probed()
+        [3, 2]
+        """
+        return [width + grows
+                for width, grows in zip(self.widths(), self.grows)]
+
+    def table(self, key: tuple, rotation: np.ndarray,
+              total: int) -> np.ndarray:
+        """
+        :func:`twomode` of `rotation` on `total` photons, computed once and
+        kept in :attr:`tables` under `key`.
+        """
+        if key + (total, ) not in self.tables:
+            self.tables[key + (total, )] = twomode(rotation, total)
+        return self.tables[key + (total, )]
+
+    def start(self, state: LoopState, inputs: tuple) -> np.ndarray:
+        """
+        The loop `state` and the photons injected into the occupied inputs,
+        a vector of the :math:`N + |q|`-photon sector of the held modes.
+        """
+        photons = state.photons + sum(inputs)
+        injected = [inputs[column - self.loop]
+                    for column in self.columns[self.loop:]]
+        occupations = np.hstack([
+            state.occupations,
+            np.tile(injected, (len(state.occupations), 1)).astype(int)])
+        vector = np.zeros(
+            len(sector(len(self.columns), photons)), dtype=complex)
+        vector[position(occupations, photons)] = state.amplitudes
+        return vector
+
+    def probe(self, index: int, vector: np.ndarray,
+              photons: int) -> np.ndarray:
+        """
+        The held state before external output `index`, with that output
+        brought to the first held mode, ready to be measured.
+        """
+        modes = self.widths()[index]
+        if self.grows[index]:
+            vector, modes = pad(vector, modes, photons), modes + 1
+        chain = self.chains[index][::-1]
+        return rotate(
+            np.ones(modes), chain, vector, photons,
+            lambda step, total: self.table(
+                (index, step), chain[step][1], total))
+
+    def finish(self, vector: np.ndarray, photons: int) -> LoopState:
+        """ The held state after the last external output, on the loop. """
+        modes = self.widths()[-1]
+        vector = pad(vector, modes, photons, self.loop - modes)
+        phases, rotations = self.final
+        return LoopState(sector(self.loop, photons), rotate(
+            phases, rotations, vector, photons,
+            lambda step, total: self.table(
+                ("final", step), rotations[step][1], total)))
+
+    def sample(self, state: LoopState, inputs: tuple,
+               rng: np.random.Generator) -> tuple:
+        """
+        The pattern on the external outputs, sampled one output at a time,
+        and the loop state it leaves.
+        """
+        vector, photons = self.start(state, inputs), \
+            state.photons + sum(inputs)
+        pattern = np.zeros(len(self.grows), dtype=int)
+        for index, modes in enumerate(self.probed()):
+            probed = self.probe(index, vector, photons)
+            probabilities = marginal(probed, modes, photons)
+            pattern[index] = rng.choice(
+                len(probabilities), p=normalise(probabilities))
+            vector = collapse(probed, modes, photons, pattern[index])
+            photons -= pattern[index]
+        return pattern, self.finish(vector, photons)
+
+    def outcomes(self, state: LoopState, inputs: tuple):
+        """
+        Every pattern on the external outputs with its probability and the
+        loop state it leaves, enumerated one output at a time.
+        """
+        branches = [((), 1., self.start(state, inputs),
+                     state.photons + sum(inputs))]
+        for index, modes in enumerate(self.probed()):
+            branches = [
+                (pattern + (number, ), weight * probability,
+                 collapse(probed, modes, photons, number), photons - number)
+                for pattern, weight, vector, photons in branches
+                for probed in [self.probe(index, vector, photons)]
+                for number, probability in enumerate(
+                    marginal(probed, modes, photons))
+                if probability > 1e-14]
+        for pattern, weight, vector, photons in branches:
+            yield pattern, weight, self.finish(vector, photons)
+
+
+def pad(vector: np.ndarray, modes: int, photons: int,
+        extra: int = 1) -> np.ndarray:
+    """
+    A `vector` of the `photons`-photon sector of `modes` modes, with `extra`
+    modes in the vacuum appended.
+
+    >>> pad(np.array([1, 2]), 2, 1).tolist()
+    [0, 1, 2]
+    """
+    occupations = sector(modes + extra, photons)
+    result = np.zeros(len(occupations), dtype=np.asarray(vector).dtype)
+    result[occupations[:, modes:].sum(axis=1) == 0] = vector
+    return result
+
+
+def marginal(vector: np.ndarray, modes: int, photons: int) -> np.ndarray:
+    """
+    The probability of each photon number of the first mode in a `vector`
+    of the `photons`-photon sector of `modes` modes.
+
+    >>> marginal(np.array([0.6, 0, 0.8]), 2, 2).round(2).tolist()
+    [0.36, 0.0, 0.64]
+    """
+    return np.bincount(sector(modes, photons)[:, 0],
+                       np.abs(vector) ** 2, photons + 1)
+
+
+def collapse(vector: np.ndarray, modes: int, photons: int,
+             number: int) -> np.ndarray:
+    """
+    The normalised state of the other modes when the first mode of a
+    `vector` of the `photons`-photon sector of `modes` modes holds `number`
+    photons, a vector of the `photons - number`-photon sector.
+
+    >>> collapse(np.array([0.6, 0, 0.8]), 2, 2, 0).tolist()
+    [1.0]
+    """
+    rows = vector[sector(modes, photons)[:, 0] == number]
+    return rows / np.linalg.norm(rows)
 
 
 class Recurrent:
@@ -406,8 +621,7 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         if not np.allclose(
                 self.unitary.conj().T @ self.unitary, np.eye(len(unitary))):
             raise ValueError("The mode matrix must be unitary.")
-        self.phases, self.rotations = givens(self.unitary)
-        self.tables = {}
+        self.sweeps = {}
 
     @classmethod
     def from_diagram(cls, diagram, indistinguishability: float = 1.):
@@ -454,14 +668,18 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         return cls(unitary, loop, inputs, visible=tuple(range(outputs)),
                    indistinguishability=indistinguishability)
 
-    def table(self, step: int, total: int) -> np.ndarray:
+    def sweep(self, inputs: tuple = None) -> Sweep:
         """
-        :func:`twomode` of rotation `step` of :attr:`rotations` on `total`
-        photons, computed once and kept in :attr:`tables`.
+        The :class:`Sweep` of the loop and the occupied external inputs,
+        computed once and kept in :attr:`sweeps`.
         """
-        if (step, total) not in self.tables:
-            self.tables[step, total] = twomode(self.rotations[step][1], total)
-        return self.tables[step, total]
+        inputs = self.inputs if inputs is None else inputs
+        columns = tuple(range(self.loop)) + tuple(
+            self.loop + mode for mode, number in enumerate(inputs) if number)
+        if columns not in self.sweeps:
+            self.sweeps[columns] = Sweep.from_unitary(
+                self.unitary, self.loop, columns)
+        return self.sweeps[columns]
 
     def __repr__(self):
         return (f"Recurrent({self.unitary.tolist()}, loop={self.loop}, "
@@ -550,54 +768,13 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         raise ValueError(
             f"The bound does not reach tol={tol} within {max_depth} ticks.")
 
-    def evolve(self, state: LoopState, inputs: tuple = None) -> np.ndarray:
-        """
-        The output state of the interferometer on the loop `state` and the
-        photons injected into the external inputs, :attr:`inputs` by default,
-        a vector of the :math:`N + |q|`-photon sector of the :math:`L + x`
-        modes.
-        """
-        inputs = self.inputs if inputs is None else inputs
-        photons = state.photons + sum(inputs)
-        occupations = np.hstack([
-            state.occupations,
-            np.tile(inputs, (len(state.occupations), 1))])
-        vector = np.zeros(len(sector(self.modes, photons)), dtype=complex)
-        vector[position(occupations, photons)] = state.amplitudes
-        return rotate(self.phases, self.rotations, vector, photons, self.table)
-
-    def measure(self, state: LoopState, inputs: tuple = None) -> Measurement:
-        """
-        The output of the interferometer on the loop `state` and the
-        injected photons, grouped by the pattern on the external outputs.
-        """
-        inputs = self.inputs if inputs is None else inputs
-        photons = state.photons + sum(inputs)
-        vector = self.evolve(state, inputs)
-        occupations = sector(self.modes, photons)
-        external = occupations[:, self.loop:]
-        _, first, inverse = np.unique(
-            encode(external, photons), return_index=True, return_inverse=True)
-        patterns, inverse = external[first], inverse.reshape(-1)
-        weights = np.bincount(inverse, np.abs(vector) ** 2, len(patterns))
-        order = np.argsort(inverse, kind="stable")
-        bounds = np.concatenate(
-            [[0], np.cumsum(np.bincount(inverse, minlength=len(patterns)))])
-        return Measurement(
-            patterns, weights, [order[bounds[i]:bounds[i + 1]]
-                                for i in range(len(patterns))],
-            occupations[:, :self.loop], vector)
-
     def detections(self, state: LoopState, inputs: tuple = None):
         """
         Every pattern on the external outputs with its probability and the
         loop state it leaves, before loss on the loop.
         """
-        measurement = self.measure(state, inputs)
-        for index, weight in enumerate(measurement.weights):
-            if weight > 1e-14:
-                yield measurement.pattern(index), float(weight), \
-                    measurement.collapse(index)
+        inputs = self.inputs if inputs is None else inputs
+        yield from self.sweep(inputs).outcomes(state, inputs)
 
     def losses(self, state: LoopState, mode: int):
         """
@@ -635,21 +812,18 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
     def step(self, state: LoopState, inputs: tuple,
              rng: np.random.Generator):
         """
-        One tick of one colour: the pattern on the external outputs and the
-        next loop state, after the loss on the loop.
+        One tick of one colour: the pattern on the external outputs, sampled
+        along the :meth:`sweep`, and the next loop state, after the loss on
+        the loop.
         """
-        measurement = self.measure(state, inputs)
-        index = rng.choice(
-            len(measurement.weights), p=normalise(measurement.weights))
-        pattern, state = measurement.pattern(index), \
-            measurement.collapse(index)
+        pattern, state = self.sweep(inputs).sample(state, inputs, rng)
         if self.transmissivity < 1:
             for mode in range(self.loop):
                 outcomes = list(self.losses(state, mode))
                 state = outcomes[rng.choice(
                     len(outcomes),
                     p=normalise([weight for weight, _ in outcomes]))][1]
-        return np.array(pattern), state
+        return pattern, state
 
     def colour(self, rng: np.random.Generator):
         """
