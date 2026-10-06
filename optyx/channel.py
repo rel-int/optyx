@@ -293,6 +293,41 @@ class Diagram(frobenius.Diagram):
         return self.feedback_factory(
             self, dom=dom, cod=cod, mem=mem, state=state, effect=effect)
 
+    def sample(self, ticks: int = 1, tol: float = 1e-3,
+               indistinguishability: float = 1., seed=None) -> list:
+        """
+        Sample the photon numbers on the outputs of a closed photonic diagram
+        with feedback loops over `ticks` consecutive ticks of its stationary
+        regime, within total variation `tol`.
+
+        Each tick is sampled as a pure loop state with a definite photon
+        number, the photons lost or discarded being sampled rather than
+        traced out; see :class:`optyx.recurrent.Recurrent`. The loops start
+        in the vacuum and run for the burn-in certified by
+        :meth:`optyx.recurrent.Recurrent.burn_in`.
+
+        Parameters:
+            ticks : The number of consecutive ticks sampled.
+            tol : The total variation distance to the stationary stream.
+            indistinguishability : The probability that an injected photon
+                is in the internal state shared by all photons rather than
+                in one of its own.
+            seed : The seed of the random number generator.
+
+        A delay line detects at every tick the photon injected one tick
+        earlier:
+
+        >>> from optyx.photonic import Create
+        >>> delay = (Create(1) @ qmode >> Diagram.swap(qmode, qmode)
+        ...     ).feedback(state=Create(0))
+        >>> delay.sample(ticks=2, seed=0)
+        [(1,), (1,)]
+        """
+        # pylint: disable=import-outside-toplevel
+        from optyx.recurrent import Recurrent
+        network = Recurrent.from_diagram(self, indistinguishability)
+        return network.sample(ticks, network.burn_in(tol), seed)
+
     def needs_inflation(self) -> bool:
         """
         If the domain or codomain need inflation,

@@ -35,6 +35,18 @@ initial state at the rate certified by :meth:`Recurrent.burn_in`, so the
 window sampled after that many ticks is within the requested total variation
 distance of the stationary stream.
 
+Partially distinguishable photons are sampled by colouring them: each
+injected photon is in the internal state shared by all photons with
+probability :math:`p`, the :attr:`Recurrent.indistinguishability`, and in one
+of its own otherwise [RMC+18]_. Photons of different colours never interfere,
+so each colour runs its own trajectory and the detectors record the sum of
+their patterns. A photon of its own is a single-photon walk, forgotten once
+it has left the loop.
+
+Any closed :class:`optyx.channel.Diagram` with feedback loops is sampled by
+:meth:`optyx.channel.Diagram.sample`, through :meth:`Recurrent.from_diagram`:
+its discards and losses are environment outputs, measured and forgotten.
+
 The same trajectory step, with every outcome enumerated rather than sampled,
 gives the exact joint distribution of a window in
 :meth:`Recurrent.distribution`. Evolving a pure state through the part of
@@ -63,6 +75,8 @@ Functions
     :nosignatures:
     :toctree:
 
+    dilation
+    complete
     sector
     position
     pairs
@@ -84,6 +98,11 @@ tick the photon injected one tick earlier:
 1
 >>> delay.occupation()
 1.0
+
+.. [RMC+18] J. J. Renema, A. Menssen, W. R. Clements, G. Triginer,
+    W. S. Kolthammer and I. A. Walmsley, Efficient classical algorithm for
+    boson sampling with partially distinguishable photons, PRL 120, 220502
+    (2018).
 
 .. [NRM+25] S. Novák, D. D. Roberts, A. Makarovskiy, R. García-Patrón and
     W. R. Clements, Boundaries for quantum advantage with single photons and
@@ -355,20 +374,31 @@ class Recurrent:
         transmissivity : The intensity transmissivity :math:`\\gamma` of each
             loop mode per round trip.
         efficiency : The efficiency :math:`\\eta` of the detectors.
+        visible : The external outputs that are recorded, all of them by
+            default; the others are measured and forgotten, as the
+            environment of a loss or a discard.
+        indistinguishability : The probability :math:`p` that an injected
+            photon is in the internal state shared by all photons rather
+            than in one of its own, the model of Renema et al. [RMC+18]_.
 
     >>> network = Recurrent([[0, 1], [1, 0]], loop=1, inputs=(1, ))
     >>> network
     Recurrent([[0, 1], [1, 0]], loop=1, inputs=(1,), transmissivity=1.0, \
-efficiency=1.0)
+efficiency=1.0, visible=(0,), indistinguishability=1.0)
     >>> eval(repr(network)) == network
     True
     """
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
     def __init__(self, unitary, loop: int, inputs: tuple,
-                 transmissivity: float = 1., efficiency: float = 1.):
+                 transmissivity: float = 1., efficiency: float = 1.,
+                 visible: tuple = None, indistinguishability: float = 1.):
         self.unitary = np.asarray(unitary)
         self.loop, self.inputs = loop, tuple(int(q) for q in inputs)
         self.transmissivity = float(transmissivity)
         self.efficiency = float(efficiency)
+        self.visible = tuple(range(len(self.inputs))) if visible is None \
+            else tuple(int(i) for i in visible)
+        self.indistinguishability = float(indistinguishability)
         if self.unitary.shape != (loop + len(self.inputs), ) * 2:
             raise ValueError(
                 f"Expected a {loop + len(self.inputs)}-mode matrix, "
@@ -378,6 +408,51 @@ efficiency=1.0)
             raise ValueError("The mode matrix must be unitary.")
         self.phases, self.rotations = givens(self.unitary)
         self.tables = {}
+
+    @classmethod
+    def from_diagram(cls, diagram, indistinguishability: float = 1.):
+        """
+        The recurrent network of a closed :class:`optyx.channel.Diagram` with
+        feedback loops: its :meth:`one_step` is dilated to a passive matrix
+        from the memory and the created photons to the outputs, the memory
+        and the environment of its discards and losses, then completed to a
+        unitary with vacuum inputs. The outputs of the diagram are recorded,
+        its environment is not.
+
+        >>> from optyx.channel import Diagram, qmode
+        >>> from optyx.photonic import Create
+        >>> delay = (Create(1) @ qmode >> Diagram.swap(qmode, qmode)
+        ...     ).feedback(state=Create(0))
+        >>> Recurrent.from_diagram(delay).distribution(2)
+        {((0,), (1,)): 1.0}
+        """
+        initial, _ = diagram.boundary()
+        step = diagram.one_step()
+        loop = len(step.dom)
+        if len(diagram.dom):
+            raise ValueError("Only closed diagrams can be sampled.")
+        if any(ob.name != "qmode" for ob in (step.dom @ step.cod).inside):
+            raise NotImplementedError(
+                "Only optical modes can be sampled; leave the outputs as "
+                "qmode, they are measured by number resolving detectors.")
+        vacuum = dilation(initial).to_path()
+        if vacuum.dom or any(vacuum.creations) or vacuum.udom != loop:
+            raise NotImplementedError(
+                "The loops must start in the vacuum, e.g. Create(0).")
+        matrix = dilation(step).to_path()
+        if matrix.selections or not np.isclose(
+                matrix.normalisation * matrix.scalar, 1):
+            raise NotImplementedError(
+                "Only passive linear optics can be sampled: no selections.")
+        outputs = len(diagram.cod)
+        rows = np.asarray(matrix.array).T
+        rows = np.vstack([rows[outputs:outputs + loop], rows[:outputs],
+                          rows[outputs + loop:]])
+        unitary = complete(rows)
+        inputs = tuple(matrix.creations) + (0, ) * (
+            len(unitary) - loop - len(matrix.creations))
+        return cls(unitary, loop, inputs, visible=tuple(range(outputs)),
+                   indistinguishability=indistinguishability)
 
     def table(self, step: int, total: int) -> np.ndarray:
         """
@@ -392,14 +467,13 @@ efficiency=1.0)
         return (f"Recurrent({self.unitary.tolist()}, loop={self.loop}, "
                 f"inputs={self.inputs}, "
                 f"transmissivity={self.transmissivity}, "
-                f"efficiency={self.efficiency})")
+                f"efficiency={self.efficiency}, visible={self.visible}, "
+                f"indistinguishability={self.indistinguishability})")
 
     def __eq__(self, other):
         return isinstance(other, Recurrent) \
             and np.array_equal(self.unitary, other.unitary) \
-            and (self.loop, self.inputs, self.transmissivity,
-                 self.efficiency) == (other.loop, other.inputs,
-                                      other.transmissivity, other.efficiency)
+            and repr(self) == repr(other)
 
     @property
     def modes(self) -> int:
@@ -447,13 +521,15 @@ efficiency=1.0)
         vacuum loop is within total variation `tol` of the stationary stream.
 
         It is the smallest :math:`k` with
-        :math:`2 K(\\bar q) \\sum_r \\arcsin^2 \\beta_r \\leq` `tol`, for
+        :math:`2 K(\\bar q) \\sum_r \\arcsin^2 \\beta_r
+        + (1 - p) \\bar q \\sum_r \\beta_r^2 \\leq` `tol`, for
         :math:`\\beta_r` the singular values of the :math:`k`-th power of
         :attr:`block` and
         :math:`K(\\bar q) = (\\bar q + 1)[\\sqrt{6 \\bar q (\\bar q + 1)}
-        + \\bar q]`: half the trace distance bound between the loop states
-        of the stationary boson sampling study, since any window is a
-        channel applied to the loop.
+        + \\bar q]`. The first term is half the trace distance bound between
+        the loop states of the stationary boson sampling study, since any
+        window is a channel applied to the loop; the second bounds the mean
+        number of photons in a colour of their own still in the loop.
 
         >>> lossy = Recurrent(
         ...     [[0.6, 0.8], [0.8, -0.6]], 1, (1, ), transmissivity=.5)
@@ -463,40 +539,45 @@ efficiency=1.0)
         """
         qbar = max(self.inputs, default=0)
         constant = (qbar + 1) * (np.sqrt(6 * qbar * (qbar + 1)) + qbar)
+        private = (1 - self.indistinguishability) * qbar
         power = np.eye(self.loop)
         for depth in range(max_depth + 1):
             values = np.clip(np.linalg.svd(power, compute_uv=False), 0, 1)
-            if 2 * constant * np.sum(np.arcsin(values) ** 2) <= tol:
+            if 2 * constant * np.sum(np.arcsin(values) ** 2) \
+                    + private * np.sum(values ** 2) <= tol:
                 return depth
             power = self.block @ power
         raise ValueError(
             f"The bound does not reach tol={tol} within {max_depth} ticks.")
 
-    def evolve(self, state: LoopState) -> np.ndarray:
+    def evolve(self, state: LoopState, inputs: tuple = None) -> np.ndarray:
         """
         The output state of the interferometer on the loop `state` and the
-        injected photons, a vector of the :math:`N + |q|`-photon sector of
-        the :math:`L + x` modes.
+        photons injected into the external inputs, :attr:`inputs` by default,
+        a vector of the :math:`N + |q|`-photon sector of the :math:`L + x`
+        modes.
         """
-        photons = state.photons + sum(self.inputs)
+        inputs = self.inputs if inputs is None else inputs
+        photons = state.photons + sum(inputs)
         occupations = np.hstack([
             state.occupations,
-            np.tile(self.inputs, (len(state.occupations), 1))])
+            np.tile(inputs, (len(state.occupations), 1))])
         vector = np.zeros(len(sector(self.modes, photons)), dtype=complex)
         vector[position(occupations, photons)] = state.amplitudes
         return rotate(self.phases, self.rotations, vector, photons, self.table)
 
-    def measure(self, state: LoopState) -> Measurement:
+    def measure(self, state: LoopState, inputs: tuple = None) -> Measurement:
         """
         The output of the interferometer on the loop `state` and the
         injected photons, grouped by the pattern on the external outputs.
         """
-        vector = self.evolve(state)
-        occupations = sector(self.modes, state.photons + sum(self.inputs))
+        inputs = self.inputs if inputs is None else inputs
+        photons = state.photons + sum(inputs)
+        vector = self.evolve(state, inputs)
+        occupations = sector(self.modes, photons)
         external = occupations[:, self.loop:]
         _, first, inverse = np.unique(
-            encode(external, state.photons + sum(self.inputs)),
-            return_index=True, return_inverse=True)
+            encode(external, photons), return_index=True, return_inverse=True)
         patterns, inverse = external[first], inverse.reshape(-1)
         weights = np.bincount(inverse, np.abs(vector) ** 2, len(patterns))
         order = np.argsort(inverse, kind="stable")
@@ -507,12 +588,12 @@ efficiency=1.0)
                                 for i in range(len(patterns))],
             occupations[:, :self.loop], vector)
 
-    def detections(self, state: LoopState):
+    def detections(self, state: LoopState, inputs: tuple = None):
         """
         Every pattern on the external outputs with its probability and the
         loop state it leaves, before loss on the loop.
         """
-        measurement = self.measure(state)
+        measurement = self.measure(state, inputs)
         for index, weight in enumerate(measurement.weights):
             if weight > 1e-14:
                 yield measurement.pattern(index), float(weight), \
@@ -539,9 +620,10 @@ efficiency=1.0)
 
     def thinnings(self, pattern: tuple):
         """
-        Every pattern the detectors record when `pattern` reaches them, with
-        its probability.
+        Every pattern the detectors record when `pattern` reaches the visible
+        outputs, with its probability.
         """
+        pattern = [pattern[i] for i in self.visible]
         for recorded in product(*(range(n + 1) for n in pattern)):
             weight = prod(
                 comb(n, k) * self.efficiency ** k
@@ -550,12 +632,13 @@ efficiency=1.0)
             if weight > 0:
                 yield recorded, weight
 
-    def tick(self, state: LoopState, rng: np.random.Generator):
+    def step(self, state: LoopState, inputs: tuple,
+             rng: np.random.Generator):
         """
-        One tick of a trajectory: the recorded pattern and the next loop
-        state.
+        One tick of one colour: the pattern on the external outputs and the
+        next loop state, after the loss on the loop.
         """
-        measurement = self.measure(state)
+        measurement = self.measure(state, inputs)
         index = rng.choice(
             len(measurement.weights), p=normalise(measurement.weights))
         pattern, state = measurement.pattern(index), \
@@ -566,19 +649,52 @@ efficiency=1.0)
                 state = outcomes[rng.choice(
                     len(outcomes),
                     p=normalise([weight for weight, _ in outcomes]))][1]
-        recorded = rng.binomial(pattern, self.efficiency)
-        return tuple(int(n) for n in recorded), state
+        return np.array(pattern), state
+
+    def colour(self, rng: np.random.Generator):
+        """
+        The injection of one tick split into colours: the photons in the
+        shared internal state, then one single photon per photon in an
+        internal state of its own.
+        """
+        if self.indistinguishability == 1:
+            return self.inputs, []
+        shared = rng.binomial(self.inputs, self.indistinguishability)
+        alone = [mode for mode, (total, kept) in enumerate(
+            zip(self.inputs, shared)) for _ in range(total - kept)]
+        return tuple(int(n) for n in shared), [
+            tuple(int(mode == other) for mode in range(len(self.inputs)))
+            for other in alone]
+
+    def tick(self, colours: list, rng: np.random.Generator):
+        """
+        One tick of a trajectory with one loop state per colour, the shared
+        colour first: the recorded pattern and the next colours. A colour
+        of its own is forgotten once its photon has left the loop.
+        """
+        shared, alone = self.colour(rng)
+        empty = (0, ) * len(self.inputs)
+        work = [(colours[0], shared)] \
+            + [(state, empty) for state in colours[1:]] \
+            + [(LoopState.vacuum(self.loop), inputs) for inputs in alone]
+        total, after = np.zeros(len(self.inputs), dtype=int), []
+        for state, inputs in work:
+            pattern, state = self.step(state, inputs, rng)
+            total, after = total + pattern, after + [state]
+        after = after[:1] + [state for state in after[1:] if state.photons]
+        recorded = rng.binomial(total[list(self.visible)], self.efficiency)
+        return tuple(int(n) for n in recorded), after
 
     def trajectory(self, ticks: int, seed=None):
         """
         The recorded patterns and the loop photon numbers of `ticks` ticks
         of one trajectory started from the vacuum loop.
         """
-        rng, state = np.random.default_rng(seed), LoopState.vacuum(self.loop)
-        patterns, photons = [], []
+        rng = np.random.default_rng(seed)
+        colours, patterns, photons = [LoopState.vacuum(self.loop)], [], []
         for _ in range(ticks):
-            photons.append(state.photons)
-            pattern, state = self.tick(state, rng)
+            photons.append(sum(state.photons for state in colours))
+            pattern, colours = self.tick(colours, rng)
             patterns.append(pattern)
         return patterns, photons
 
@@ -593,12 +709,17 @@ efficiency=1.0)
     def distribution(self, ticks: int, burn_in: int = 0) -> dict:
         """
         The exact probability of every sequence of patterns recorded over
-        `ticks` ticks after `burn_in` ticks, by enumerating trajectories.
+        `ticks` ticks after `burn_in` ticks, by enumerating trajectories of
+        indistinguishable photons.
 
         >>> delay = Recurrent([[0, 1], [1, 0]], loop=1, inputs=(1, ))
         >>> delay.distribution(2)
         {((0,), (1,)): 1.0}
         """
+        if self.indistinguishability != 1:
+            raise NotImplementedError(
+                "The exact distribution enumerates indistinguishable photons "
+                "only; sample partially distinguishable ones.")
         branches = [((), 1., LoopState.vacuum(self.loop))]
         for time in range(burn_in + ticks):
             branches = merge(
@@ -625,6 +746,53 @@ efficiency=1.0)
                     (weight * lost, after) for weight, loop in branches
                     for lost, after in self.losses(loop, mode)]
         return branches
+
+
+def dilation(diagram):
+    """
+    The pure Kraus map of a :class:`optyx.channel.Diagram` without feedback
+    loops, with the environment of every discard and loss routed to the end
+    of the codomain: a Stinespring dilation, layer by layer.
+
+    >>> from optyx.photonic import PhotonLoss
+    >>> np.abs(np.asarray(dilation(PhotonLoss(.8)).to_path().array)) ** 2
+    array([[0.8, 0.2]])
+    """
+    # pylint: disable=import-outside-toplevel
+    from optyx.core import diagram as core
+    from optyx.channel import Swap
+    kraus, environment = core.Id(diagram.dom.single()), core.Ty()
+    for layer in diagram:
+        left, box, right = layer.inside[0]
+        left, right = left.single(), right.single()
+        if isinstance(box, Swap):
+            kraus_map, box_environment = core.Swap(
+                box.dom.single()[0], box.cod.single()[1]), core.Ty()
+        else:
+            kraus_map, box_environment = box.kraus, box.env
+        kraus = kraus >> core.Id(left) @ kraus_map @ core.Id(
+            right @ environment)
+        if box_environment:
+            kraus = kraus >> core.Id(left @ box.cod.single()) \
+                @ core.Diagram.swap(box_environment, right @ environment)
+        environment = environment @ box_environment
+    return kraus
+
+
+def complete(isometry: np.ndarray) -> np.ndarray:
+    """
+    A unitary whose first columns are those of `isometry`, the others
+    spanning the orthogonal complement of its range.
+
+    >>> complete(np.array([[0.6], [0.8]])).round(2).tolist()
+    [[0.6, -0.8], [0.8, 0.6]]
+    """
+    isometry = np.asarray(isometry)
+    if not np.allclose(
+            isometry.conj().T @ isometry, np.eye(isometry.shape[1])):
+        raise ValueError("Only passive linear optics can be sampled.")
+    _, _, conjugate = np.linalg.svd(isometry.conj().T)
+    return np.hstack([isometry, conjugate[isometry.shape[1]:].conj().T])
 
 
 def merge(branches) -> list:

@@ -183,3 +183,86 @@ def test_errors():
         Recurrent([[1, 1], [0, 1]], loop=1, inputs=(1, ))
     with pytest.raises(ValueError):
         Recurrent(np.eye(2), loop=1, inputs=(1, )).burn_in(1e-3, max_depth=5)
+
+
+def lossy_diagram():
+    from optyx.channel import qmode, Discard
+    from optyx.photonic import Create, MZI, PhotonLoss
+    step = (Create(1) @ Create(1) @ qmode
+            >> MZI(0.3, 0.2) @ qmode >> qmode @ MZI(0.15, 0.7)
+            >> qmode @ Discard(qmode) @ PhotonLoss(0.7))
+    return step.feedback(mem=qmode, state=Create(0))
+
+
+@pytest.mark.parametrize("unrollings", [1, 2])
+def test_from_diagram_matches_the_unrolled_diagram(unrollings):
+    from optyx.photonic import NumberResolvingMeasurement
+    diagram = lossy_diagram()
+    network = Recurrent.from_diagram(diagram)
+    assert (network.loop, network.inputs, network.visible) \
+        == (1, (1, 1, 0), (0, ))
+    exact = (diagram.unroll(unrollings) >> NumberResolvingMeasurement(
+        unrollings + 1)).eval().prob_dist()
+    assert_close(
+        network.distribution(unrollings + 1),
+        {tuple((n, ) for n in key): value for key, value in exact.items()})
+
+
+def test_partially_distinguishable_photons():
+    from collections import Counter
+    from optyx.channel import qmode, Discard
+    from optyx.photonic import Create, MZI, NumberResolvingMeasurement
+    p, mzi = .5, MZI(.2, .3)
+
+    def internal(photon):
+        state = np.zeros(3)
+        state[0], state[photon] = np.sqrt(p), np.sqrt(1 - p)
+        return state
+
+    unrolled = (
+        Create(1, internal_states=(internal(1), )) @ Create(0) >> mzi
+        >> qmode @ Create(1, internal_states=(internal(2), )) @ qmode
+        >> qmode @ mzi >> qmode @ qmode @ Discard(qmode)
+        >> NumberResolvingMeasurement(2))
+    exact = unrolled.inflate(3).eval().prob_dist()
+    diagram = (Create(1) @ qmode >> mzi).feedback(
+        mem=qmode, state=Create(0))
+    network = Recurrent.from_diagram(diagram, indistinguishability=p)
+    counts = Counter(tuple(n for (n, ) in network.sample(2, seed=seed))
+                     for seed in range(4000))
+    for key, value in exact.items():
+        assert abs(counts[key] / 4000 - value) < .03
+
+
+def test_distinguishable_photons_walk_alone():
+    unitary = unitary_group.rvs(3, random_state=6)
+    network = Recurrent(unitary, 2, (1, ), indistinguishability=0.)
+    patterns, photons = network.trajectory(30, seed=2)
+    assert photons == list(
+        np.arange(30) - np.cumsum([0] + [sum(p) for p in patterns[:-1]]))
+    assert network.burn_in(1e-2) >= Recurrent(unitary, 2, (1, )).burn_in(
+        1e-2)
+    with pytest.raises(NotImplementedError):
+        network.distribution(1)
+
+
+def test_sample_and_its_errors():
+    from optyx.channel import Diagram, qmode
+    from optyx.photonic import Create, NumberResolvingMeasurement
+    assert len(lossy_diagram().sample(ticks=3, tol=1e-2, seed=0)) == 3
+    with pytest.raises(ValueError):
+        Recurrent.from_diagram(Diagram.swap(qmode, qmode).feedback(
+            state=Create(0)))
+    with pytest.raises(NotImplementedError):
+        Recurrent.from_diagram((
+            Create(1) @ qmode >> NumberResolvingMeasurement(1) @ qmode
+        ).feedback(mem=qmode, state=Create(0)))
+    with pytest.raises(NotImplementedError):
+        Recurrent.from_diagram((Create(1) @ qmode >> Diagram.swap(
+            qmode, qmode)).feedback(state=Create(1)))
+
+
+def test_complete_refuses_a_non_isometry():
+    from optyx.recurrent import complete
+    with pytest.raises(ValueError):
+        complete(np.array([[1.], [1.]]))

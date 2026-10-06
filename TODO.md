@@ -20,6 +20,6 @@ other x inputs at every tick.
 
 > Implement the full sampler with a distinguishability parameter as a method of any optyx diagram with feedback loops and discards
 
-- [WIP] @session_01WTPb48z2J6m377hUPTvFTz-2026-10-06 09:00 `Recurrent` takes the injection per tick, records only the visible outputs, and samples partially distinguishable photons by colouring them
-- [WIP] @session_01WTPb48z2J6m377hUPTvFTz-2026-10-06 09:00 `Recurrent.from_diagram`: one step of a closed channel diagram with feedback, dilated (discards and loss as environment outputs) to a path matrix, completed to a unitary
-- [WIP] @session_01WTPb48z2J6m377hUPTvFTz-2026-10-06 09:00 `channel.Diagram.sample(ticks, tol, indistinguishability, seed)`, with tests against the unrolled diagram's exact distribution
+- [x] `Recurrent` takes the injection per tick, records only the visible outputs, and samples partially distinguishable photons by colouring them
+- [x] `Recurrent.from_diagram`: one step of a closed channel diagram with feedback, dilated (discards and loss as environment outputs) to a path matrix, completed to a unitary
+- [x] `channel.Diagram.sample(ticks, tol, indistinguishability, seed)`, with tests against the unrolled diagram's exact distribution
