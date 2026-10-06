@@ -46,7 +46,6 @@ test = [
     "pylint",
     "pytest",
     "pyzx",
-    "qiskit-aer",
 ]
 docs = [
     "sphinx",

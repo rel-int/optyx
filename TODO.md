@@ -15,3 +15,11 @@ other x inputs at every tick.
 - [ ] notebook in `docs/notebooks`: memory and time per tick against loss, and the loopback experiment geometry (numbers so far in the wiki paper plan)
 - [ ] validate against `Diagram.fix` of `armand/minimal-sbs-certificate` once feedback is on main
 - [ ] measure each external mode as soon as no later rotation touches it, so that a tick holds the loop sector times a few external modes rather than the whole (L+x)-mode sector (the lossless loopback geometry, L=5, x=20, runs out of 14 GB)
+
+---
+
+> Implement the full sampler with a distinguishability parameter as a method of any optyx diagram with feedback loops and discards
+
+- [WIP] @session_01WTPb48z2J6m377hUPTvFTz-2026-10-06 09:00 `Recurrent` takes the injection per tick, records only the visible outputs, and samples partially distinguishable photons by colouring them
+- [WIP] @session_01WTPb48z2J6m377hUPTvFTz-2026-10-06 09:00 `Recurrent.from_diagram`: one step of a closed channel diagram with feedback, dilated (discards and loss as environment outputs) to a path matrix, completed to a unitary
+- [WIP] @session_01WTPb48z2J6m377hUPTvFTz-2026-10-06 09:00 `channel.Diagram.sample(ticks, tol, indistinguishability, seed)`, with tests against the unrolled diagram's exact distribution
