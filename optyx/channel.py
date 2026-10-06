@@ -50,6 +50,7 @@ Generators and diagrams
     Measure
     Encode
     Discard
+    Feedback
 
 
 Examples
@@ -149,8 +150,9 @@ dual-rail encoding. For example, we can create a GHZ state:
 from __future__ import annotations
 
 from discopy import tensor
-from discopy import symmetric, frobenius, hypergraph
+from discopy import monoidal, symmetric, frobenius, hypergraph
 from discopy.cat import factory
+from discopy.utils import AxiomError
 from pytket.extensions.pyzx import pyzx_to_tk
 from pyzx import extract_circuit
 from optyx.core import diagram
@@ -248,6 +250,48 @@ class Diagram(frobenius.Diagram):
 
     ob = Ty
     grad = tensor.Diagram.grad
+    boundary = diagram.Diagram.boundary
+    unroll = diagram.Diagram.unroll
+    one_step = diagram.Diagram.one_step
+
+    def feedback(self, dom=None, cod=None, mem=None,
+                 state=None, effect=None) -> Diagram:
+        """
+        Feed the last `mem` outputs of a channel diagram from `dom @ mem`
+        to `cod @ mem` back into its last `mem` inputs,
+        one time step later.
+
+        Parameters:
+            dom : The domain of the result, `arg.dom[:-len(mem)]` by default.
+            cod : The codomain of the result, `arg.cod[:-len(mem)]`
+                by default.
+            mem : The memory type fed back, `arg.cod[-1:]` by default.
+            state : The boundary plugged in the input memory before the
+                first time step of :meth:`unroll`, a diagram with
+                `cod == mem`. `None` leaves the wire open; there is no
+                natural state to default to, though on `qmode` the
+                zero-photon state `photonic.Create(0)` is the usual choice.
+            effect : The boundary plugged in the output memory after the
+                last time step, a diagram with `dom == mem`. `None` gives
+                `Discard(mem)`, which traces the memory out.
+
+        A channel diagram is the one place where a boundary has a natural
+        default: discarding is the unique causal effect, so
+        :meth:`Feedback.default_effect` is `Discard(mem)` here while
+        :meth:`Feedback.default_state` stays the open wire.
+
+        >>> from optyx.photonic import Create
+        >>> wait = Diagram.swap(qmode, qmode).feedback(state=Create(0))
+        >>> assert wait.dom == wait.cod == qmode
+        >>> assert wait.mem == qmode
+        >>> assert wait.state == Create(0)
+        >>> assert wait.effect == Discard(qmode)
+
+        The result composes with any other channel diagram and is
+        unrolled by :meth:`unroll`.
+        """
+        return self.feedback_factory(
+            self, dom=dom, cod=cod, mem=mem, state=state, effect=effect)
 
     def needs_inflation(self) -> bool:
         """
@@ -291,6 +335,12 @@ class Diagram(frobenius.Diagram):
         are_layers_classical = []
         for layer in self:
             generator = layer.inside[0][1]
+
+            if isinstance(generator, Feedback) and not all(
+                part.is_pure for part in (
+                    generator.arg, generator.state, generator.effect)
+            ):
+                return False
 
             # if we have a discard/measure
             # acting on quantum types, it's not pure
@@ -341,6 +391,10 @@ class Diagram(frobenius.Diagram):
                 kraus_maps.append(
                     left @ diagram.Swap(generator.dom.single()[0],
                                         generator.cod.single()[1]) @ right
+                )
+            elif isinstance(generator, Feedback):
+                kraus_maps.append(
+                    left @ generator.get_kraus() @ right
                 )
             else:
                 kraus_maps.append(
@@ -769,6 +823,87 @@ class Swap(frobenius.Swap, Channel):
         return self
 
 
+class Feedback(monoidal.Bubble, Diagram, frobenius.Box):
+    """
+    A feedback loop connecting the last `mem` outputs of a channel diagram
+    back to its last `mem` inputs, one time step later.
+
+    See :class:`optyx.core.diagram.Feedback`; doubling the loop gives the
+    loop of the doubled diagram, so `double` and `unroll` commute.
+
+    The one boundary with a natural default is the effect: discarding is the
+    unique causal effect on a channel, so :meth:`default_effect` is
+    :class:`Discard` while :meth:`default_state` stays the open wire.
+
+    Example
+    -------
+    The feedback of `CNOT >> SWAP` unrolls to a ladder of CNOT gates,
+    here with the plus state as initial state and the output memory
+    discarded by default; doubling commutes with unrolling on the nose:
+
+    >>> from optyx.qubits import Z, X, Scalar, Ket
+    >>> cnot = Z(1, 2) @ qubit >> qubit @ X(2, 1) @ Scalar(2 ** 0.5)
+    >>> ladder = (cnot >> Diagram.swap(qubit, qubit)).feedback(
+    ...     state=Ket("+"))
+    >>> assert ladder.effect == Discard(qubit)
+    >>> assert ladder.unroll(1).double() == ladder.double().unroll(1)
+    """
+    __ambiguous_inheritance__ = (monoidal.Bubble, frobenius.Box)
+
+    @classmethod
+    def default_state(cls, mem) -> Diagram:
+        """The identity on `mem`: a channel has no natural initial state."""
+        return Diagram.id(mem)
+
+    @classmethod
+    def default_effect(cls, mem) -> Diagram:
+        """:class:`Discard` on `mem`, the unique causal effect."""
+        return Discard(mem)
+
+    def __init__(self, arg, dom=None, cod=None, mem=None,
+                 state=None, effect=None):
+        mem = arg.cod[-1:] if mem is None else mem
+        dom = arg.dom[:len(arg.dom) - len(mem)] if dom is None else dom
+        cod = arg.cod[:len(arg.cod) - len(mem)] if cod is None else cod
+        if (arg.dom, arg.cod) != (dom @ mem, cod @ mem):
+            raise AxiomError(
+                f"{arg} is not a diagram from {dom @ mem} to {cod @ mem}")
+        self.mem = mem
+        self.state = self.default_state(mem) if state is None else state
+        self.effect = self.default_effect(mem) if effect is None else effect
+        if self.state.cod != mem:
+            raise AxiomError(
+                f"{self.state} is not a state on the memory {mem}")
+        if self.effect.dom != mem:
+            raise AxiomError(
+                f"{self.effect} is not an effect on the memory {mem}")
+        monoidal.Bubble.__init__(
+            self, arg, dom=dom, cod=cod, method="feedback_operator")
+        frobenius.Box.__init__(self, str(self), dom, cod)
+
+    __str__ = diagram.Feedback.__str__
+    __repr__ = diagram.Feedback.__repr__
+    dagger = diagram.Feedback.dagger
+    to_drawing = diagram.Feedback.to_drawing
+
+    def double(self):
+        """The feedback loop of the doubled diagram."""
+        return Diagram.double(self.arg).feedback(
+            mem=self.mem.double(), state=Diagram.double(self.state),
+            effect=Diagram.double(self.effect))
+
+    def get_kraus(self):
+        """The feedback loop of the Kraus map."""
+        return Diagram.get_kraus(self.arg).feedback(
+            mem=self.mem.single(), state=Diagram.get_kraus(self.state),
+            effect=Diagram.get_kraus(self.effect))
+
+    def inflate(self, d):
+        return Diagram.inflate(self.arg, d).feedback(
+            mem=self.mem.inflate(d), state=Diagram.inflate(self.state, d),
+            effect=Diagram.inflate(self.effect, d))
+
+
 class Measure(Channel):
     """Measuring a qubit or qmode corresponds to
     applying a 2 -> 1 spider in the doubled picture.
@@ -911,6 +1046,13 @@ class Functor(frobenius.Functor):
     """
     dom = cod = Diagram
 
+    def __call__(self, other):
+        if isinstance(other, Feedback):
+            return self(other.arg).feedback(
+                dom=self(other.dom), cod=self(other.cod), mem=self(other.mem),
+                state=self(other.state), effect=self(other.effect))
+        return super().__call__(other)
+
 
 class Hypergraph(hypergraph.Hypergraph):  # pragma: no cover
     functor = Functor
@@ -929,3 +1071,5 @@ Diagram.spider_factory = Spider
 Diagram.hypergraph_factory = Hypergraph
 Diagram.braid_factory = Swap
 Diagram.sum_factory = Sum
+Diagram.feedback_factory = Feedback
+Diagram.functor_factory = Functor
