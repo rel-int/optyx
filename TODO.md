@@ -30,7 +30,7 @@ other x inputs at every tick.
 
 Passive (phase 1), each point validated against the NumPy sampler and its exact tests:
 
-- [ ] progressive measurement of the external modes, so that a tick holds the loop sector times a few modes (prerequisite: fixes the memory wall and changes what the JAX kernel holds)
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-06 11:05 progressive measurement of the external modes, so that a tick holds the loop sector times a few modes (prerequisite: fixes the memory wall and changes what the JAX kernel holds)
 - [ ] fixed-shape kernels: per-sector rotation groups stacked over rotations, interferometer as one `lax.scan`, measurement by static sector-to-pattern maps, `segment_sum`, `jax.random.categorical` and mask-then-gather collapse, loss Kraus as static index shifts
 - [ ] occupation indices computed by combinatorial ranking instead of stored tables
 - [ ] rotations built from the diagram's parameters (or a branch-free Givens decomposition), so that gradients reach the phases
