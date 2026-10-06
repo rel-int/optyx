@@ -1,5 +1,3 @@
-from math import comb
-
 import numpy as np
 import pytest
 
@@ -8,9 +6,9 @@ from discopy.utils import AxiomError
 from optyx import photonic
 from optyx import classical, qubits
 from optyx.channel import (
-    Diagram, Discard, Feedback, Functor, bit, mode, qmode, qubit
+    Diagram, Discard, Feedback, Functor, bit, qmode, qubit
 )
-from optyx.core import diagram as core, path, zw
+from optyx.core import diagram as core, path, zw, zx
 
 
 def delay(state=None, effect=None):
@@ -83,16 +81,15 @@ def test_unroll_is_a_delay_line():
 
 
 def test_unroll_overrides_the_boundary():
-    """`None` opens a memory the loop closes, and a diagram replaces it.
-
-    The overrides live on their own method: `unroll` takes the number of
-    steps and nothing else, because the boundaries belong to `feedback`.
-    """
+    """The boundaries are chosen at `feedback` and read back by
+    `boundary`, so `unroll` can override them per call: `None` keeps the
+    loop's own, `False` opens the memory, a diagram replaces it."""
     wait = delay(state=photonic.Create(1))
+    assert wait.boundary() == (photonic.Create(1), Discard(qmode))
     assert wait.unroll(1).dom == qmode ** 2
-    assert wait.unroll_with_boundaries(1, state=None).dom == qmode ** 3
-    assert wait.unroll_with_boundaries(1, effect=None).cod == qmode ** 3
-    replaced = wait.unroll_with_boundaries(1, state=photonic.Create(0))
+    assert wait.unroll(1, state=False).dom == qmode ** 3
+    assert wait.unroll(1, effect=False).cod == qmode ** 3
+    replaced = wait.unroll(1, state=photonic.Create(0))
     assert replaced.dom == qmode ** 2
     assert replaced != wait.unroll(1)
 
@@ -266,78 +263,27 @@ def test_bit_delay_line():
     assert np.isclose(probability, 1)
 
 
-def photon_count():
-    """A classical `mode` memory accumulating one detection per tick."""
-    count = photonic.Create(1) >> photonic.NumberResolvingMeasurement(1)
-    step = Diagram.id(mode) @ count \
-        >> classical.Add(2) >> classical.CopyN(2)
-    return step.feedback(mem=mode, state=classical.Digit(0))
+def test_simplify_picks_the_diagram_with_fewest_swaps():
+    """The simplified unrolling has the same tensor and fewer swaps,
+    and the spiders survive the round-trip instead of fusing."""
+    cnot = zx.Z(1, 2) @ core.bit \
+        >> core.bit @ zx.X(2, 1) @ core.Scalar(2 ** 0.5)
+    plus = core.Scalar(0.5 ** 0.5) @ zx.Z(0, 1)
+    ladder = (cnot >> core.Diagram.swap(core.bit, core.bit)).feedback(
+        state=plus)
+    unrolled = ladder.unroll(2)
+    simplified = unrolled.simplify()
 
+    def n_swaps(diagram):
+        return sum(isinstance(box, core.Swap) for box in diagram.boxes)
 
-def binomial_count():
-    """One photon on a 50:50 splitter, both arms detected, one accumulated."""
-    detect = (photonic.Create(1) @ photonic.Create(0) >> photonic.BS
-              >> photonic.NumberResolvingMeasurement(2))
-    step = (Diagram.id(mode) @ detect
-            >> Diagram.id(mode @ mode) @ classical.DiscardMode(1)
-            >> classical.Add(2) >> classical.CopyN(2))
-    return step.feedback(mem=mode, state=classical.Digit(0))
-
-
-def parity(theta=.15):
-    """The parity of the detections, in a `bit` memory. Bounded, unlike the
-    counters, so it is the one classical loop with a fixed point."""
-    click = (photonic.Create(1) @ photonic.Create(0) >> photonic.MZI(theta, 0)
-             >> photonic.NumberResolvingMeasurement(2)
-             >> classical.Mod2() @ classical.DiscardMode(1))
-    step = Diagram.id(bit) @ click \
-        >> classical.Xor() >> classical.CopyBit(2)
-    return step.feedback(mem=bit, state=classical.Bit(0)), click
-
-
-def readout(loop, n_steps):
-    """The last tick of `loop.unroll(n_steps)`, everything else discarded."""
-    unrolled = loop.unroll_with_boundaries(n_steps, effect=None)
-    memory = unrolled.cod[len(loop.cod) * (n_steps + 1):]
-    return unrolled >> Discard(loop.cod ** n_steps) \
-        @ Diagram.id(loop.cod) @ Discard(memory)
-
-
-def test_classical_memory_counts_detections():
-    """A photonic measurement fed back through a classical `mode`."""
-    loop = photon_count()
-    assert loop.mem == mode and loop.state == classical.Digit(0)
-    for n_steps in range(4):
-        distribution = readout(loop, n_steps).eval().prob_dist()
-        assert distribution == {(n_steps + 1,): 1}
-
-
-def test_classical_memory_is_binomial():
-    """Each tick detects one photon of a 50:50 pair, so the running total
-    after `n` ticks is exactly Binomial(n, 1/2)."""
-    loop = binomial_count()
-    for n_steps in range(3):
-        ticks = n_steps + 1
-        distribution = readout(loop, n_steps).eval().prob_dist()
-        for total in range(ticks + 1):
-            assert np.isclose(
-                distribution[(total,)],
-                comb(ticks, total) / 2 ** ticks)
-
-
-def test_classical_parity_converges_at_its_analytic_rate():
-    """The parity of independent clicks converges to uniform at |1 - 2p|,
-    which a biased splitter makes visible."""
-    loop, click = parity()
-    probability = click.eval().prob_dist()[(1,)]
-    for n_steps in range(5):
-        even = readout(loop, n_steps).eval().prob_dist()[(0,)]
-        assert np.isclose(
-            even, (1 + (1 - 2 * probability) ** (n_steps + 1)) / 2)
-
-
-def test_classical_loop_commutes_with_double():
-    """The parity loop is left out: doubling it puts a daggered `W` inside
-    the bubble, which `unroll`'s functor cannot map. See issue #31."""
-    loop = photon_count()
-    assert loop.unroll(1).double() == loop.double().unroll(1)
+    assert n_swaps(simplified) < n_swaps(unrolled)
+    assert sorted(
+        box.name for box in simplified.boxes
+        if not isinstance(box, core.Swap)) == sorted(
+        box.name for box in unrolled.boxes
+        if not isinstance(box, core.Swap))
+    assert np.allclose(
+        simplified.to_tensor().eval().array,
+        unrolled.to_tensor().eval().array)
+    assert ladder.simplify() == ladder

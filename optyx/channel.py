@@ -80,7 +80,7 @@ diagonalising the transfer matrix of one step:
 >>> import numpy as np
 >>> measured = loop >> photonic.NumberResolvingMeasurement(1)
 >>> settled = measured.at_time(8).eval().prob_dist()
->>> fixed = measured.eigen_fix(chi=8).prob_dist()
+>>> fixed = measured.eigen_fix().prob_dist()
 >>> assert max(abs(settled[k] - v) for k, v in fixed.items()) < 1e-6
 >>> Equation(loop.at_time(2), symbol="").draw(
 ...     figsize=(6, 3), path="docs/_static/at_time.png")
@@ -88,10 +88,11 @@ diagonalising the transfer matrix of one step:
 .. image:: /_static/at_time.png
     :align: center
 
-:meth:`Diagram.unroll_depth` reads the passive loop block and fresh Fock
-occupation to certify a depth, with or without round-trip loss.
-:meth:`Diagram.truncation_dimensions` reads each memory wire's photon budget
-off the diagram, which is the cutoff :meth:`Diagram.eigen_fix` diagonalises at.
+:meth:`Diagram.unroll_certificate` certifies a depth from the loop block of
+the one-step optical matrix, loss channels included, and
+:meth:`Diagram.power_fix` iterates where no bound applies.
+:meth:`Diagram.truncation_dimensions` reads each wire's photon budget off the
+diagram, which is where the cutoff search of :meth:`Diagram.eigen_fix` starts.
 
 See :doc:`/notebooks/fixpoints` for what each of these returns, and for
 using them to simulate feedback boson sampling.
@@ -275,82 +276,7 @@ class Ob(frobenius.Ob):
 
 DEFAULT_MAX_STEPS = 64
 MAX_TRUNCATION = 32
-DEFAULT_CHI = 8
-
-
-def _trace(ty, state):
-    """
-    The trace of `state`, the array of a density matrix over `ty`: feed it
-    into `Discard(ty)` and read off the scalar.
-
-    :meth:`Diagram.normalisation` is this same scalar for a diagram. The
-    array case stays private because it is not a thing a user has: it is
-    what the solvers below hold between a linear algebra step and a diagram,
-    and it exists only because :class:`Box` discards the dimensions it is
-    passed for an array-backed box, which is issue #28.
-    """
-    discarded = Discard(ty).double().to_tensor(list(np.shape(state)))
-    return (tensor.Box(
-        "State", tensor.Dim(1), discarded.dom, np.asarray(state))
-        >> discarded).eval().array
-
-
-def _validate(stateful, tol, loss, chi):
-    """
-    The guards :meth:`Diagram.fix` and :meth:`Diagram.eigen_fix` share.
-
-    Both are public entry points taking the same user input, and neither has
-    the statements to spare under the style guide's limit.
-    """
-    if stateful.dom:
-        raise ValueError(
-            "The stationary state of a diagram with a domain is not "
-            f"defined, got dom={stateful.dom}.")
-    if not any(isinstance(box, Feedback) for box in stateful.boxes):
-        raise ValueError(
-            "The diagram has no feedback loop, so it is already its own "
-            "stationary state.")
-    if chi is not None and (not isinstance(chi, Integral)
-                            or isinstance(chi, bool) or chi <= 0):
-        raise ValueError("chi must be a positive integer.")
-    if not isinstance(tol, Real) or isinstance(tol, bool) \
-            or not np.isfinite(tol) or tol <= 0:
-        raise ValueError("tol must be a positive finite real number.")
-    if not isinstance(loss, Real) or isinstance(loss, bool) \
-            or not 0 <= loss < 1:
-        raise ValueError("loss must be a real number in [0, 1).")
-
-
-def _lossy(memory, loss):
-    """
-    A :class:`optyx.photonic.PhotonLoss` of survival `1 - loss` on every
-    optical wire of `memory`, the identity on the classical ones.
-
-    Losing a fraction of the memory each round trip is what bounds the
-    second eigenvalue of the transfer channel, so this is what turns
-    :meth:`Diagram.unroll_depth`'s assumed gap into a real one.
-    """
-    photonic = import_module("optyx.photonic")
-    return Diagram.id(Ty()).tensor(*(
-        photonic.PhotonLoss(1 - loss) if ob.name == "qmode"
-        else Diagram.id(Ty(ob.name)) for ob in memory.inside))
-
-
-def _with_loss(stateful, loss):
-    """Add uniform round-trip loss to every optical feedback memory."""
-    def ar_map(box):
-        if not isinstance(box, Feedback):
-            return box
-        arg = _with_loss(box.arg, loss) \
-            >> Diagram.id(box.cod) @ _lossy(box.mem, loss)
-        return arg.feedback(
-            dom=box.dom, cod=box.cod, mem=box.mem,
-            state=_with_loss(box.state, loss),
-            effect=_with_loss(box.effect, loss))
-
-    return frobenius.Functor(
-        ob_map=lambda x: x, ar_map=ar_map,
-        dom=Diagram, cod=Diagram)(stateful)
+MAX_BOND_DIMENSION = 8
 
 
 @factory
@@ -408,8 +334,8 @@ class Diagram(frobenius.Diagram):
 
     ob = Ty
     grad = tensor.Diagram.grad
+    boundary = diagram.Diagram.boundary
     unroll = diagram.Diagram.unroll
-    unroll_with_boundaries = diagram.Diagram.unroll_with_boundaries
     one_step = diagram.Diagram.one_step
 
     def feedback(self, dom=None, cod=None, mem=None,
@@ -465,19 +391,24 @@ class Diagram(frobenius.Diagram):
         accumulating `n_steps` outputs to throw away, which is what
         :meth:`fix` contracts.
 
-        The last tick is the `effect` of that unrolling: :meth:`one_step`
-        with the memory discarded instead of the output, so it reads out
-        rather than continuing.
+        The last tick is the `effect` of that unrolling, overridden at
+        :meth:`unroll`: :meth:`one_step` with the memory discarded instead
+        of the output, so it reads out rather than continuing.
 
         The diagram must be a state and so must every loop, i.e. each
         :attr:`Feedback.state` needs an empty domain rather than the open
         wire it defaults to.
 
+        A loop that reprepares `Ket(0)` each tick reads out `Ket(0)` at
+        every time, whatever its memory started as:
+
         >>> from optyx.qubits import Ket
         >>> source = (Discard(qubit) @ Ket(0) @ Ket(0)).feedback(
         ...     mem=qubit, state=Ket(1))
-        >>> assert source.at_time(2).dom == Ty()
-        >>> assert source.at_time(2).cod == qubit
+        >>> assert (source.at_time(2).dom, source.at_time(2).cod) \\
+        ...     == (Ty(), qubit)
+        >>> assert np.allclose(
+        ...     source.at_time(2).eval().density_matrix, [[1, 0], [0, 0]])
         """
         if self.dom:
             raise ValueError(
@@ -489,17 +420,44 @@ class Diagram(frobenius.Diagram):
         step = self.one_step()
         memory = step.cod[len(self.cod):]
         readout = step >> self.id(self.cod) @ Discard(memory)
-        if n_steps == 0:
-            iterated = self.unroll_with_boundaries(0, effect=None) \
-                >> self.id(self.cod) @ Discard(memory)
-        else:
-            iterated = (self >> Discard(self.cod)).unroll_with_boundaries(
+        iterated = self.unroll(0, effect=Discard(memory)) if n_steps == 0 \
+            else (self >> Discard(self.cod)).unroll(
                 n_steps - 1, effect=readout)
         if iterated.dom:
             raise ValueError(
                 "Every feedback loop needs a state, got an open memory of "
                 f"type {iterated.dom}.")
         return iterated
+
+    def check_fixpoint(self, tol: float = 1e-6, max_chi: int = None):
+        """
+        The guards :meth:`fix` and :meth:`eigen_fix` share: that this
+        diagram poses a fixpoint problem at all, and that the numbers asked
+        of it are in range. Raises rather than returning, since every
+        failure is a mistake in the call.
+
+        >>> from optyx.qubits import Ket
+        >>> try:
+        ...     Ket(0).check_fixpoint()
+        ... except ValueError as error:
+        ...     assert "no feedback loop" in str(error)
+        """
+        if self.dom:
+            raise ValueError(
+                "The stationary state of a diagram with a domain is not "
+                f"defined, got dom={self.dom}.")
+        if not any(isinstance(box, Feedback) for box in self.boxes):
+            raise ValueError(
+                "The diagram has no feedback loop, so it is already its own "
+                "stationary state.")
+        if max_chi is not None and (not isinstance(max_chi, Integral)
+                                    or isinstance(max_chi, bool)
+                                    or max_chi <= 0):
+            raise ValueError(
+                "The truncation bound must be a positive integer.")
+        if not isinstance(tol, Real) or isinstance(tol, bool) \
+                or not np.isfinite(tol) or tol <= 0:
+            raise ValueError("tol must be a positive finite real number.")
 
     def normalisation(self):
         """
@@ -518,15 +476,8 @@ class Diagram(frobenius.Diagram):
         >>> try:
         ...     Diagram.id(qubit).normalisation()
         ... except ValueError as error:
-        ...     assert str(error) == (
-        ...         "normalisation is the trace of a state, but dom=qubit; "
-        ...         "provide a state over it and take "
-        ...         "(state >> self).normalisation().")
+        ...     assert "provide a state over it" in str(error)
         >>> assert np.isclose((Ket(0) >> Diagram.id(qubit)).normalisation(), 1)
-
-        The dimensions are read off the diagram rather than passed in: every
-        wire carries the photon budget :meth:`truncation_dimensions` already
-        computes.
         """
         if self.dom != Ty():
             raise ValueError(
@@ -535,88 +486,179 @@ class Diagram(frobenius.Diagram):
                 "(state >> self).normalisation().")
         return (self >> Discard(self.cod)).double().to_tensor().eval().array
 
-    def unroll_depth(
-            self, tol: float = 1e-6, loss: float = 0,
-            max_steps: int = None) -> int | None:
+    def dilate(self):
+        """
+        The pure Kraus map of this channel diagram with every environment
+        routed to the end of the codomain: a :class:`optyx.core.diagram`
+        diagram from `dom.single()` to `cod.single() @ env`.
+
+        This is Stinespring dilation, layer by layer: a lossy channel is an
+        isometry into system and environment followed by discarding the
+        environment, and this returns the isometry with the environment
+        left open. :class:`Discard` is the channel whose Kraus map is the
+        identity and whose environment is everything, so discarded wires
+        simply move to the end.
+
+        The dilation of a loss channel is the beam splitter it is: one
+        mode in, system and environment out, split by the transmissivity.
+
+        >>> from optyx.photonic import PhotonLoss
+        >>> assert np.allclose(np.abs(np.asarray(
+        ...     PhotonLoss(.8).dilate().to_path().array,
+        ...     dtype=complex)) ** 2, [[.8, .2]])
+        >>> assert Discard(qmode).dilate().cod == diagram.Ty("mode")
+
+        The dilation of a pure diagram is its Kraus map:
+
+        >>> from optyx.photonic import BS
+        >>> assert BS.dilate() == BS.get_kraus()
+        """
+        kraus, env = diagram.Id(self.dom.single()), diagram.Ty()
+        for layer in self:
+            left, box, right = layer.inside[0]
+            left, right = left.single(), right.single()
+            if isinstance(box, Swap):
+                step, box_env = diagram.Swap(
+                    box.dom.single()[0], box.cod.single()[1]), diagram.Ty()
+            elif isinstance(box, Feedback):
+                raise NotImplementedError(
+                    "dilate is defined for diagrams without feedback "
+                    "loops; call one_step first.")
+            else:
+                step, box_env = box.kraus, box.env
+            kraus = kraus >> diagram.Id(left) @ step @ diagram.Id(
+                right @ env)
+            if box_env:
+                kraus = kraus >> diagram.Id(
+                    left @ box.cod.single()) @ diagram.Diagram.swap(
+                        box_env, right @ env)
+            env = env @ box_env
+        return kraus
+
+    def certificate_obstruction(self) -> str | None:
+        """
+        The reason the stationary boson-sampling bound of
+        :meth:`unroll_certificate` does not apply to this diagram, or
+        `None` when it does. Each condition is checked in turn, so the
+        message names the first thing that fails rather than an exception
+        caught along the way: :meth:`unroll_certificate` raises with it
+        and :meth:`fix` warns with it before falling back on
+        :meth:`power_fix`.
+
+        >>> from optyx import photonic, qubits
+        >>> loop = (photonic.Create(1) @ qmode >> photonic.BS).feedback(
+        ...     mem=qmode, state=photonic.Create(0))
+        >>> assert loop.certificate_obstruction() is None
+        >>> wait = Diagram.swap(qubit, qubit).feedback(
+        ...     state=qubits.Ket(0))
+        >>> print((qubits.Ket(0) >> wait).certificate_obstruction())
+        the diagram is not a single feedback loop over optical modes
+        """
+        loops = [box for box in self.boxes if isinstance(box, Feedback)]
+        if len(loops) != 1 or loops[0].dom or any(
+                ob.inside[0].name != "qmode" for ob in loops[0].mem):
+            return ("the diagram is not a single feedback loop over "
+                    "optical modes")
+        loop = loops[0]
+        if any(isinstance(box, Feedback) for box in loop.arg.boxes):
+            return "the loop contains a nested feedback loop"
+        for box in loop.arg.boxes:
+            if not isinstance(box, Channel):
+                return f"{box} has no Kraus map"
+        dilation = loop.arg.dilate()
+        for box in dilation.boxes:
+            if type(box).to_path is diagram.Box.to_path:
+                return f"{box} has no path matrix"
+        matrix = dilation.to_path()
+        isometry = np.asarray(matrix.array, dtype=complex)
+        memory = len(loop.mem.single())
+        visible = len(loop.cod.single())
+        if matrix.dom != memory or matrix.cod < visible + memory \
+                or matrix.selections:
+            return ("the loop's optical matrix does not split into "
+                    "visible, memory and environment modes")
+        if isometry.shape != (memory + len(matrix.creations), matrix.cod) \
+                or not np.allclose(
+                    isometry @ isometry.conjugate().T,
+                    np.eye(len(isometry))):
+            return "the loop's optical matrix is not an isometry"
+        block = isometry[:memory, visible:visible + memory]
+        if max(abs(np.linalg.eigvals(block)), default=0) >= 1:
+            return ("the loop block does not satisfy rho(V_ll) < 1: "
+                    "nothing ever leaves the loop, so no depth is "
+                    "certified")
+        return None
+
+    def unroll_certificate(
+            self, tol: float = 1e-6, max_steps: int = None) -> int | None:
         """
         The smallest number of time steps whose last output is certified
-        within `tol`. Its first `k` steps are the burn-in certified by
+        within `tol`, by the stationary boson-sampling bound of Armand Le
+        Douarec: the first `k` steps are a burn-in certified by
 
         .. math::
             \\Gamma(k) = 4 K(\\bar q) \\sum_r \\arcsin^2\\!\\left(
-                (1 - loss)^{k / 2}\\sigma_r(U_{ll}^k)\\right).
+                \\sigma_r(V_{ll}^k)\\right) \\leq tol,
 
-        Here `U_ll` is the loop-to-loop block of the one-step passive optical
-        matrix and `qbar` is the largest fresh Fock occupation. The calculation
-        is on `len(mem)` square matrices only; it builds no Fock-space state.
-        It applies with or without loss. One final step reads the output after
-        the certified memory state. If `max_steps` is given, `None` means that
-        its cap was reached before the bound fell below `tol`.
+        with one final step reading the output after the certified memory.
+        Here `V_ll` is the loop-to-loop block of the one-step optical
+        matrix and `qbar` the largest fresh Fock occupation. The
+        calculation is on `len(mem)` square matrices only; it builds no
+        Fock-space state.
+
+        Loss is read off the diagram, not passed in: the one-step matrix is
+        the path matrix of the loop's :meth:`dilate`, so a
+        :class:`optyx.photonic.PhotonLoss` or any other discarded
+        environment in the loop enters `V_ll` as the isometry block it is,
+        and shrinks its singular values by the amplitude it leaks.
+
+        Raises `ValueError` with the :meth:`certificate_obstruction` when
+        the bound does not apply — a memory that is not all optical modes,
+        more than one loop, a box with no Kraus map or no path matrix, or
+        a lossless loop block with spectral radius one. :meth:`fix` warns
+        with the same obstruction and falls back on :meth:`power_fix`. If
+        `max_steps` is given, `None` means the cap was reached before the
+        bound fell below `tol`.
 
         >>> from optyx import photonic
         >>> loop = (photonic.Create(1) @ qmode
         ...     >> Diagram.swap(qmode, qmode)).feedback(
         ...         mem=qmode, state=photonic.Create(0))
-        >>> assert loop.unroll_depth(1e-6) == 2
+        >>> assert loop.unroll_certificate(1e-6) == 2
+
+        A loss channel in the loop enters the same matrix — no loss
+        parameter anywhere — and certifies a shorter depth:
+
+        >>> step = photonic.Create(1) @ qmode >> photonic.BS
+        >>> lossless = step.feedback(mem=qmode, state=photonic.Create(0))
+        >>> lossy = (step >> qmode @ photonic.PhotonLoss(.5)).feedback(
+        ...     mem=qmode, state=photonic.Create(0))
+        >>> assert lossless.unroll_certificate(1e-2) == 13
+        >>> assert lossy.unroll_certificate(1e-2) == 7
         """
-        _validate(self, tol, loss, None)
+        self.check_fixpoint(tol)
         if max_steps is not None and (
                 not isinstance(max_steps, Integral)
                 or isinstance(max_steps, bool) or max_steps <= 0):
             raise ValueError("max_steps must be a positive integer.")
-
-        def loss_depth():
-            """The PR26 fallback when no optical matrix can be read."""
-            if not loss:
-                raise NotImplementedError(
-                    "No lossless depth is certified for this diagram.")
-            depth = int(np.ceil(np.log(tol) / np.log(1 - loss)))
-            return depth if max_steps is None or depth <= max_steps else None
-
-        loops = [box for box in self.boxes if isinstance(box, Feedback)]
-        if len(loops) != 1 or loops[0].dom or any(
-                ob.inside[0].name != "qmode" for ob in loops[0].mem):
-            return loss_depth()
-        loop = loops[0]
-        try:
-            matrix = loop.arg.to_path()
-        except (AssertionError, NotImplementedError, TypeError, ValueError) \
-                as error:
-            try:
-                return loss_depth()
-            except NotImplementedError as unsupported:
-                raise unsupported from error
-        memory, visible = len(loop.mem), len(loop.cod)
-        if matrix.dom != memory or matrix.cod != visible + memory \
-                or matrix.selections:
-            return loss_depth()
-        try:
-            unitary = np.asarray(matrix.array, dtype=complex)
-        except (TypeError, ValueError) as error:
-            try:
-                return loss_depth()
-            except NotImplementedError as unsupported:
-                raise unsupported from error
-        if unitary.shape[0] != unitary.shape[1] or not np.allclose(
-                unitary @ unitary.conjugate().T, np.eye(len(unitary))):
-            return loss_depth()
-        loop_block = unitary[:memory, visible:visible + memory]
+        obstruction = self.certificate_obstruction()
+        if obstruction is not None:
+            raise ValueError(f"The bound does not apply: {obstruction}.")
+        loop = next(
+            box for box in self.boxes if isinstance(box, Feedback))
+        matrix = loop.arg.dilate().to_path()
+        isometry = np.asarray(matrix.array, dtype=complex)
+        memory = len(loop.mem.single())
+        visible = len(loop.cod.single())
+        block = isometry[:memory, visible:visible + memory]
         qbar = max(matrix.creations, default=0)
         constant = (qbar + 1) * (
             np.sqrt(6 * qbar * (qbar + 1)) + qbar)
-        if not loss and max(
-                abs(np.linalg.eigvals(loop_block)), default=0) >= 1:
-            if max_steps is not None:
-                raise NotImplementedError(
-                    "The lossless loop block does not satisfy rho(U_ll) < 1.")
-            raise ValueError(
-                "The lossless loop block does not satisfy rho(U_ll) < 1.")
-        power, gamma, burn_in = np.eye(memory), 1 - loss, 0
+        power, burn_in = np.eye(memory), 0
         while max_steps is None or burn_in < max_steps - 1:
-            power, burn_in = loop_block @ power, burn_in + 1
+            power, burn_in = block @ power, burn_in + 1
             singular = np.clip(
-                gamma ** (burn_in / 2) * np.linalg.svd(
-                    power, compute_uv=False), 0, 1)
+                np.linalg.svd(power, compute_uv=False), 0, 1)
             if 4 * constant * np.sum(np.arcsin(singular) ** 2) <= tol:
                 return burn_in + 1
         return None
@@ -653,12 +695,11 @@ class Diagram(frobenius.Diagram):
             int(dimension.inside[0]) for dimension in self.double().to_tensor(
                 [2] * len(self.dom.double())).cod]
 
-    def fix(self, tol: float = 1e-6, loss: float = 0,
-            chi: int = DEFAULT_CHI, max_steps: int = DEFAULT_MAX_STEPS, *,
-            backend=None):
+    def fix(self, tol: float = 1e-6, max_chi: int = MAX_BOND_DIMENSION,
+            max_steps: int = DEFAULT_MAX_STEPS, *, backend=None):
         """
         Approximate the stationary state of a stateful diagram as a density
-        matrix over its codomain, with a single tensor-network contraction.
+        matrix over its codomain.
 
         A diagram with a feedback loop has stream semantics through
         :meth:`unroll`, and approximate fixed-point semantics here. Both use
@@ -666,97 +707,95 @@ class Diagram(frobenius.Diagram):
         approximate stationary memory once, then discards the next memory and
         returns only the visible output.
 
-        The stationary state is the fixed point of the transfer channel which
-        one time step induces on the memory of the feedback loops. It is the
-        limit of :meth:`at_time` only when iteration converges; periodic
-        channels can have a fixed state while their iterates cycle.
-
-        The depth is the smallest one certified by :meth:`unroll_depth`, with
-        or without loss, capped by `max_steps`. A positive `loss` also inserts
-        that uniform loss on every optical memory wire. Each situation where
-        the result is not certified within `tol` has its own warning: the
-        stationary boson-sampling certificate does not apply, `max_steps`
-        stops before it succeeds, or `chi` is below the dimensions read off by
-        :meth:`truncation_dimensions`. Where the transfer matrix fits in
+        The depth comes from :meth:`unroll_certificate` — one contraction,
+        certified within `tol` — whenever the bound applies to this diagram.
+        Loss is part of the diagram, so a lossy loop is certified through
+        the same call with no extra input. Where the certificate does not
+        apply, :meth:`power_fix` iterates instead, watching the distance
+        between successive states, with a warning naming the
+        :meth:`certificate_obstruction`. Where the transfer matrix fits in
         memory, :meth:`eigen_fix` is exact with no depth at all.
 
         Parameters:
             tol : The error the certified depth approximates the fixed point
-                within.
-            loss : The fraction lost per round trip, inserted on every optical
-                memory wire. Loss shortens the certificate but is not required
-                when the loop leaks into its visible ports.
-            chi : The bond dimension of the contraction. The public
-                `DEFAULT_CHI` of eight by default — what a laptop contracts
-                in seconds. `None` contracts exactly, whatever that costs.
+                within, and the stopping distance of the fallback iteration.
+            max_chi : The largest bond dimension the contraction keeps: a
+                bond past it is truncated down to `max_chi`, with a warning.
+                The public `MAX_BOND_DIMENSION` of eight by default — what a
+                laptop contracts in seconds. `None` contracts exactly,
+                whatever that costs.
             max_steps : The maximum number of time steps, including the final
                 readout. The public `DEFAULT_MAX_STEPS` is sixty-four.
             backend : An optional
-                :class:`optyx.core.backends.AbstractBackend`. DisCoPy
-                evaluates with ``tensor.Functor``; Quimb contracts the same
-                doubled network with an optimised path, compressed to `chi`.
+                :class:`optyx.core.backends.AbstractBackend` for the
+                certified contraction. DisCoPy evaluates with
+                ``tensor.Functor``; Quimb contracts the same doubled network
+                with an optimised path, compressed to `max_chi`. The
+                fallback iteration takes no backend — see :meth:`power_fix`.
 
         A delay whose loop block vanishes forgets its initial state after one
-        step; the following step reads its stationary output:
+        step; the following step reads its stationary output. With loss on
+        the loop, the stationary photon is lost half the time:
 
         >>> from optyx import photonic
         >>> delay = (photonic.Create(1) @ qmode
-        ...     >> Diagram.swap(qmode, qmode)).feedback(
+        ...     >> Diagram.swap(qmode, qmode)
+        ...     >> qmode @ photonic.PhotonLoss(.5)).feedback(
         ...         mem=qmode, state=photonic.Create(0))
-        >>> assert delay.unroll_depth(1e-6, loss=.5) == 2
-        >>> fixed = delay.fix(tol=1e-6, loss=.5, chi=None)
+        >>> fixed = delay.fix(tol=1e-6, max_chi=None)
         >>> assert np.allclose(fixed.density_matrix, [[.5, 0], [0, .5]])
 
         See :doc:`/notebooks/fixpoints` for the semantic diagram, agreement
         map and contraction planning.
         """
-        _validate(self, tol, loss, chi)
+        self.check_fixpoint(tol, max_chi)
         if not isinstance(max_steps, Integral) \
                 or isinstance(max_steps, bool) or max_steps <= 0:
             raise ValueError("max_steps must be a positive integer.")
         backends = import_module("optyx.core.backends")
         if backend is None:
             backend = backends.QuimbBackend(
-                hyperoptimiser=None if chi is None
+                hyperoptimiser=None if max_chi is None
                 else HyperCompressedOptimizer())
         elif not isinstance(backend, backends.AbstractBackend):
             raise ValueError(
                 "backend must implement the AbstractBackend interface.")
 
-        try:
-            certified = self.unroll_depth(tol, loss, max_steps)
-        except NotImplementedError:
-            certified, unsupported = None, True
-        else:
-            unsupported = False
-        depth = max_steps if certified is None else certified
-        stateful = _with_loss(self, loss) if loss else self
-        network = stateful.at_time(depth - 1)
-        if unsupported:
+        obstruction = self.certificate_obstruction()
+        if obstruction is not None:
             warnings.warn(
-                "the stationary boson-sampling certificate does not apply: "
-                f"the result after {depth} time steps is not guaranteed "
-                f"within tol={tol}.", UserWarning, stacklevel=2)
-        elif certified is None:
+                f"falling back on power_fix because {obstruction}: the "
+                "stopping distance is observed rather than certified.",
+                UserWarning, stacklevel=2)
+            return self.power_fix(
+                tol, max_steps=max_steps, max_chi=max_chi)
+        certified = self.unroll_certificate(tol, max_steps)
+        depth = max_steps if certified is None else certified
+        if certified is None:
             warnings.warn(
                 f"max_steps={max_steps} stops before the stationary "
                 f"boson-sampling bound reaches tol={tol}: the result is not "
                 "certified.", UserWarning, stacklevel=2)
+        network = self.at_time(depth - 1)
 
         needed = max(network.truncation_dimensions(), default=1)
-        if chi is not None and needed > chi:
+        if max_chi is not None and needed > max_chi:
             warnings.warn(
-                f"the contraction needs dimension {needed} but chi={chi}: "
-                "the result is an approximation truncated at chi.",
+                f"the contraction needs dimension {needed} but "
+                f"max_chi={max_chi}: the result is an approximation with "
+                "those bonds truncated down to max_chi.",
                 UserWarning, stacklevel=2)
-        compressible = chi is not None and isinstance(
+        compressible = max_chi is not None and isinstance(
             getattr(backend, "hyperoptimiser", None),
             (ReusableHyperCompressedOptimizer, HyperCompressedOptimizer))
         result = network.eval(
-            backend, **({"max_bond": chi} if compressible else {}))
+            backend, **({"max_bond": max_chi} if compressible else {}))
 
         state = np.asarray(result.density_matrix)
-        trace = _trace(self.cod, state)
+        discarded = Discard(self.cod).double().to_tensor(list(state.shape))
+        trace = (tensor.Box(
+            "State", tensor.Dim(1), discarded.dom, state)
+            >> discarded).eval().array
         if not np.isfinite(trace) \
                 or abs(trace) <= 100 * state.size * np.finfo(float).eps:
             raise ValueError(
@@ -767,8 +806,114 @@ class Diagram(frobenius.Diagram):
                 np.real_if_close(state / trace)),
             output_types=self.cod, state_type=backends.StateType.DM)
 
-    def eigen_fix(self, chi: int = None, loss: float = 0,
-                  tol: float = 1e-6):
+    def power_fix(self, tol: float = 1e-3, n_steps: int = 1,
+                  max_steps: int = DEFAULT_MAX_STEPS,
+                  max_chi: int = MAX_BOND_DIMENSION):
+        """
+        The stationary state by plain power iteration: contract
+        :meth:`at_time` at successive depths from `n_steps`, and stop when
+        the distance between two successive density matrices falls below
+        `tol` or `max_steps` is reached.
+
+        This is the fallback of :meth:`fix` for the diagrams
+        :meth:`unroll_certificate` does not cover — qubit or classical
+        memories, boxes with no optical matrix. The criterion is observed
+        rather than certified: a slowly mixing loop can move less than
+        `tol` in one step while still far from its fixed point, and a
+        periodic loop never converges at all, which is what the warning at
+        `max_steps` reports.
+
+        Parameters:
+            tol : The distance between successive density matrices below
+                which the iteration stops.
+            n_steps : The depth the iteration starts from.
+            max_steps : The depth at which it gives up and warns.
+            max_chi : The largest bond dimension each contraction keeps,
+                as in :meth:`fix`; a bond past it is truncated down to
+                `max_chi` with a warning, once. `None` contracts exactly.
+                Note a truncated contraction biases the very distances
+                being watched, which is one more reason the criterion is
+                not a certificate.
+
+        There is no backend to choose: every state is contracted with the
+        default one.
+
+        >>> from optyx.qubits import Ket, X, Z
+        >>> loop = (X(1, 1, .25) >> Z(1, 2)).feedback(
+        ...     mem=qubit, state=Ket(0))
+        >>> result = loop.power_fix(1e-3)
+        >>> assert np.allclose(
+        ...     result.density_matrix,
+        ...     loop.eigen_fix().density_matrix, atol=1e-2)
+        """
+        self.check_fixpoint(tol, max_chi)
+        for name, value in {
+                "n_steps": n_steps, "max_steps": max_steps}.items():
+            if not isinstance(value, Integral) or isinstance(value, bool) \
+                    or value <= 0:
+                raise ValueError(f"{name} must be a positive integer.")
+        backends = import_module("optyx.core.backends")
+        backend = backends.QuimbBackend(
+            hyperoptimiser=None if max_chi is None
+            else HyperCompressedOptimizer())
+        budgets = []
+
+        def state_at(depth):
+            network = self.at_time(depth)
+            budgets.append(max(network.truncation_dimensions(), default=1))
+            if max_chi is not None and len(budgets) == 1 \
+                    and budgets[0] > max_chi:
+                warnings.warn(
+                    f"the contraction needs dimension {budgets[0]} but "
+                    f"max_chi={max_chi}: the result is an approximation "
+                    "with those bonds truncated down to max_chi.",
+                    UserWarning, stacklevel=3)
+            result = network.eval(backend, **(
+                {"max_bond": max_chi} if max_chi is not None else {}))
+            state = np.asarray(result.density_matrix)
+            discarded = Discard(self.cod).double().to_tensor(
+                list(state.shape))
+            trace = (tensor.Box(
+                "State", tensor.Dim(1), discarded.dom, state)
+                >> discarded).eval().array
+            if not np.isfinite(trace) \
+                    or abs(trace) <= 100 * max(state.size, 1) \
+                    * np.finfo(float).eps:
+                raise ValueError(
+                    "Contraction returned zero or non-finite trace.")
+            return result, state / trace
+
+        def distance(left, right):
+            if left.shape == right.shape:
+                return np.linalg.norm(left - right)
+            shape = tuple(max(*pair) for pair in zip(
+                left.shape, right.shape))
+            grow = [np.pad(array, [
+                (0, target - dimension) for target, dimension
+                in zip(shape, array.shape)]) for array in (left, right)]
+            return np.linalg.norm(grow[0] - grow[1])
+
+        _, previous = state_at(n_steps - 1)
+        depth = n_steps
+        result, current = state_at(depth)
+        while distance(current, previous) >= tol and depth < max_steps:
+            depth += 1
+            previous = current
+            result, current = state_at(depth)
+        if distance(current, previous) >= tol:
+            warnings.warn(
+                f"power iteration did not converge to tol={tol} within "
+                f"max_steps={max_steps}: the distance between the last two "
+                f"states is {distance(current, previous):.2e}.",
+                UserWarning, stacklevel=2)
+        return backends.EvalResult(
+            tensor.Box(
+                "Result", tensor.Dim(1), result.tensor.cod,
+                np.real_if_close(current)),
+            output_types=self.cod, state_type=backends.StateType.DM)
+
+    def eigen_fix(self, tol: float = 1e-6,
+                  max_truncation: int = MAX_TRUNCATION):
         """
         The stationary state obtained by diagonalising the transfer matrix
         which one time step induces on the memory.
@@ -786,20 +931,15 @@ class Diagram(frobenius.Diagram):
         memory, and feeding it through the readout gives the density matrix.
 
         Parameters:
-            chi : The cutoff of each optical memory wire, qubit and bit wires
-                staying at two. Without it the search starts at
-                :meth:`truncation_dimensions`, the budget of a single step,
-                and doubles until the truncation stops losing trace, capped
-                by the public `MAX_TRUNCATION` — the budget is a *lower*
-                bound for a loop, since every step can add another photon,
-                but it is a much better place to start than two.
-            loss : The fraction lost per round trip. A positive loss runs the
-                same program on the same diagram with an
-                :class:`optyx.photonic.PhotonLoss` of survival `1 - loss`
-                composed onto every optical memory wire, which is the lossy
-                cavity of the paper above and makes the spectral gap
-                :meth:`unroll_depth` assumes real rather than assumed.
             tol : The trace a truncation may lose before it is rejected.
+            max_truncation : The cap of the cutoff search. The search starts
+                at :meth:`truncation_dimensions`, the photon budget of a
+                single step — a *lower* bound for a loop, since every step
+                can add another photon, but a much better start than two —
+                and doubles the cutoff of every optical memory wire until
+                the truncation stops losing trace or the cap is reached,
+                qubit and bit wires staying at two. The public
+                `MAX_TRUNCATION` of thirty-two by default.
 
         Fresh photons enlarge the output memory, so it is projected back to
         the cutoff before diagonalising. Measuring the causality of that
@@ -817,14 +957,12 @@ class Diagram(frobenius.Diagram):
         ...     >> Diagram.swap(qmode, qmode)).feedback(
         ...         mem=qmode, state=photonic.Create(0))
         >>> assert np.allclose(
-        ...     delay.eigen_fix(chi=2).density_matrix, [[0, 0], [0, 1]],
+        ...     delay.eigen_fix().density_matrix, [[0, 0], [0, 1]],
         ...     atol=1e-6)
         """
-        _validate(self, tol, loss, chi)
+        self.check_fixpoint(tol, max_truncation)
         step = self.one_step()
         memory = step.cod[len(self.cod):]
-        if loss:
-            step = step >> self.id(self.cod) @ _lossy(memory, loss)
         transfer = step >> Discard(self.cod) @ self.id(memory)
         readout = step >> self.id(self.cod) @ Discard(memory)
 
@@ -842,15 +980,15 @@ class Diagram(frobenius.Diagram):
             return dimensions, operator, np.linalg.norm(
                 (operator >> discard).eval().array - discard.eval().array)
 
-        cutoff = max(transfer.truncation_dimensions()) \
-            if chi is None else chi
+        cutoff = min(
+            max(transfer.truncation_dimensions()), max_truncation)
         dimensions, operator, residual = projected(cutoff)
-        while chi is None and residual > tol and cutoff < MAX_TRUNCATION:
-            cutoff = min(2 * cutoff, MAX_TRUNCATION)
+        while residual > tol and cutoff < max_truncation:
+            cutoff = min(2 * cutoff, max_truncation)
             dimensions, operator, residual = projected(cutoff)
         if residual > tol:
             raise ValueError(
-                f"No cutoff below {MAX_TRUNCATION} truncates the transfer "
+                f"No cutoff below {max_truncation} truncates the transfer "
                 f"map without losing trace (residual {residual} at "
                 f"{cutoff}); the tail is too long for this method.")
         matrix = operator.eval().array.reshape(
@@ -863,14 +1001,18 @@ class Diagram(frobenius.Diagram):
         if not fixed.size:
             raise ValueError(
                 "The truncated transfer map has no stationary state; "
-                "increase chi or check that the channel is trace "
+                "increase max_truncation or check that the channel is "
+                "trace "
                 "preserving.")
         if len(fixed) != 1:
             raise ValueError(
                 "The stationary state is not unique "
                 f"(fixed-space dimension {len(fixed)}).")
         state = eigenvectors[:, fixed[0]].reshape(dimensions)
-        trace = _trace(transfer.cod, state)
+        discarded = Discard(transfer.cod).double().to_tensor(list(state.shape))
+        trace = (tensor.Box(
+            "State", tensor.Dim(1), discarded.dom, state)
+            >> discarded).eval().array
         if not np.isfinite(trace) or abs(trace) <= tol:
             raise ValueError(
                 "The stationary state has zero or non-finite trace.")

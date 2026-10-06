@@ -347,9 +347,9 @@ here five time steps suffice. The two agree:
 
 ```python {.marimo}
 print({count: p for count, p in
-       measured.eigen_fix(chi=8).prob_dist(round_digits=4).items() if p})
+       measured.eigen_fix(max_truncation=8).prob_dist(round_digits=4).items() if p})
 print({count: p for count, p in
-       measured.fix(tol=1e-3, chi=None).prob_dist(round_digits=4).items()
+       measured.fix(tol=1e-3, max_chi=None).prob_dist(round_digits=4).items()
        if p})
 ```
 
@@ -469,7 +469,7 @@ a channel with memory. The universal setup composes them all — and
 whatever photonic experiment you have in mind, it is an instance.
 
 To go further: see the
-[stateful channels notebook](fixpoints.ipynb) for stream and fixed-point
+[stateful channels notebook](fixpoints.md) for stream and fixed-point
 semantics in depth, and the module documentation of
 [`optyx.photonic`](../_api/optyx.photonic.html),
 [`optyx.classical`](../_api/optyx.classical.html) and
