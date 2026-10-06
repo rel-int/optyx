@@ -220,13 +220,12 @@ def test_power_iteration_warns_on_a_periodic_loop():
 
 def test_power_fix_converges_to_eigen():
     """The fallback iteration agrees with the eigensolve on a mixing
-    qubit loop, and `fix` reaches it silently when the certificate does
-    not apply."""
+    qubit loop, and `fix` warns with the obstruction when it falls back,
+    so an uncertified result is never silent."""
     exact = rotation(0.25).eigen_fix().density_matrix
     assert np.linalg.norm(
         rotation(0.25).power_fix(1e-3).density_matrix - exact) < 1e-2
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
+    with pytest.warns(UserWarning, match="falling back on power_fix"):
         by_fix = rotation(0.25).fix(tol=1e-3).density_matrix
     assert np.linalg.norm(by_fix - exact) < 1e-2
 
@@ -245,7 +244,7 @@ def test_fixpoint_of_a_closed_loop():
     assert closed.one_step() == Diagram.id(qmode)
     with pytest.raises(ValueError, match="not unique"):
         closed.eigen_fix()
-    with pytest.raises(NotImplementedError, match="rho"):
+    with pytest.raises(ValueError, match="rho"):
         closed.unroll_certificate()
     result = closed.power_fix(tol=1e-2, max_steps=3)
     assert result.density_matrix.shape == ()
@@ -346,9 +345,9 @@ def test_certification_and_truncation_warn_separately():
                for message in messages)
 
 
-def test_unroll_certificate_reads_the_one_step_matrix():
+def test_the_certificate_reads_the_depth_off_the_diagram():
     """The path normal form puts open memory inputs before creations. A
-    non-symmetric memory block catches the tempting trailing-block mistake."""
+    non-symmetric loop block catches the tempting trailing-block mistake."""
     loop = asymmetric_sampler() >> photonic.NumberResolvingMeasurement(1)
     assert loop.unroll_certificate(1e-6) == 3
     assert sampler(.25).unroll_certificate(1e-2) == 13
@@ -359,22 +358,21 @@ def test_unroll_certificate_reports_both_resource_errors():
     the request; the warning reports both contributions and their sum."""
     with pytest.warns(UserWarning) as caught:
         assert sampler(loss=.9).unroll_certificate(
-            .1, max_steps=2, max_occupation=100) == 2
+            .1, max_steps=2, max_truncation=100) == 2
     message = str(caught[0].message)
-    assert "error_n_steps=0.125541" in message
-    assert "required occupation 1" in message
-    assert "error_truncation=0" in message
-    assert "certified total tolerance is 0.125541" in message
+    assert "depth error is 0.125541" in message
+    assert "truncation error 0 for a photon support of 1" in message
+    assert "certified tolerance is 0.125541" in message
 
     assert sampler(loss=.9).unroll_certificate(
-        .001, max_steps=3, max_occupation=1) == 3
+        .001, max_steps=3, max_truncation=1) == 3
     with pytest.warns(UserWarning) as caught:
         assert sampler(loss=.9).unroll_certificate(
-            .0005, max_steps=3, max_occupation=1) == 3
+            .0005, max_steps=3, max_truncation=1) == 3
     message = str(caught[0].message)
-    assert "required occupation 2" in message
-    assert "error_truncation=0.000130757" in message
-    assert "certified total tolerance is 0.00057104" in message
+    assert "truncation error 0.000130757 for a photon support of 2" \
+        in message
+    assert "certified tolerance is 0.00057104" in message
 
 
 def test_unroll_certificate_returns_best_depth_without_cutoff():
@@ -385,15 +383,23 @@ def test_unroll_certificate_returns_best_depth_without_cutoff():
             1e-4, max_steps=2) == 2
     message = str(caught[0].message)
     assert "not certified within max_steps=2" in message
-    assert "finite-depth error is 0.125541" in message
     assert "certified tolerance is 0.125541" in message
 
 
-def test_unroll_certificate_accepts_a_vacuum_only_cutoff():
-    """Zero is a valid total occupation cutoff, unlike a bond dimension."""
-    with pytest.warns(UserWarning):
-        assert sampler(loss=.9).unroll_certificate(
-            1e-4, max_steps=2, max_occupation=0) == 2
+def test_unroll_certificate_stops_when_the_truncation_alone_misses():
+    """Once the truncation error passes `tol` no depth can recover, so the
+    search stops rather than running to `max_steps`."""
+    with pytest.warns(UserWarning, match="max_truncation=0"):
+        assert sampler(.25).unroll_certificate(
+            1e-6, max_truncation=0) == 2
+
+
+@pytest.mark.parametrize("max_truncation", [-1, 1.5, True])
+def test_unroll_certificate_validates_max_truncation(max_truncation):
+    """Zero is a valid cutoff on the photons in the loop, unlike a bond
+    dimension; anything that is not a natural number is not."""
+    with pytest.raises(ValueError, match="max_truncation"):
+        sampler(.25).unroll_certificate(max_truncation=max_truncation)
 
 
 def test_loss_in_the_diagram_shortens_the_certificate():
@@ -411,13 +417,20 @@ def test_loss_in_the_diagram_shortens_the_certificate():
 
 
 def test_certificate_refuses_what_it_cannot_certify():
-    """Qubit memories, several loops and undamped loop blocks all raise
-    `NotImplementedError`, which is what sends `fix` to `power_fix`."""
-    with pytest.raises(NotImplementedError, match="optical modes"):
+    """Each obstruction is pinned down and named: qubit memories, nested
+    loops and undamped loop blocks raise `ValueError` with the reason,
+    the same message `fix` warns with before falling back on
+    `power_fix`."""
+    with pytest.raises(ValueError, match="optical modes"):
         source().unroll_certificate()
-    with pytest.raises(NotImplementedError, match="rho"):
+    with pytest.raises(ValueError, match="rho"):
         Diagram.id(qmode).feedback(
             state=photonic.Create(0)).unroll_certificate()
+    inner = Diagram.swap(qmode, qmode).feedback(state=photonic.Create(0))
+    outer = ((photonic.Create(1) >> inner) @ qmode).feedback(
+        mem=qmode, state=photonic.Create(0))
+    assert outer.certificate_obstruction() \
+        == "the loop contains a nested feedback loop"
 
 
 def test_backend_uses_existing_interface():
