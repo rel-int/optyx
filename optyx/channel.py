@@ -220,7 +220,6 @@ dual-rail encoding. For example, we can create a GHZ state:
 from __future__ import annotations
 
 from importlib import import_module
-from itertools import count, repeat
 import warnings
 from numbers import Integral, Real
 
@@ -278,76 +277,6 @@ class Ob(frobenius.Ob):
 DEFAULT_MAX_STEPS = 64
 MAX_TRUNCATION = 32
 MAX_BOND_DIMENSION = 8
-
-
-def occupation_tail(correlation, correction: float, cutoff: int) -> float:
-    """
-    A bound on the probability of more than `cutoff` photons in a loop
-    whose one-particle correlation matrix is `correlation`: Markov's
-    inequality on the mean photon number, sharpened for a positive cutoff
-    by the second factorial moment, from which `correction` subtracts the
-    bunching of photons injected through the same mode.
-
-    .. math::
-        p_N \\leq \\min\\left\\{1, \\frac{\\langle n \\rangle}{N + 1},
-            \\frac{\\langle n (n - 1) \\rangle}{N (N + 1)}\\right\\}
-
-    >>> assert occupation_tail(.5 * np.eye(1), 0, 0) == .5
-    >>> assert occupation_tail(np.eye(1), 2, 1) == 0
-    """
-    mean = max(0., float(np.real(np.trace(correlation))))
-    tail = min(1., mean / (cutoff + 1))
-    if not cutoff:
-        return tail
-    moment = max(0., float(np.real(
-        mean ** 2 + np.vdot(correlation, correlation) - correction)))
-    return min(tail, moment / (cutoff * (cutoff + 1)))
-
-
-def truncation_errors(block, injection, creations, max_truncation: int):
-    """
-    The error a cutoff of `max_truncation` photons in a loop adds to
-    :meth:`Diagram.unroll_certificate`, at each burn-in `k = 1, 2, ...`:
-    yields the photon support at `k`, i.e. the most photons the loop can
-    hold then, and the error `2 Delta_N(k)`.
-
-    `block` is the loop-to-loop block `V_ll` of the one-step optical
-    matrix, `injection` its block from the fresh modes into the loop,
-    and `creations` the occupations of the fresh modes. While the support
-    fits below the cutoff the truncation is exact; past it, every step
-    adds the :func:`occupation_tail` of the transient loop state, computed
-    from one-particle matrices only.
-
-    A delay line fed one photon per step holds at most that photon, so a
-    cutoff of one is exact at every step, while a cutoff of zero loses the
-    photon for sure:
-
-    >>> def delay(cutoff):
-    ...     return truncation_errors(
-    ...         np.zeros((1, 1)), np.ones((1, 1)), [1], cutoff)
-    >>> errors = delay(1)
-    >>> assert [next(errors) for _ in range(3)] == [(1, 0.)] * 3
-    >>> assert next(delay(0)) == (1, 2.)
-    """
-    occupations = np.asarray(creations, dtype=float)
-    transfer = block.T
-    pumped = (injection * occupations) @ injection.conjugate().T
-    correlation = np.zeros_like(pumped)
-    surviving, reachable = injection, injection != 0
-    support, correction, tail = 0, 0., 0.
-    while True:
-        correlation = transfer @ correlation @ transfer.conjugate().T \
-            + pumped
-        correction += float(np.sum(
-            occupations * (occupations + 1)
-            * np.sum(abs(surviving) ** 2, axis=0) ** 2))
-        support += int(occupations[np.any(reachable, axis=0)].sum())
-        if support > max_truncation:
-            tail = min(1., tail + occupation_tail(
-                correlation, correction, max_truncation))
-        yield support, 2 * tail
-        surviving = transfer @ surviving
-        reachable = (transfer != 0).astype(int) @ reachable.astype(int) > 0
 
 
 @factory
@@ -661,26 +590,21 @@ class Diagram(frobenius.Diagram):
         return None
 
     def unroll_certificate(
-            self, tol: float = 1e-6, max_steps: int = None,
-            max_truncation: int = None) -> int:
+            self, tol: float = 1e-6, max_steps: int = None) -> int | None:
         """
         The smallest number of time steps whose last output is certified
         within `tol`, by the stationary boson-sampling bound of Armand Le
-        Douarec.
-
-        With `tol` alone, the bound is on the depth only: the first `k`
-        steps are a burn-in certified by
+        Douarec: the first `k` steps are a burn-in certified by
 
         .. math::
             \\Gamma(k) = 4 K(\\bar q) \\sum_r \\arcsin^2\\!\\left(
                 \\sigma_r(V_{ll}^k)\\right) \\leq tol,
 
-        and one final step reads the output after the certified memory, so
-        the method returns `k + 1`. Here `V_ll` is the loop-to-loop block of
-        the one-step optical matrix and `qbar` the largest fresh Fock
-        occupation. No photon number is truncated, so nothing else enters
-        the error. The calculation is on `len(mem)` square matrices only; it
-        builds no Fock-space state.
+        with one final step reading the output after the certified memory.
+        Here `V_ll` is the loop-to-loop block of the one-step optical
+        matrix and `qbar` the largest fresh Fock occupation. The
+        calculation is on `len(mem)` square matrices only; it builds no
+        Fock-space state.
 
         Loss is read off the diagram, not passed in: the one-step matrix is
         the path matrix of the loop's :meth:`dilate`, so a
@@ -688,32 +612,13 @@ class Diagram(frobenius.Diagram):
         environment in the loop enters `V_ll` as the isometry block it is,
         and shrinks its singular values by the amplitude it leaks.
 
-        `max_steps` caps the depth. When it is reached before `Gamma(k)`
-        falls below `tol`, the method warns with the tolerance it does
-        certify and returns the best depth it evaluated.
-
-        `max_truncation` caps the number `N` of photons the loop may hold,
-        the `N_max` of a simulation that truncates the loop's Fock space.
-        While every photon that can have reached the loop fits below `N`,
-        the truncation is exact. Past it, the error becomes
-
-        .. math::
-            \\Gamma(k) + 2\\Delta_N(k), \\qquad
-            \\Delta_N(k) = \\min\\left\\{1,
-                \\sum_{j=1}^k p_N(j)\\right\\},
-
-        with `p_N(j)` the probability of more than `N` photons in the loop
-        at step `j`, bounded by :func:`truncation_errors`. When that
-        combined error cannot reach `tol`, the method warns with the depth
-        and truncation errors separately and returns the best depth it
-        evaluated. `max_truncation` is not a bond dimension: compression
-        error is outside this certificate.
-
         Raises `ValueError` with the :meth:`certificate_obstruction` when
         the bound does not apply — a memory that is not all optical modes,
         more than one loop, a box with no Kraus map or no path matrix, or
         a lossless loop block with spectral radius one. :meth:`fix` warns
-        with the same obstruction and falls back on :meth:`power_fix`.
+        with the same obstruction and falls back on :meth:`power_fix`. If
+        `max_steps` is given, `None` means the cap was reached before the
+        bound fell below `tol`.
 
         >>> from optyx import photonic
         >>> loop = (photonic.Create(1) @ qmode
@@ -730,42 +635,12 @@ class Diagram(frobenius.Diagram):
         ...     mem=qmode, state=photonic.Create(0))
         >>> assert lossless.unroll_certificate(1e-2) == 13
         >>> assert lossy.unroll_certificate(1e-2) == 7
-
-        A depth cap that stops short of `tol` warns with the tolerance it
-        does certify, and returns the best depth it reached:
-
-        >>> import warnings
-        >>> with warnings.catch_warnings(record=True) as caught:
-        ...     warnings.simplefilter("always")
-        ...     assert lossy.unroll_certificate(1e-2, max_steps=5) == 5
-        >>> assert "certified tolerance is 0.139685" in str(
-        ...     caught[0].message)
-
-        A photon cutoff costs nothing while the loop cannot hold more
-        photons than it allows: eight certify the same depth as no cutoff.
-        Four do not, and the warning says how much of the error is the
-        truncation's:
-
-        >>> assert lossy.unroll_certificate(1e-2, max_truncation=8) == 7
-        >>> with warnings.catch_warnings(record=True) as caught:
-        ...     warnings.simplefilter("always")
-        ...     assert lossy.unroll_certificate(
-        ...         1e-2, max_truncation=4) == 7
-        >>> assert "truncation error 0.0177236 for a photon support of 6" \\
-        ...     in str(caught[0].message)
         """
         self.check_fixpoint(tol)
         if max_steps is not None and (
                 not isinstance(max_steps, Integral)
-                or isinstance(max_steps, bool) or max_steps < 2):
-            raise ValueError(
-                "max_steps must be at least 2: one burn-in step and one "
-                "readout step.")
-        if max_truncation is not None and (
-                not isinstance(max_truncation, Integral)
-                or isinstance(max_truncation, bool) or max_truncation < 0):
-            raise ValueError(
-                "max_truncation must be a non-negative integer.")
+                or isinstance(max_steps, bool) or max_steps <= 0):
+            raise ValueError("max_steps must be a positive integer.")
         obstruction = self.certificate_obstruction()
         if obstruction is not None:
             raise ValueError(f"The bound does not apply: {obstruction}.")
@@ -775,39 +650,18 @@ class Diagram(frobenius.Diagram):
         isometry = np.asarray(matrix.array, dtype=complex)
         memory = len(loop.mem.single())
         visible = len(loop.cod.single())
-        loop_modes = slice(visible, visible + memory)
-        block = isometry[:memory, loop_modes]
+        block = isometry[:memory, visible:visible + memory]
         qbar = max(matrix.creations, default=0)
         constant = (qbar + 1) * (
             np.sqrt(6 * qbar * (qbar + 1)) + qbar)
-        tails = repeat((0, 0.)) if max_truncation is None \
-            else truncation_errors(
-                block, isometry[memory:, loop_modes].T, matrix.creations,
-                max_truncation)
-        burn_ins = count(1) if max_steps is None else range(1, max_steps)
-        power, best = np.eye(memory), None
-        for burn_in, (support, truncation) in zip(burn_ins, tails):
-            power = block @ power
+        power, burn_in = np.eye(memory), 0
+        while max_steps is None or burn_in < max_steps - 1:
+            power, burn_in = block @ power, burn_in + 1
             singular = np.clip(
                 np.linalg.svd(power, compute_uv=False), 0, 1)
-            depth = float(4 * constant * np.sum(np.arcsin(singular) ** 2))
-            if best is None or depth + truncation < sum(best[1:3]):
-                best = (burn_in, depth, truncation, support)
-            if depth + truncation <= tol or truncation >= tol:
-                break
-        burn_in, depth, truncation, support = best
-        if depth + truncation > tol:
-            cutoff = "" if max_truncation is None else (
-                f" and the truncation error {truncation:.6g} for a photon"
-                f" support of {support}")
-            warnings.warn(
-                f"tol={tol} is not certified within max_steps={max_steps}"
-                f" and max_truncation={max_truncation}. At the best burn-in"
-                f" k={burn_in}, the depth error is {depth:.6g}{cutoff}, so"
-                " the certified tolerance is"
-                f" {min(2., depth + truncation):.6g}.",
-                UserWarning, stacklevel=2)
-        return burn_in + 1
+            if 4 * constant * np.sum(np.arcsin(singular) ** 2) <= tol:
+                return burn_in + 1
+        return None
 
     def truncation_dimensions(self) -> list[int]:
         """
@@ -896,10 +750,8 @@ class Diagram(frobenius.Diagram):
         """
         self.check_fixpoint(tol, max_chi)
         if not isinstance(max_steps, Integral) \
-                or isinstance(max_steps, bool) or max_steps < 2:
-            raise ValueError(
-                "max_steps must be at least 2: one burn-in step and one "
-                "readout step.")
+                or isinstance(max_steps, bool) or max_steps <= 0:
+            raise ValueError("max_steps must be a positive integer.")
         backends = import_module("optyx.core.backends")
         if backend is None:
             backend = backends.QuimbBackend(
@@ -917,7 +769,13 @@ class Diagram(frobenius.Diagram):
                 UserWarning, stacklevel=2)
             return self.power_fix(
                 tol, max_steps=max_steps, max_chi=max_chi)
-        depth = self.unroll_certificate(tol, max_steps)
+        certified = self.unroll_certificate(tol, max_steps)
+        depth = max_steps if certified is None else certified
+        if certified is None:
+            warnings.warn(
+                f"max_steps={max_steps} stops before the stationary "
+                f"boson-sampling bound reaches tol={tol}: the result is not "
+                "certified.", UserWarning, stacklevel=2)
         network = self.at_time(depth - 1)
 
         needed = max(network.truncation_dimensions(), default=1)
