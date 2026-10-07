@@ -899,12 +899,15 @@ class DephasingError(Channel):
         return self
 
 
-def _normalise_basis_value(
+def basis_value(
     value: Literal[0, 1, "+", "-"]
 ) -> Literal[0, 1, "+", "-"]:
     """
     Read ``"0"``/``"1"`` (the natural string spelling next to ``"+"``/
     ``"-"``) as the integers ``0``/``1``, and reject anything else.
+
+    >>> assert basis_value("1") == basis_value(1) == 1
+    >>> assert basis_value("+") == "+"
     """
     if value in ("0", "1"):
         return int(value)
@@ -920,7 +923,7 @@ class Ket(Channel):
     def __init__(
         self, value: Literal[0, 1, "+", "-"], cod: channel.Ty = qubit
     ) -> None:
-        value = _normalise_basis_value(value)
+        value = basis_value(value)
         spider = zx.X if value in (0, 1) else zx.Z
         phase = 0 if value in (0, "+") else 0.5
         kraus = spider(0, 1, phase) @ diagram.Scalar(1 / np.sqrt(2))
@@ -933,7 +936,7 @@ class Bra(Channel):
     def __init__(
         self, value: Literal[0, 1, "+", "-"], dom: channel.Ty = qubit
     ) -> None:
-        value = _normalise_basis_value(value)
+        value = basis_value(value)
         spider = zx.X if value in (0, 1) else zx.Z
         phase = 0 if value in (0, "+") else 0.5
         kraus = spider(1, 0, phase) @ diagram.Scalar(1 / np.sqrt(2))
