@@ -82,7 +82,6 @@ import perceval as pcvl
 from quimb.tensor import TensorNetwork
 from optyx.channel import Diagram, Ty, mode, bit
 from optyx.core.path import Matrix
-from optyx.utils.misc import preprocess_quimb_tensors_safe
 
 
 @dataclass
@@ -463,19 +462,24 @@ class QuimbBackend(AbstractBackend):
 
         Args:
             diagram (Diagram): The diagram to evaluate.
+            **extra: Contraction parameters overriding
+                :attr:`contraction_params` for this call only, such as
+                ``max_bond`` for a compressed hyperoptimiser.
 
         Returns:
             The result of the evaluation.
         """
 
         tensor_diagram = self._get_discopy_tensor(diagram)
+        params = {**self.contraction_params, **extra}
 
         if hasattr(tensor_diagram, 'terms'):
             results = sum(
-                self._process_term(term) for term in tensor_diagram.terms
+                self.process_term(term, params)
+                for term in tensor_diagram.terms
             )
         else:
-            results = self._process_term(tensor_diagram)
+            results = self.process_term(tensor_diagram, params)
 
         if diagram.is_pure:
             state_type = StateType.AMP
@@ -493,16 +497,21 @@ class QuimbBackend(AbstractBackend):
             state_type=state_type
         )
 
-    def _process_term(self, term: discopy_tensor.Diagram) -> np.ndarray:
+    def process_term(
+            self, term: discopy_tensor.Diagram,
+            params: dict = None) -> np.ndarray:
         """
         Process a term in a sum of diagrams.
 
         Args:
             term (discopy.tensor.Diagram): The term to process.
+            params (dict): Contraction parameters, :attr:`contraction_params`
+                by default.
 
         Returns:
             np.ndarray: The processed term as a numpy array.
         """
+        params = self.contraction_params if params is None else params
         quimb_tn = term.to_quimb()
 
         for t in quimb_tn:
@@ -533,17 +542,17 @@ class QuimbBackend(AbstractBackend):
 
                 )
 
-            if is_approx:
-                quimb_tn = preprocess_quimb_tensors_safe(quimb_tn)
-
             contract = quimb_tn.contract_compressed if \
                 is_approx else quimb_tn.contract
             result = contract(
                 optimize=self.hyperoptimiser,
                 output_inds=sorted(quimb_tn.outer_inds()),
-                **self.contraction_params
+                **params
             )
 
+        if isinstance(result, TensorNetwork):
+            result = result.contract(
+                output_inds=sorted(result.outer_inds()))
         if not isinstance(result, (complex, float, int)):
             result = result.data
 
@@ -623,13 +632,13 @@ class PercevalBackend(AbstractBackend):
             array = 0
             for term in diagram.terms:
                 arr, output_types, return_type = \
-                    self._process_term(
+                    self.process_term(
                         term, extra
                     )
                 array += arr
         else:
             array, output_types, return_type = \
-                self._process_term(
+                self.process_term(
                     diagram, extra
                 )
 
@@ -944,7 +953,7 @@ class PercevalBackend(AbstractBackend):
             array[0] = result
         return array
 
-    def _process_term(
+    def process_term(
             self,
             term,
             extra
