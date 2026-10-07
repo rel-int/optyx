@@ -846,6 +846,8 @@ class Box(frobenius.Box, Diagram):
         Inheriting boxes should implement this method.
         Otherwise it is defined by the array."""
         if self._array is not None:
+            if all(ob.name == "bit" for ob in self.cod.inside):
+                return [2] * len(self.cod)
             if len(self.dom) == len(self.cod):
                 return input_dims
             if len(self.dom) == 0:
