@@ -51,4 +51,4 @@ Active (phase 2):
 Names agreed in session: `optyx/sampling.py`, `Interferometer` (was `Recurrent`), `FockState` (was `LoopState`), `Sweep`; `channel.Diagram.sample` stays the only entry point, no sampler class.
 
 - [x] merge #78 into this PR and `main` (feedback, #57) into it
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-07 11:00 move `optyx/recurrent.py` to `optyx/sampling.py` with the names above
+- [x] move `optyx/recurrent.py` to `optyx/sampling.py` with the names above

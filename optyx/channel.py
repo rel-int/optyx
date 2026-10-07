@@ -386,9 +386,9 @@ class Diagram(frobenius.Diagram):
 
         Each tick is sampled as a pure loop state with a definite photon
         number, the photons lost or discarded being sampled rather than
-        traced out; see :class:`optyx.recurrent.Recurrent`. The loops start
+        traced out; see :class:`optyx.sampling.Interferometer`. The loops start
         in the vacuum and run for the burn-in certified by
-        :meth:`optyx.recurrent.Recurrent.burn_in`.
+        :meth:`optyx.sampling.Interferometer.burn_in`.
 
         Parameters:
             ticks : The number of consecutive ticks sampled.
@@ -408,8 +408,8 @@ class Diagram(frobenius.Diagram):
         [(1,), (1,)]
         """
         # pylint: disable=import-outside-toplevel
-        from optyx.recurrent import Recurrent
-        network = Recurrent.from_diagram(self, indistinguishability)
+        from optyx.sampling import Interferometer
+        network = Interferometer.from_diagram(self, indistinguishability)
         return network.sample(ticks, network.burn_in(tol), seed)
 
     def at_time(self, n_steps: int) -> Diagram:

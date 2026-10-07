@@ -5,8 +5,8 @@ import numpy as np
 import pytest
 from scipy.stats import unitary_group
 
-from optyx.recurrent import (
-    Recurrent, LoopState, Sweep, sector, position, givens, interfere)
+from optyx.sampling import (
+    Interferometer, FockState, Sweep, sector, position, givens, interfere)
 
 
 def permanent(matrix):
@@ -82,22 +82,22 @@ def assert_close(left, right):
 ])
 def test_distribution_matches_permanents(loop, inputs, transmissivity, ticks):
     unitary = unitary_group.rvs(loop + len(inputs), random_state=loop + ticks)
-    network = Recurrent(unitary, loop, inputs, transmissivity)
+    network = Interferometer(unitary, loop, inputs, transmissivity)
     assert_close(network.distribution(ticks), brute_force(network, ticks))
 
 
 def test_distribution_is_normalised_with_inefficient_detectors():
     unitary = unitary_group.rvs(3, random_state=4)
-    network = Recurrent(unitary, 2, (1, ), .9, efficiency=.5)
+    network = Interferometer(unitary, 2, (1, ), .9, efficiency=.5)
     distribution = network.distribution(2, burn_in=1)
     assert np.isclose(sum(distribution.values()), 1)
-    perfect = Recurrent(unitary, 2, (1, ), .9).distribution(2, burn_in=1)
+    perfect = Interferometer(unitary, 2, (1, ), .9).distribution(2, burn_in=1)
     assert distribution[((0, ), (0, ))] > perfect.get(((0, ), (0, )), 0)
 
 
 def test_sampling_frequencies():
     unitary = unitary_group.rvs(3, random_state=7)
-    network = Recurrent(unitary, 2, (1, ), .8)
+    network = Interferometer(unitary, 2, (1, ), .8)
     exact = network.distribution(1, burn_in=3)
     samples = [tuple(network.sample(1, burn_in=3, seed=seed))
                for seed in range(2000)]
@@ -107,7 +107,7 @@ def test_sampling_frequencies():
 
 def test_trajectory_photon_numbers():
     unitary = unitary_group.rvs(4, random_state=2)
-    network = Recurrent(unitary, 3, (1, ))
+    network = Interferometer(unitary, 3, (1, ))
     patterns, photons = network.trajectory(20, seed=1)
     injected = np.arange(20)
     detected = np.cumsum([0] + [sum(p) for p in patterns[:-1]])
@@ -116,7 +116,7 @@ def test_trajectory_photon_numbers():
 
 def test_occupation_matches_mean_loop_photons():
     unitary = unitary_group.rvs(3, random_state=5)
-    network = Recurrent(unitary, 2, (1, ), .7)
+    network = Interferometer(unitary, 2, (1, ), .7)
     depth = network.burn_in(1e-6)
     means = []
     for seed in range(600):
@@ -128,11 +128,11 @@ def test_occupation_matches_mean_loop_photons():
 def test_lossless_occupation_is_universal():
     for seed in range(3):
         unitary = unitary_group.rvs(6, random_state=seed)
-        assert np.isclose(Recurrent(unitary, 4, (1, 1)).occupation(), 4)
+        assert np.isclose(Interferometer(unitary, 4, (1, 1)).occupation(), 4)
 
 
 def test_burn_in_bounds_the_distance_to_stationarity():
-    network = Recurrent([[.6, .8], [.8, -.6]], 1, (1, ), .5)
+    network = Interferometer([[.6, .8], [.8, -.6]], 1, (1, ), .5)
     depth = network.burn_in(.1)
     assert depth == 4
     late = network.distribution(1, burn_in=depth + 4)
@@ -176,10 +176,10 @@ def test_givens_and_index():
 def test_detections_match_the_dense_interferometer(loop, inputs):
     modes = loop + len(inputs)
     unitary = unitary_group.rvs(modes, random_state=modes)
-    network = Recurrent(unitary, loop, inputs)
+    network = Interferometer(unitary, loop, inputs)
     rng = np.random.default_rng(3)
     occupations = sector(loop, 2)
-    state = LoopState(occupations, rng.normal(size=len(occupations))
+    state = FockState(occupations, rng.normal(size=len(occupations))
                       + 1j * rng.normal(size=len(occupations))).normalised()
     photons = 2 + sum(inputs)
     vector = np.zeros(len(sector(modes, photons)), dtype=complex)
@@ -191,7 +191,7 @@ def test_detections_match_the_dense_interferometer(loop, inputs):
     for pattern, weight, after in detected:
         mask = (rows[:, loop:] == pattern).all(axis=1)
         assert np.isclose(weight, np.sum(np.abs(output[mask]) ** 2))
-        expected = LoopState(rows[mask][:, :loop], output[mask]).normalised()
+        expected = FockState(rows[mask][:, :loop], output[mask]).normalised()
         assert np.allclose(np.abs(np.vdot(
             expected.amplitudes, after.amplitudes[position(
                 expected.occupations, after.photons)])), 1)
@@ -199,7 +199,7 @@ def test_detections_match_the_dense_interferometer(loop, inputs):
 
 def test_sweep_holds_the_loop_and_the_occupied_inputs():
     unitary = unitary_group.rvs(12, random_state=0)
-    network = Recurrent(unitary, 3, (1, 0, 2, 0, 0, 0, 1, 0, 0))
+    network = Interferometer(unitary, 3, (1, 0, 2, 0, 0, 0, 1, 0, 0))
     sweep = network.sweep()
     assert sweep is network.sweep() and sweep.columns == (0, 1, 2, 3, 5, 9)
     widths = sweep.widths()
@@ -210,7 +210,7 @@ def test_sweep_holds_the_loop_and_the_occupied_inputs():
 
 
 def test_loop_state():
-    state = LoopState([[1, 0], [0, 1]], [3, 4])
+    state = FockState([[1, 0], [0, 1]], [3, 4])
     assert state.photons == 1
     assert np.allclose(state.normalised().amplitudes, [.6, .8])
     assert eval(repr(state)) == state
@@ -218,11 +218,12 @@ def test_loop_state():
 
 def test_errors():
     with pytest.raises(ValueError):
-        Recurrent(np.eye(3), loop=1, inputs=(1, ))
+        Interferometer(np.eye(3), loop=1, inputs=(1, ))
     with pytest.raises(ValueError):
-        Recurrent([[1, 1], [0, 1]], loop=1, inputs=(1, ))
+        Interferometer([[1, 1], [0, 1]], loop=1, inputs=(1, ))
     with pytest.raises(ValueError):
-        Recurrent(np.eye(2), loop=1, inputs=(1, )).burn_in(1e-3, max_depth=5)
+        Interferometer(np.eye(2), loop=1, inputs=(1, )).burn_in(
+            1e-3, max_depth=5)
 
 
 def lossy_diagram():
@@ -238,7 +239,7 @@ def lossy_diagram():
 def test_from_diagram_matches_the_unrolled_diagram(unrollings):
     from optyx.photonic import NumberResolvingMeasurement
     diagram = lossy_diagram()
-    network = Recurrent.from_diagram(diagram)
+    network = Interferometer.from_diagram(diagram)
     assert (network.loop, network.inputs, network.visible) \
         == (1, (1, 1, 0), (0, ))
     exact = (diagram.unroll(unrollings) >> NumberResolvingMeasurement(
@@ -267,7 +268,7 @@ def test_partially_distinguishable_photons():
     exact = unrolled.inflate(3).eval().prob_dist()
     diagram = (Create(1) @ qmode >> mzi).feedback(
         mem=qmode, state=Create(0))
-    network = Recurrent.from_diagram(diagram, indistinguishability=p)
+    network = Interferometer.from_diagram(diagram, indistinguishability=p)
     counts = Counter(tuple(n for (n, ) in network.sample(2, seed=seed))
                      for seed in range(4000))
     for key, value in exact.items():
@@ -276,11 +277,11 @@ def test_partially_distinguishable_photons():
 
 def test_distinguishable_photons_walk_alone():
     unitary = unitary_group.rvs(3, random_state=6)
-    network = Recurrent(unitary, 2, (1, ), indistinguishability=0.)
+    network = Interferometer(unitary, 2, (1, ), indistinguishability=0.)
     patterns, photons = network.trajectory(30, seed=2)
     assert photons == list(
         np.arange(30) - np.cumsum([0] + [sum(p) for p in patterns[:-1]]))
-    assert network.burn_in(1e-2) >= Recurrent(unitary, 2, (1, )).burn_in(
+    assert network.burn_in(1e-2) >= Interferometer(unitary, 2, (1, )).burn_in(
         1e-2)
     with pytest.raises(NotImplementedError):
         network.distribution(1)
@@ -291,18 +292,18 @@ def test_sample_and_its_errors():
     from optyx.photonic import Create, NumberResolvingMeasurement
     assert len(lossy_diagram().sample(ticks=3, tol=1e-2, seed=0)) == 3
     with pytest.raises(ValueError):
-        Recurrent.from_diagram(Diagram.swap(qmode, qmode).feedback(
+        Interferometer.from_diagram(Diagram.swap(qmode, qmode).feedback(
             state=Create(0)))
     with pytest.raises(NotImplementedError):
-        Recurrent.from_diagram((
+        Interferometer.from_diagram((
             Create(1) @ qmode >> NumberResolvingMeasurement(1) @ qmode
         ).feedback(mem=qmode, state=Create(0)))
     with pytest.raises(NotImplementedError):
-        Recurrent.from_diagram((Create(1) @ qmode >> Diagram.swap(
+        Interferometer.from_diagram((Create(1) @ qmode >> Diagram.swap(
             qmode, qmode)).feedback(state=Create(1)))
 
 
 def test_complete_refuses_a_non_isometry():
-    from optyx.recurrent import complete
+    from optyx.sampling import complete
     with pytest.raises(ValueError):
         complete(np.array([[1.], [1.]]))

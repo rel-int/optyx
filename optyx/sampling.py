@@ -2,9 +2,11 @@
 Overview
 --------
 
-Passive recurrent linear-optical networks and their output streams.
+Sampling the photon numbers on the outputs of photonic diagrams with
+feedback loops.
 
-A recurrent network is an interferometer on :math:`L + x` modes whose first
+A diagram is sampled through its :class:`Interferometer`, a recurrent
+linear-optical network: an interferometer on :math:`L + x` modes whose first
 :math:`L` outputs are fed back into its first :math:`L` inputs one tick
 later, while a product Fock state :math:`|q\\rangle` is injected into the
 other :math:`x` inputs at every tick and the other :math:`x` outputs are
@@ -28,32 +30,33 @@ are sampled rather than traced out. One tick is then:
 4. thin the detected pattern binomially, which is exact for inefficient
    detectors since loss before a number measurement is classical.
 
-:meth:`Recurrent.sample` iterates this. With :math:`k` occupied external
+:meth:`Interferometer.sample` iterates this. With :math:`k` occupied external
 inputs, a tick holds one vector of the :math:`(N + |q|)`-photon sector of at
 most :math:`L + k + 1` modes, the vacuum inputs never enter and every
 measured output leaves, and applies at most :math:`x (L + k)` rotations to
 it, plus :math:`L (L - 1) / 2` to land on the loop. So its memory and time
 are governed by the loop photon number :math:`N`, whose stationary mean is
-:meth:`Recurrent.occupation`. Started from the vacuum, the loop forgets its
-initial state at the rate certified by :meth:`Recurrent.burn_in`, so the
-window sampled after that many ticks is within the requested total variation
-distance of the stationary stream.
+:meth:`Interferometer.occupation`. Started from the vacuum, the loop forgets
+its initial state at the rate certified by :meth:`Interferometer.burn_in`, so
+the window sampled after that many ticks is within the requested total
+variation distance of the stationary stream.
 
 Partially distinguishable photons are sampled by colouring them: each
 injected photon is in the internal state shared by all photons with
-probability :math:`p`, the :attr:`Recurrent.indistinguishability`, and in one
-of its own otherwise [RMC+18]_. Photons of different colours never interfere,
-so each colour runs its own trajectory and the detectors record the sum of
-their patterns. A photon of its own is a single-photon walk, forgotten once
-it has left the loop.
+probability :math:`p`, the :attr:`Interferometer.indistinguishability`, and
+in one of its own otherwise [RMC+18]_. Photons of different colours never
+interfere, so each colour runs its own trajectory and the detectors record
+the sum of their patterns. A photon of its own is a single-photon walk,
+forgotten once it has left the loop.
 
 Any closed :class:`optyx.channel.Diagram` with feedback loops is sampled by
-:meth:`optyx.channel.Diagram.sample`, through :meth:`Recurrent.from_diagram`:
-its discards and losses are environment outputs, measured and forgotten.
+:meth:`optyx.channel.Diagram.sample`, through
+:meth:`Interferometer.from_diagram`: its discards and losses are environment
+outputs, measured and forgotten.
 
 The same trajectory step, with every outcome enumerated rather than sampled,
 gives the exact joint distribution of a window in
-:meth:`Recurrent.distribution`. Evolving a pure state through the part of
+:meth:`Interferometer.distribution`. Evolving a pure state through the part of
 the circuit a measurement depends on, then measuring and collapsing, is the
 progressive simulation of Novák et al. [NRM+25]_ for loop-based time-bin
 interferometers; here the cut is the loop itself, whatever the
@@ -68,8 +71,8 @@ Classes
     :nosignatures:
     :toctree:
 
-    Recurrent
-    LoopState
+    Interferometer
+    FockState
     Sweep
 
 Functions
@@ -100,7 +103,7 @@ Example
 A delay line swaps the loop with the external mode, so it detects at every
 tick the photon injected one tick earlier:
 
->>> delay = Recurrent([[0, 1], [1, 0]], loop=1, inputs=(1, ))
+>>> delay = Interferometer([[0, 1], [1, 0]], loop=1, inputs=(1, ))
 >>> delay.sample(ticks=3, seed=0)
 [(0,), (1,), (1,)]
 >>> delay.burn_in(1e-9)
@@ -307,13 +310,14 @@ def rotate(phases, rotations, vector, photons, table) -> np.ndarray:
 
 
 @dataclass
-class LoopState:
+class FockState:
     """
-    A pure state of the loop with a definite photon number: the amplitude
-    `amplitudes[i]` of the occupation `occupations[i]`.
+    A pure state of modes with a definite photon number, such as the loop of
+    an :class:`Interferometer`: the amplitude `amplitudes[i]` of the
+    occupation `occupations[i]`.
 
-    >>> LoopState.vacuum(2)
-    LoopState(occupations=[[0, 0]], amplitudes=[1.0])
+    >>> FockState.vacuum(2)
+    FockState(occupations=[[0, 0]], amplitudes=[1.0])
     """
     occupations: np.ndarray
     amplitudes: np.ndarray
@@ -323,27 +327,27 @@ class LoopState:
         self.amplitudes = np.asarray(self.amplitudes)
 
     def __repr__(self):
-        return (f"LoopState(occupations={self.occupations.tolist()}, "
+        return (f"FockState(occupations={self.occupations.tolist()}, "
                 f"amplitudes={self.amplitudes.tolist()})")
 
     def __eq__(self, other):
-        return isinstance(other, LoopState) \
+        return isinstance(other, FockState) \
             and np.array_equal(self.occupations, other.occupations) \
             and np.array_equal(self.amplitudes, other.amplitudes)
 
     @staticmethod
-    def vacuum(modes: int) -> LoopState:
+    def vacuum(modes: int) -> FockState:
         """ The loop with no photon. """
-        return LoopState([[0] * modes], [1.])
+        return FockState([[0] * modes], [1.])
 
     @property
     def photons(self) -> int:
         """ The photon number of the loop. """
         return int(self.occupations[0].sum())
 
-    def normalised(self) -> LoopState:
+    def normalised(self) -> FockState:
         """ The same state with unit norm. """
-        return LoopState(
+        return FockState(
             self.occupations,
             self.amplitudes / np.linalg.norm(self.amplitudes))
 
@@ -352,7 +356,7 @@ class LoopState:
         A key equal for two states that differ by a global phase, up to
         `decimals` digits.
 
-        >>> LoopState([[1]], [1j]).fingerprint() == LoopState(
+        >>> FockState([[1]], [1j]).fingerprint() == FockState(
         ...     [[1]], [-1]).fingerprint()
         True
         """
@@ -455,7 +459,7 @@ class Sweep:
             self.tables[key + (total, )] = twomode(rotation, total)
         return self.tables[key + (total, )]
 
-    def start(self, state: LoopState, inputs: tuple) -> np.ndarray:
+    def start(self, state: FockState, inputs: tuple) -> np.ndarray:
         """
         The loop `state` and the photons injected into the occupied inputs,
         a vector of the :math:`N + |q|`-photon sector of the held modes.
@@ -486,17 +490,17 @@ class Sweep:
             lambda step, total: self.table(
                 (index, step), chain[step][1], total))
 
-    def finish(self, vector: np.ndarray, photons: int) -> LoopState:
+    def finish(self, vector: np.ndarray, photons: int) -> FockState:
         """ The held state after the last external output, on the loop. """
         modes = self.widths()[-1]
         vector = pad(vector, modes, photons, self.loop - modes)
         phases, rotations = self.final
-        return LoopState(sector(self.loop, photons), rotate(
+        return FockState(sector(self.loop, photons), rotate(
             phases, rotations, vector, photons,
             lambda step, total: self.table(
                 ("final", step), rotations[step][1], total)))
 
-    def sample(self, state: LoopState, inputs: tuple,
+    def sample(self, state: FockState, inputs: tuple,
                rng: np.random.Generator) -> tuple:
         """
         The pattern on the external outputs, sampled one output at a time,
@@ -514,7 +518,7 @@ class Sweep:
             photons -= pattern[index]
         return pattern, self.finish(vector, photons)
 
-    def outcomes(self, state: LoopState, inputs: tuple):
+    def outcomes(self, state: FockState, inputs: tuple):
         """
         Every pattern on the external outputs with its probability and the
         loop state it leaves, enumerated one output at a time.
@@ -575,9 +579,11 @@ def collapse(vector: np.ndarray, modes: int, photons: int,
     return rows / np.linalg.norm(rows)
 
 
-class Recurrent:
+class Interferometer:
     """
-    A passive recurrent linear-optical network.
+    A passive recurrent linear-optical network: an interferometer whose
+    first `loop` outputs are fed back into its first `loop` inputs one tick
+    later.
 
     Parameters:
         unitary : The :math:`(L + x) \\times (L + x)` mode matrix, mapping
@@ -596,9 +602,9 @@ class Recurrent:
             photon is in the internal state shared by all photons rather
             than in one of its own, the model of Renema et al. [RMC+18]_.
 
-    >>> network = Recurrent([[0, 1], [1, 0]], loop=1, inputs=(1, ))
+    >>> network = Interferometer([[0, 1], [1, 0]], loop=1, inputs=(1, ))
     >>> network
-    Recurrent([[0, 1], [1, 0]], loop=1, inputs=(1,), transmissivity=1.0, \
+    Interferometer([[0, 1], [1, 0]], loop=1, inputs=(1,), transmissivity=1.0, \
 efficiency=1.0, visible=(0,), indistinguishability=1.0)
     >>> eval(repr(network)) == network
     True
@@ -637,7 +643,7 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         >>> from optyx.photonic import Create
         >>> delay = (Create(1) @ qmode >> Diagram.swap(qmode, qmode)
         ...     ).feedback(state=Create(0))
-        >>> Recurrent.from_diagram(delay).distribution(2)
+        >>> Interferometer.from_diagram(delay).distribution(2)
         {((0,), (1,)): 1.0}
         """
         initial, _ = diagram.boundary()
@@ -682,14 +688,14 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         return self.sweeps[columns]
 
     def __repr__(self):
-        return (f"Recurrent({self.unitary.tolist()}, loop={self.loop}, "
+        return (f"Interferometer({self.unitary.tolist()}, loop={self.loop}, "
                 f"inputs={self.inputs}, "
                 f"transmissivity={self.transmissivity}, "
                 f"efficiency={self.efficiency}, visible={self.visible}, "
                 f"indistinguishability={self.indistinguishability})")
 
     def __eq__(self, other):
-        return isinstance(other, Recurrent) \
+        return isinstance(other, Interferometer) \
             and np.array_equal(self.unitary, other.unitary) \
             and repr(self) == repr(other)
 
@@ -721,7 +727,7 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
 
         >>> from scipy.stats import unitary_group
         >>> unitary = unitary_group.rvs(5, random_state=1)
-        >>> network = Recurrent(unitary, loop=3, inputs=(2, 2))
+        >>> network = Interferometer(unitary, loop=3, inputs=(2, 2))
         >>> bool(np.isclose(network.occupation(), 6))
         True
         """
@@ -749,9 +755,9 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         window is a channel applied to the loop; the second bounds the mean
         number of photons in a colour of their own still in the loop.
 
-        >>> lossy = Recurrent(
+        >>> lossy = Interferometer(
         ...     [[0.6, 0.8], [0.8, -0.6]], 1, (1, ), transmissivity=.5)
-        >>> lossy.burn_in(1e-3) < Recurrent(
+        >>> lossy.burn_in(1e-3) < Interferometer(
         ...     [[0.6, 0.8], [0.8, -0.6]], 1, (1, )).burn_in(1e-3)
         True
         """
@@ -768,7 +774,7 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         raise ValueError(
             f"The bound does not reach tol={tol} within {max_depth} ticks.")
 
-    def detections(self, state: LoopState, inputs: tuple = None):
+    def detections(self, state: FockState, inputs: tuple = None):
         """
         Every pattern on the external outputs with its probability and the
         loop state it leaves, before loss on the loop.
@@ -776,7 +782,7 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         inputs = self.inputs if inputs is None else inputs
         yield from self.sweep(inputs).outcomes(state, inputs)
 
-    def losses(self, state: LoopState, mode: int):
+    def losses(self, state: FockState, mode: int):
         """
         Every number of photons lost by loop `mode` over one round trip,
         with its probability and the loop state it leaves.
@@ -793,7 +799,7 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
                 continue
             occupations = state.occupations[rows].copy()
             occupations[:, mode] -= lost
-            yield weight, LoopState(occupations, amplitudes).normalised()
+            yield weight, FockState(occupations, amplitudes).normalised()
 
     def thinnings(self, pattern: tuple):
         """
@@ -809,7 +815,7 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
             if weight > 0:
                 yield recorded, weight
 
-    def step(self, state: LoopState, inputs: tuple,
+    def step(self, state: FockState, inputs: tuple,
              rng: np.random.Generator):
         """
         One tick of one colour: the pattern on the external outputs, sampled
@@ -850,7 +856,7 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         empty = (0, ) * len(self.inputs)
         work = [(colours[0], shared)] \
             + [(state, empty) for state in colours[1:]] \
-            + [(LoopState.vacuum(self.loop), inputs) for inputs in alone]
+            + [(FockState.vacuum(self.loop), inputs) for inputs in alone]
         total, after = np.zeros(len(self.inputs), dtype=int), []
         for state, inputs in work:
             pattern, state = self.step(state, inputs, rng)
@@ -865,7 +871,7 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         of one trajectory started from the vacuum loop.
         """
         rng = np.random.default_rng(seed)
-        colours, patterns, photons = [LoopState.vacuum(self.loop)], [], []
+        colours, patterns, photons = [FockState.vacuum(self.loop)], [], []
         for _ in range(ticks):
             photons.append(sum(state.photons for state in colours))
             pattern, colours = self.tick(colours, rng)
@@ -886,7 +892,7 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         `ticks` ticks after `burn_in` ticks, by enumerating trajectories of
         indistinguishable photons.
 
-        >>> delay = Recurrent([[0, 1], [1, 0]], loop=1, inputs=(1, ))
+        >>> delay = Interferometer([[0, 1], [1, 0]], loop=1, inputs=(1, ))
         >>> delay.distribution(2)
         {((0,), (1,)): 1.0}
         """
@@ -894,7 +900,7 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
             raise NotImplementedError(
                 "The exact distribution enumerates indistinguishable photons "
                 "only; sample partially distinguishable ones.")
-        branches = [((), 1., LoopState.vacuum(self.loop))]
+        branches = [((), 1., FockState.vacuum(self.loop))]
         for time in range(burn_in + ticks):
             branches = merge(
                 (history + (recorded, ) * (time >= burn_in),
@@ -908,7 +914,7 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
             result[history] = result.get(history, 0) + weight
         return result
 
-    def lost(self, state: LoopState):
+    def lost(self, state: FockState):
         """
         Every loop state left by the losses of one round trip, with its
         probability.
