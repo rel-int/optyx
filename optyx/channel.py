@@ -730,6 +730,29 @@ class Diagram(frobenius.Diagram):
         ...     mem=qmode, state=photonic.Create(0))
         >>> assert lossless.unroll_certificate(1e-2) == 13
         >>> assert lossy.unroll_certificate(1e-2) == 7
+
+        A depth cap that stops short of `tol` warns with the tolerance it
+        does certify, and returns the best depth it reached:
+
+        >>> import warnings
+        >>> with warnings.catch_warnings(record=True) as caught:
+        ...     warnings.simplefilter("always")
+        ...     assert lossy.unroll_certificate(1e-2, max_steps=5) == 5
+        >>> assert "certified tolerance is 0.139685" in str(
+        ...     caught[0].message)
+
+        A photon cutoff costs nothing while the loop cannot hold more
+        photons than it allows: eight certify the same depth as no cutoff.
+        Four do not, and the warning says how much of the error is the
+        truncation's:
+
+        >>> assert lossy.unroll_certificate(1e-2, max_truncation=8) == 7
+        >>> with warnings.catch_warnings(record=True) as caught:
+        ...     warnings.simplefilter("always")
+        ...     assert lossy.unroll_certificate(
+        ...         1e-2, max_truncation=4) == 7
+        >>> assert "truncation error 0.0177236 for a photon support of 6" \\
+        ...     in str(caught[0].message)
         """
         self.check_fixpoint(tol)
         if max_steps is not None and (
@@ -768,19 +791,21 @@ class Diagram(frobenius.Diagram):
             singular = np.clip(
                 np.linalg.svd(power, compute_uv=False), 0, 1)
             depth = float(4 * constant * np.sum(np.arcsin(singular) ** 2))
-            total = min(2., depth + truncation)
-            if best is None or total < best[-1]:
-                best = (burn_in, depth, truncation, support, total)
-            if total <= tol or truncation >= tol:
+            if best is None or depth + truncation < sum(best[1:3]):
+                best = (burn_in, depth, truncation, support)
+            if depth + truncation <= tol or truncation >= tol:
                 break
-        burn_in, depth, truncation, support, total = best
-        if total > tol:
+        burn_in, depth, truncation, support = best
+        if depth + truncation > tol:
+            cutoff = "" if max_truncation is None else (
+                f" and the truncation error {truncation:.6g} for a photon"
+                f" support of {support}")
             warnings.warn(
                 f"tol={tol} is not certified within max_steps={max_steps}"
                 f" and max_truncation={max_truncation}. At the best burn-in"
-                f" k={burn_in}, the depth error is {depth:.6g} and the"
-                f" truncation error {truncation:.6g} for a photon support of"
-                f" {support}, so the certified tolerance is {total:.6g}.",
+                f" k={burn_in}, the depth error is {depth:.6g}{cutoff}, so"
+                " the certified tolerance is"
+                f" {min(2., depth + truncation):.6g}.",
                 UserWarning, stacklevel=2)
         return burn_in + 1
 

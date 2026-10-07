@@ -386,6 +386,16 @@ def test_unroll_certificate_returns_best_depth_without_cutoff():
     assert "certified tolerance is 0.125541" in message
 
 
+def test_unroll_certificate_compares_errors_before_clipping():
+    """Every early burn-in of a lossless loop has an error past the trace
+    distance's maximum of two, so the best depth is chosen before that
+    clip: otherwise the first step ties with the deepest one and wins."""
+    step = photonic.Create(1) @ qmode >> photonic.BS
+    loop = step.feedback(mem=qmode, state=photonic.Create(0))
+    with pytest.warns(UserWarning, match="best burn-in k=4"):
+        assert loop.unroll_certificate(1e-2, max_steps=5) == 5
+
+
 def test_unroll_certificate_stops_when_the_truncation_alone_misses():
     """Once the truncation error passes `tol` no depth can recover, so the
     search stops rather than running to `max_steps`."""
