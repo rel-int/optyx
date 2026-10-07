@@ -31,7 +31,7 @@ environment bent round and shared:
 >>> from discopy.symmetric import Equation
 >>> from optyx import photonic
 >>> Equation(photonic.PhotonLoss(.5), photonic.PhotonLoss(.5).double(),
-...          symbol="$\\mapsto$").draw(
+...          symbol="$\\\\mapsto$").draw(
 ...     figsize=(9, 3), path="docs/_static/doubling.png")
 
 .. image:: /_static/doubling.png
@@ -60,7 +60,7 @@ the memory wire only — the inputs and outputs of each tick stay open:
 
 >>> assert (loop.state, loop.effect) == (photonic.Create(0), Discard(qmode))
 >>> assert loop.one_step() == loop.arg
->>> Equation(loop, loop.unroll(2), symbol="$\\mapsto$").draw(
+>>> Equation(loop, loop.unroll(2), symbol="$\\\\mapsto$").draw(
 ...     figsize=(11, 4), path="docs/_static/unroll.png")
 
 .. image:: /_static/unroll.png
