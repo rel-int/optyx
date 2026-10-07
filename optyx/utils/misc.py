@@ -114,7 +114,7 @@ def occupation_numbers(n_photons, m_modes):
 def multinomial(lst: list) -> int:
     """Returns the multinomial coefficient for a given list of numbers"""
     # https://stackoverflow.com/questions/46374185/does-python-have-a-function-which-computes-multinomial-coefficients
-    res, i = 1, sum(lst)
+    res, i = 1, int(sum(lst))
     i0 = lst.index(max(lst))
     for a in lst[:i0] + lst[i0 + 1:]:
         for j in range(1, a + 1):
@@ -318,30 +318,6 @@ class BasisTransition(NamedTuple):
     """
     out: Tuple[int, ...]
     amp: Number
-
-
-def preprocess_quimb_tensors_safe(tn, epsilon=1e-12, value_limit=1e10):
-    for t in tn:
-        data = t.data
-
-        data = np.array(data, copy=True)
-
-        if data.dtype.kind in {'i', 'u'}:
-            t.modify(data=data.astype('complex128'))
-            continue
-
-        if data.ndim == 2 and np.linalg.matrix_rank(data) < min(data.shape):
-            data += np.random.normal(0, epsilon, size=data.shape)
-
-        if np.any(data == 0):
-            data[data == 0] = epsilon
-
-        if np.max(np.abs(data)) > value_limit:
-            data = np.clip(data, -value_limit, value_limit)
-
-        t.modify(data=data)
-
-    return tn
 
 
 def update_connections(

@@ -113,7 +113,7 @@ construct the tensor network for evaluation.
 >>> from discopy.drawing import Equation
 >>> BS = BBS(0)
 >>> double_BS = BS.get_kraus()
->>> Equation(BS, double_BS, symbol="$\\mapsto$").draw(\\
+>>> Equation(BS, double_BS, symbol="$\\\\mapsto$").draw(\\
 ... path="docs/_static/double_BS.png")
 
 .. image:: /_static/double_BS.png

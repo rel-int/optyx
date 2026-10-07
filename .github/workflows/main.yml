@@ -75,13 +75,23 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-docs
     - name: Install
-      if: steps.cache.outputs.cache-hit != 'true'
       run: |
         sudo apt-get update
         sudo apt-get install -y pandoc
         pip install .[docs]
+    - name: Execute what-is-a-channel notebook
+      run: |
+        pip install marimo
+        python -m marimo export html \
+          ${{ env.DOCS_DIR }}/notebooks/what_is_a_channel.md \
+          -o /tmp/what_is_a_channel.html -f
+    - name: Execute fixpoint notebook
+      run: |
+        pip install marimo
+        marimo export script \
+          ${{ env.DOCS_DIR }}/notebooks/fixpoints.md -o /tmp/fixpoints.py
+        timeout 600 python /tmp/fixpoints.py
     - name: Build
-      if: steps.cache.outputs.cache-hit != 'true'
       run: |
         sphinx-build ${{ env.DOCS_DIR }} ${{ env.DOCS_DIR }}/_build/html
     - name: Store
@@ -89,4 +99,3 @@ jobs:
       with:
         name: docs
         path: ${{ env.DOCS_DIR }}/_build/html
-
