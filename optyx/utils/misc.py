@@ -114,7 +114,7 @@ def occupation_numbers(n_photons, m_modes):
 def multinomial(lst: list) -> int:
     """Returns the multinomial coefficient for a given list of numbers"""
     # https://stackoverflow.com/questions/46374185/does-python-have-a-function-which-computes-multinomial-coefficients
-    res, i = 1, sum(lst)
+    res, i = 1, int(sum(lst))
     i0 = lst.index(max(lst))
     for a in lst[:i0] + lst[i0 + 1:]:
         for j in range(1, a + 1):
