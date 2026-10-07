@@ -31,13 +31,24 @@ other x inputs at every tick.
 Passive (phase 1), each point validated against the NumPy sampler and its exact tests:
 
 - [x] progressive measurement of the external modes, so that a tick holds the loop sector times a few modes (prerequisite: fixes the memory wall and changes what the JAX kernel holds)
-- [ ] fixed-shape kernels: per-sector rotation groups stacked over rotations, interferometer as one `lax.scan`, measurement by static sector-to-pattern maps, `segment_sum`, `jax.random.categorical` and mask-then-gather collapse, loss Kraus as static index shifts
-- [ ] occupation indices computed by combinatorial ranking instead of stored tables
-- [ ] rotations built from the diagram's parameters (or a branch-free Givens decomposition), so that gradients reach the phases
-- [ ] trajectories: one compiled step per loop photon number up to the cap n*, `vmap` over trajectories bucketed by photon number, colours with private photons as a padded batch of single-photon vectors
-- [ ] gradients: log-probability replay of a recorded trajectory, score-function estimator, exact differentiable `distribution` for small systems, checked against finite differences
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-07 11:00 fixed-shape kernels: per-sector rotation groups stacked over rotations, interferometer as one `lax.scan`, measurement by static sector-to-pattern maps, `segment_sum`, `jax.random.categorical` and mask-then-gather collapse, loss Kraus as static index shifts
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-07 11:00 occupation indices computed by combinatorial ranking instead of stored tables
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-07 11:00 rotations built from the diagram's parameters (or a branch-free Givens decomposition), so that gradients reach the phases
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-07 11:00 trajectories: one compiled step per loop photon number up to the cap n*, `vmap` over trajectories bucketed by photon number, colours with private photons as a padded batch of single-photon vectors
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-07 11:00 gradients: log-probability replay of a recorded trajectory, score-function estimator, exact differentiable `distribution` for small systems, checked against finite differences
 
 Active (phase 2):
 
 - [ ] layer-by-layer interpreter of `one_step`: number resolving measurements sample and collapse, classical boxes compute on sampled values, classically controlled boxes (`BitControlledGate`, `BitControlledPhaseShift`, `ClassicalFunction`, `core.control.ControlledPhaseShift`) pick their matrix, `lax.switch` over the finite set of configurations under JAX
 - [ ] no burn-in certificate or cost bound for active diagrams: require an explicit burn-in, guard the photon cap, refuse postselection
+
+---
+
+> Let's merge the PRs into one adding a sampling module in optyx as file. We need to find the right names for classes so that this acts like a backend for sampling diagrams on modes.
+
+> Let's finish the full jaxable implementation of the sampler
+
+Names agreed in session: `optyx/sampling.py`, `Interferometer` (was `Recurrent`), `FockState` (was `LoopState`), `Sweep`; `channel.Diagram.sample` stays the only entry point, no sampler class.
+
+- [x] merge #78 into this PR and `main` (feedback, #57) into it
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-07 11:00 move `optyx/recurrent.py` to `optyx/sampling.py` with the names above
