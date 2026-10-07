@@ -54,9 +54,9 @@ evaluating the permanent of the underlying matrix:
 ... Amplitudes([0.+0.70710678j, -0.+0.j    , 0.+0.70710678j],\\
 ... dom=1, cod=3).array)
 
->>> assert(HOM.to_path().prob().array, \\
+>>> assert np.allclose(HOM.to_path().prob().array, \\
 ... Probabilities[complex]([0.5+0.j, 0. +0.j, 0.5+0.j], \\
-... dom=1, cod=3))
+... dom=1, cod=3).array)
 >>> left = Create(1, 1) >> BS.get_kraus() >> Select(2, 0)
 >>> left.to_path().prob()
 Probabilities[complex]([0.5+0.j], dom=1, cod=1)
