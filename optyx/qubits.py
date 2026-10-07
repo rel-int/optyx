@@ -262,7 +262,7 @@ We can create a graph state as follows
 >>> graph = (Z(0, 2) >> Id(1) @ H() >> Id(1) @ Z(1, 2) >> \\
 ... Id(2) @ H() >> Id(2) @ Z(1, 2))
 >>> Equation(graph >> DualRail(4), graph.to_dual_rail(), \\
-... symbol="$\\mapsto$").draw(figsize=(15, 20), \\
+... symbol="$\\\\mapsto$").draw(figsize=(15, 20), \\
 ... path="docs/_static/graph_dr_qubit.svg", draw_type_labels=False, \\
 ... draw_box_labels=False)
 
@@ -279,7 +279,7 @@ For example, we can create a GHZ state:
 >>> ghz_decom = ghz.decomp()
 >>> ghz_path = ghz_decom.to_dual_rail()
 >>> Equation(ghz >> DualRail(3), ghz_path, \\
-... symbol="$\\mapsto$").draw(figsize=(10, 10), \\
+... symbol="$\\\\mapsto$").draw(figsize=(10, 10), \\
 ... path="docs/_static/ghz_dr.svg")
 
 .. image:: /_static/ghz_dr.svg
@@ -293,7 +293,7 @@ We can also create a graph state as follows
 >>> graph_decom = graph.decomp()
 >>> graph_path = graph_decom.to_dual_rail()
 >>> Equation(graph >> DualRail(4), graph_path, \\
-... symbol="$\\mapsto$").draw(figsize=(10, 14), \\
+... symbol="$\\\\mapsto$").draw(figsize=(10, 14), \\
 ... path="docs/_static/graph_dr.svg", draw_type_labels=False, \\
 ... draw_box_labels=False)
 
@@ -899,12 +899,31 @@ class DephasingError(Channel):
         return self
 
 
+def basis_value(
+    value: Literal[0, 1, "+", "-"]
+) -> Literal[0, 1, "+", "-"]:
+    """
+    Read ``"0"``/``"1"`` (the natural string spelling next to ``"+"``/
+    ``"-"``) as the integers ``0``/``1``, and reject anything else.
+
+    >>> assert basis_value("1") == basis_value(1) == 1
+    >>> assert basis_value("+") == "+"
+    """
+    if value in ("0", "1"):
+        return int(value)
+    if value not in (0, 1, "+", "-"):
+        raise ValueError(
+            f"Invalid basis state {value!r}, expected one of 0, 1, '+', '-'")
+    return value
+
+
 class Ket(Channel):
     """Computational basis state for qubits"""
 
     def __init__(
         self, value: Literal[0, 1, "+", "-"], cod: channel.Ty = qubit
     ) -> None:
+        value = basis_value(value)
         spider = zx.X if value in (0, 1) else zx.Z
         phase = 0 if value in (0, "+") else 0.5
         kraus = spider(0, 1, phase) @ diagram.Scalar(1 / np.sqrt(2))
@@ -917,6 +936,7 @@ class Bra(Channel):
     def __init__(
         self, value: Literal[0, 1, "+", "-"], dom: channel.Ty = qubit
     ) -> None:
+        value = basis_value(value)
         spider = zx.X if value in (0, 1) else zx.Z
         phase = 0 if value in (0, "+") else 0.5
         kraus = spider(1, 0, phase) @ diagram.Scalar(1 / np.sqrt(2))

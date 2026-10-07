@@ -727,9 +727,9 @@ class Box(frobenius.Box, Diagram):
         Otherwise it is defined by the array."""
         if self._array is not None:
             return type(self)(
-                self.name + ".dagger()",
-                dom=self.cod,
-                cod=self.dom,
+                self.name,
+                dom=self.dom,
+                cod=self.cod,
                 array=self._array.conjugate(),
             )
         raise NotImplementedError(
@@ -1320,7 +1320,7 @@ class Feedback(monoidal.Bubble, Box):
     >>> cnot = Z(1, 2) @ bit >> bit @ X(2, 1) @ Scalar(2 ** 0.5)
     >>> plus = Scalar(0.5 ** 0.5) @ Z(0, 1)
     >>> ladder = (cnot >> Diagram.swap(bit, bit)).feedback(state=plus)
-    >>> Equation(ladder, ladder.unroll(2).simplify(), symbol="$\\mapsto$"
+    >>> Equation(ladder, ladder.unroll(2).simplify(), symbol="$\\\\mapsto$"
     ...     ).draw(path="docs/_static/cnot_ladder.svg")
 
     .. image:: /_static/cnot_ladder.svg
