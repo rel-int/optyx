@@ -1,3 +1,4 @@
+import pytest
 import pyzx
 from optyx import qubits
 from pytket import Circuit
@@ -135,6 +136,20 @@ def test_bra():
     b = zx.X(1, 0, 0.5) @ diagram.Scalar(1 / np.sqrt(2))
     b = (b.to_tensor().to_quimb() ^ ...).data
     assert np.allclose(a, b)
+
+
+def test_ket_bra_accept_string_digits():
+    assert qubits.Ket("0") == qubits.Ket(0)
+    assert qubits.Ket("1") == qubits.Ket(1)
+    assert qubits.Bra("0") == qubits.Bra(0)
+    assert qubits.Bra("1") == qubits.Bra(1)
+
+
+def test_ket_bra_reject_invalid_value():
+    with pytest.raises(ValueError):
+        qubits.Ket("2")
+    with pytest.raises(ValueError):
+        qubits.Bra("2")
 
 # def test_to_tket():
 #     circ = qubits.X(1, 2) @ channel.qubit >> channel.qubit @ qubits.Z(2, 1) @ qubits.Scalar(2**0.5)
