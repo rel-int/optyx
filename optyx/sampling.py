@@ -2,10 +2,21 @@
 Overview
 --------
 
-Sampling the photon numbers on the outputs of photonic diagrams with
-feedback loops.
+Sampling the outputs of closed diagrams with feedback loops, tick after
+tick: :meth:`optyx.channel.Diagram.sample`.
 
-A diagram is sampled through its :class:`Interferometer`, a recurrent
+Any such diagram is sampled by its :class:`Unravelling`, a quantum
+trajectory: one tick runs :meth:`one_step` box by box on a :class:`CQState`,
+a pure state of its quantum wires and definite values of its classical
+ones. A box contracts its Kraus map into the state, linear optics through
+the :func:`givens` decomposition of its mode matrix and anything else one
+box of its Kraus map at a time; its environment and its classical outputs
+are measured in the number basis, sampled and collapsed. Measurements,
+classical boxes and classical control inside the loops, qubits and
+photons with internal states are all sampled this way, at a cost
+exponential in the number of quantum wires alive at once.
+
+A passive diagram is sampled through its :class:`Interferometer`, a recurrent
 linear-optical network: an interferometer on :math:`L + x` modes whose first
 :math:`L` outputs are fed back into its first :math:`L` inputs one tick
 later, while a product Fock state :math:`|q\\rangle` is injected into the
@@ -49,10 +60,9 @@ interfere, so each colour runs its own trajectory and the detectors record
 the sum of their patterns. A photon of its own is a single-photon walk,
 forgotten once it has left the loop.
 
-Any closed :class:`optyx.channel.Diagram` with feedback loops is sampled by
-:meth:`optyx.channel.Diagram.sample`, through
-:meth:`Interferometer.from_diagram`: its discards and losses are environment
-outputs, measured and forgotten.
+A passive diagram, linear optics with losses and discards, is turned into
+its :class:`Interferometer` by :meth:`Interferometer.from_diagram`: its
+discards and losses are environment outputs, measured and forgotten.
 
 The same trajectory step, with every outcome enumerated rather than sampled,
 gives the exact joint distribution of a window in
@@ -74,6 +84,8 @@ Classes
     Interferometer
     FockState
     Sweep
+    Unravelling
+    CQState
 
 Functions
 ---------
@@ -83,8 +95,9 @@ Functions
     :nosignatures:
     :toctree:
 
-    dilation
     complete
+    observe
+    levels
     sector
     position
     pairs
@@ -651,15 +664,18 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         loop = len(step.dom)
         if len(diagram.dom):
             raise ValueError("Only closed diagrams can be sampled.")
+        if levels(initial) or levels(step):
+            raise NotImplementedError(
+                "Photons with internal states are not passive.")
         if any(ob.name != "qmode" for ob in (step.dom @ step.cod).inside):
             raise NotImplementedError(
                 "Only optical modes can be sampled; leave the outputs as "
                 "qmode, they are measured by number resolving detectors.")
-        vacuum = dilation(initial).to_path()
+        vacuum = initial.dilate().to_path()
         if vacuum.dom or any(vacuum.creations) or vacuum.udom != loop:
             raise NotImplementedError(
                 "The loops must start in the vacuum, e.g. Create(0).")
-        matrix = dilation(step).to_path()
+        matrix = step.dilate().to_path()
         if matrix.selections or not np.isclose(
                 matrix.normalisation * matrix.scalar, 1):
             raise NotImplementedError(
@@ -928,35 +944,422 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         return branches
 
 
-def dilation(diagram):
-    """
-    The pure Kraus map of a :class:`optyx.channel.Diagram` without feedback
-    loops, with the environment of every discard and loss routed to the end
-    of the codomain: a Stinespring dilation, layer by layer.
+QUANTUM = ("qmode", "qubit")
 
-    >>> from optyx.photonic import PhotonLoss
-    >>> np.abs(np.asarray(dilation(PhotonLoss(.8)).to_path().array)) ** 2
-    array([[0.8, 0.2]])
+
+@dataclass
+class CQState:
     """
-    # pylint: disable=import-outside-toplevel
-    from optyx.core import diagram as core
-    from optyx.channel import Swap
-    kraus, environment = core.Id(diagram.dom.single()), core.Ty()
-    for layer in diagram:
-        left, box, right = layer.inside[0]
-        left, right = left.single(), right.single()
+    A state of the wires of a diagram in a quantum trajectory: a pure state
+    of the quantum wires and a definite value on each classical one.
+    `values[i]` is the value of wire `i`, or `None` when it is quantum, in
+    which case it is an axis of `vector`, in the order of the wires.
+    `vector` is normalised, and `weight` is the factor its norm squared was
+    divided by since the start of the last :meth:`Unravelling.run`.
+
+    >>> CQState.empty()
+    CQState(vector=array(1.), values=[], weight=1.0)
+    """
+    vector: np.ndarray
+    values: list
+    weight: float = 1.
+
+    @staticmethod
+    def empty() -> CQState:
+        """ The state of no wires. """
+        return CQState(np.ones(()), [])
+
+    def axes(self, start: int, stop: int) -> list:
+        """ The axes of `vector` of the quantum wires in `start:stop`. """
+        return [self.values[:i].count(None) for i in range(start, stop)
+                if self.values[i] is None]
+
+    def measure(self, start: int, stop: int, rng: np.random.Generator):
+        """
+        Measure the wires in `start:stop` in the number basis: their values,
+        sampled for the quantum ones, and the state of the other wires.
+        """
+        axes = self.axes(start, stop)
+        outcome, vector = observe(self.vector, axes, rng)
+        sampled = iter(outcome)
+        return tuple(next(sampled) if value is None else value
+                     for value in self.values[start:stop]), CQState(
+            vector, self.values[:start] + self.values[stop:], self.weight)
+
+
+def observe(vector: np.ndarray, axes: list, rng: np.random.Generator):
+    """
+    Sample the number basis on the `axes` of a pure state `vector`: the
+    outcome and the normalised state of the other axes.
+
+    >>> observe(np.array([[0, 0.6], [0.8, 0]]), [0], np.random.default_rng(0))
+    ((1,), array([1., 0.]))
+    """
+    if not axes:
+        return (), vector
+    others = [axis for axis in range(vector.ndim) if axis not in axes]
+    probabilities = np.sum(np.abs(vector) ** 2, axis=tuple(others)).ravel()
+    flat = rng.choice(len(probabilities), p=normalise(probabilities))
+    outcome = np.unravel_index(flat, [vector.shape[axis] for axis in axes])
+    index = [slice(None)] * vector.ndim
+    for axis, value in zip(axes, outcome):
+        index[axis] = value
+    collapsed = vector[tuple(index)]
+    return tuple(int(n) for n in outcome), collapsed / np.sqrt(
+        probabilities[flat])
+
+
+class Unravelling:
+    """
+    The quantum trajectories of a closed :class:`optyx.channel.Diagram`
+    with feedback loops, whatever it holds: optical modes, qubits,
+    measurements, classical boxes and classically controlled boxes.
+
+    A tick runs :meth:`one_step` layer by layer on a :class:`CQState`. A box
+    contracts its Kraus map into the state, its classical inputs selecting
+    the slice of their values, and its environment and classical outputs
+    are measured in the number basis, sampled and collapsed: the Kraus
+    operators :math:`(\\langle e| \\otimes 1) K` unravel the channel
+    :math:`\\rho \\mapsto \\mathrm{tr}_E(K \\rho K^\\dagger)`. A classical box
+    samples its outputs from its inputs. The outputs of the diagram are
+    then measured and recorded, those of the memory carried to the next
+    tick. The loops start in the state of :meth:`boundary`, run on the
+    same way.
+
+    Photons with internal states are sampled on the diagram inflated to
+    as many :func:`levels`, every optical mode becoming as many modes whose
+    counts the detectors add up.
+
+    Each optical mode holds at most `cap` photons, a qubit is a two-level
+    wire, so that every tick is a fixed sequence of contractions on fixed
+    shapes; a trajectory past the cap raises, and so does a box that is not
+    trace preserving, i.e. a postselection. The cost of a tick is
+    exponential in the number of quantum wires alive at once: passive
+    diagrams are better sampled by their :class:`Interferometer`.
+
+    >>> from optyx.channel import Diagram, qmode
+    >>> from optyx.photonic import Create
+    >>> delay = (Create(1) @ qmode >> Diagram.swap(qmode, qmode)
+    ...     ).feedback(state=Create(0))
+    >>> Unravelling(delay).sample(ticks=3, seed=0)
+    [(0,), (1,), (1,)]
+    """
+    def __init__(self, diagram, cap: int = 4):
+        if diagram.dom:
+            raise ValueError("Only closed diagrams can be sampled.")
+        if cap < 1:
+            raise ValueError("The cap must be at least one photon.")
+        self.diagram, self.cap = diagram, int(cap)
+        self.initial, _ = diagram.boundary()
+        self.step = diagram.one_step()
+        self.levels = max(levels(self.initial), levels(self.step))
+        if self.levels:
+            self.initial = self.initial.inflate(self.levels)
+            self.step = self.step.inflate(self.levels)
+        self.tensors = {}
+
+    def __repr__(self):
+        return f"Unravelling({self.diagram!r}, cap={self.cap})"
+
+    def dimension(self, ob, value=None) -> int:
+        """
+        The dimension of a wire of type `ob`: `cap + 1` for an optical
+        mode, two for a qubit or a bit, and enough for its `value` for a
+        classical mode, at least two since a dimension one is the unit.
+        """
+        if ob.name == "qmode":
+            return self.cap + 1
+        if ob.name == "mode":
+            return max(value + 1, 2)
+        return 2
+
+    def tensor(self, box, dims: tuple) -> np.ndarray:
+        """
+        The array of a box of a Kraus map, or of the density matrix of a
+        classical box, on inputs of dimensions `dims`, with an axis per
+        input then per output, computed once.
+        """
+        key = id(box), dims
+        if key not in self.tensors:
+            if hasattr(box, "density_matrix"):
+                array = np.asarray(box.density_matrix.to_tensor(
+                    input_dims=list(dims)).eval().array)
+                if array.ndim != len(box.dom) + len(box.cod):
+                    raise NotImplementedError(
+                        f"{box} has an output of dimension one.")
+            else:
+                outputs = box.determine_output_dimensions(list(dims))
+                array = np.asarray(box.truncation(
+                    list(dims), outputs).eval().array).reshape(
+                        dims + tuple(outputs))
+            self.tensors[key] = box, array
+        return self.tensors[key][1]
+
+    def unitary(self, box):
+        """
+        The mode matrix of `box` when it is linear optics on optical modes,
+        a unitary with no environment, created or selected photon, and
+        `None` otherwise; computed once.
+        """
+        key = id(box), "unitary"
+        if key not in self.tensors:
+            unitary = None
+            if not box.env and all(ob.name == "qmode" for ob in (
+                    box.dom @ box.cod).inside):
+                try:
+                    matrix = box.kraus.to_path()
+                    array = np.asarray(matrix.array, dtype=complex).T
+                    if not matrix.creations and not matrix.selections \
+                            and np.isclose(
+                                matrix.normalisation * matrix.scalar, 1) \
+                            and array.shape == (len(box.dom), ) * 2 \
+                            and np.allclose(array.conj().T @ array,
+                                            np.eye(len(array))):
+                        unitary = givens(array)
+                except NotImplementedError:
+                    pass
+            self.tensors[key] = box, unitary
+        return self.tensors[key][1]
+
+    def interfere(self, vector: np.ndarray, axes: list,
+                  decomposition: tuple) -> np.ndarray:
+        """
+        Apply the mode matrix with :func:`givens` `decomposition` to the
+        optical modes on `axes` of `vector`: a phase per mode, then each
+        rotation as the :func:`twomode` blocks of its pair of modes, cut to
+        `cap + 1` levels, raising when the cut loses amplitude.
+        """
+        phases, rotations = decomposition
+        numbers = np.arange(self.cap + 1)
+        for axis, phase in zip(axes, phases):
+            shape = [1] * vector.ndim
+            shape[axis] = self.cap + 1
+            vector = vector * (phase ** numbers).reshape(shape)
+        for step in reversed(range(len(rotations))):
+            mode, matrix = rotations[step]
+            first, second = axes[mode], axes[mode + 1]
+            vector = self.cut(np.moveaxis(np.tensordot(
+                vector, self.pair(id(decomposition), step, matrix),
+                axes=([first, second], [2, 3])), [-2, -1], [first, second]),
+                [first, second])
+        return vector
+
+    def cut(self, vector: np.ndarray, axes) -> np.ndarray:
+        """
+        Cut the `axes` of `vector` to `cap + 1` levels, raising when the cut
+        loses amplitude.
+        """
+        for axis in axes:
+            if vector.shape[axis] > self.cap + 1:
+                if np.sum(np.abs(np.take(vector, range(
+                        self.cap + 1, vector.shape[axis]), axis)) ** 2) \
+                        > 1e-12:
+                    raise ValueError(
+                        f"A mode holds more than cap={self.cap} photons; "
+                        "sample with a larger cap.")
+                vector = np.take(vector, range(self.cap + 1), axis)
+        return vector
+
+    def pair(self, key, step: int, matrix: np.ndarray) -> np.ndarray:
+        """
+        The action of a two-mode `matrix` on two modes of at most `cap`
+        photons each, an array with axes the two outputs, of up to
+        `2 cap` photons, then the two inputs; computed once.
+        """
+        if (key, step) not in self.tensors:
+            size = self.cap + 1
+            array = np.zeros((2 * size - 1, ) * 2 + (size, size),
+                             dtype=complex)
+            for total in range(2 * size - 1):
+                table = twomode(matrix, total)
+                for k in range(max(0, total - size + 1),
+                               min(total, size - 1) + 1):
+                    array[np.arange(total + 1), total - np.arange(
+                        total + 1), k, total - k] = table[:, k]
+            self.tensors[key, step] = matrix, array
+        return self.tensors[key, step][1]
+
+    def evolve(self, vector: np.ndarray, start: int, box) -> np.ndarray:
+        """
+        Apply `box`, a box of a Kraus map, to the axes of `vector` from
+        `start`: contract its array, put its outputs in their place and cut
+        each to `cap + 1` levels, raising when the cut loses amplitude.
+        """
+        # pylint: disable=import-outside-toplevel
+        from optyx.core.diagram import Swap
+        width = len(box.dom)
         if isinstance(box, Swap):
-            kraus_map, box_environment = core.Swap(
-                box.dom.single()[0], box.cod.single()[1]), core.Ty()
-        else:
-            kraus_map, box_environment = box.kraus, box.env
-        kraus = kraus >> core.Id(left) @ kraus_map @ core.Id(
-            right @ environment)
-        if box_environment:
-            kraus = kraus >> core.Id(left @ box.cod.single()) \
-                @ core.Diagram.swap(box_environment, right @ environment)
-        environment = environment @ box_environment
-    return kraus
+            return np.swapaxes(vector, start, start + 1)
+        array = self.tensor(box, vector.shape[start:start + width])
+        outputs = array.ndim - width
+        vector = np.tensordot(vector, array, axes=(
+            list(range(start, start + width)), list(range(width))))
+        return self.cut(np.moveaxis(
+            vector, list(range(vector.ndim - outputs, vector.ndim)),
+            list(range(start, start + outputs))),
+            range(start, start + outputs))
+
+    def apply(self, state: CQState, offset: int, box,
+              rng: np.random.Generator) -> CQState:
+        """ The state after `box`, on the wires from `offset`. """
+        # pylint: disable=import-outside-toplevel
+        from optyx.channel import Swap
+        stop = offset + len(box.dom)
+        values = state.values[offset:stop]
+        if isinstance(box, Swap):
+            vector = np.swapaxes(state.vector, *state.axes(offset, stop)) \
+                if values.count(None) == 2 else state.vector
+            return CQState(vector, state.values[:offset] + values[::-1]
+                           + state.values[stop:], state.weight)
+        if not hasattr(box, "kraus"):
+            dims = tuple(self.dimension(ob, value)
+                         for ob, value in zip(box.dom.inside, values))
+            return self.classical(state, offset, box, self.tensor(
+                box, dims)[tuple(values)], rng)
+        unitary = self.unitary(box)
+        if unitary is not None:
+            return CQState(self.interfere(
+                state.vector, state.axes(offset, stop), unitary),
+                state.values, state.weight)
+        return self.contract(state, offset, box, rng)
+
+    def contract(self, state: CQState, offset: int, box,
+                 rng: np.random.Generator) -> CQState:
+        """
+        The state after a `box` with a Kraus map, on the wires from
+        `offset`: its inputs are moved to the last axes, its Kraus map is
+        applied one box at a time by :meth:`evolve`, its classical outputs
+        and its environment are measured and its quantum outputs put in
+        their place.
+        """
+        vector, kept = self.embed(state, offset, box)
+        for inner, inner_offset in zip(box.kraus.boxes, box.kraus.offsets):
+            vector = self.evolve(vector, kept + inner_offset, inner)
+        norm = np.sum(np.abs(vector) ** 2)
+        if norm == 0:
+            raise NotImplementedError(
+                f"{box} annihilates the state: postselection cannot be "
+                "sampled.")
+        outputs = list(box.cod.inside)
+        outcome, vector = observe(vector / np.sqrt(norm), [
+            kept + i for i, ob in enumerate(outputs)
+            if ob.name not in QUANTUM] + list(range(
+                kept + len(outputs), vector.ndim)), rng)
+        for axis, ob in enumerate(
+                [ob for ob in outputs if ob.name in QUANTUM], kept):
+            widths = [(0, 0)] * vector.ndim
+            widths[axis] = (0, self.dimension(ob) - vector.shape[axis])
+            vector = np.pad(vector, widths)
+        before = state.values[:offset].count(None)
+        sampled = iter(outcome)
+        return CQState(np.moveaxis(
+            vector, list(range(kept, vector.ndim)),
+            list(range(before, before + vector.ndim - kept))),
+            state.values[:offset] + [
+                None if ob.name in QUANTUM else next(sampled)
+                for ob in outputs] + state.values[offset + len(box.dom):],
+            state.weight * norm)
+
+    def embed(self, state: CQState, offset: int, box) -> tuple:
+        """
+        The vector of `state` with the inputs of `box` on its last axes,
+        those of classical values as basis states, and the number of axes
+        before them.
+        """
+        stop = offset + len(box.dom)
+        vector, legs = state.vector, []
+        axes = iter(state.axes(offset, stop))
+        for ob, value in zip(box.dom.inside, state.values[offset:stop]):
+            if value is None:
+                legs.append(next(axes))
+                continue
+            vector = np.multiply.outer(vector, np.eye(
+                self.dimension(ob, value))[value])
+            legs.append(vector.ndim - 1)
+        kept = vector.ndim - len(legs)
+        return np.moveaxis(
+            vector, legs, list(range(kept, vector.ndim))), kept
+
+    def classical(self, state: CQState, offset: int, box,
+                  probabilities: np.ndarray, rng: np.random.Generator):
+        """
+        The state after a classical `box` whose transition `probabilities`
+        from the values of its inputs are given: its outputs sampled.
+        """
+        if any(ob.name in QUANTUM for ob in (box.dom @ box.cod).inside):
+            raise NotImplementedError(
+                f"{box} has no Kraus map and quantum wires: it cannot be "
+                "sampled.")
+        probabilities = np.real(probabilities)
+        if np.sum(probabilities) <= 0:
+            raise NotImplementedError(
+                f"{box} annihilates the state: postselection cannot be "
+                "sampled.")
+        flat = rng.choice(probabilities.size,
+                          p=normalise(probabilities.ravel()))
+        outcome = np.unravel_index(flat, probabilities.shape)
+        return CQState(state.vector, state.values[:offset] + [
+            int(n) for n in outcome] + state.values[
+                offset + len(box.dom):],
+            state.weight * np.sum(probabilities))
+
+    def run(self, diagram, state: CQState,
+            rng: np.random.Generator) -> CQState:
+        """
+        The state after the layers of `diagram`, one box at a time, checked
+        to be trace preserving as a whole: a box may scale the state, as a
+        spider does until the scalar that normalises it, but a run that
+        does not end with weight one is a postselection.
+        """
+        for layer in diagram:
+            left, box, _ = layer.inside[0]
+            state = self.apply(state, len(left), box, rng)
+        if not np.isclose(state.weight, 1, atol=1e-6):
+            raise NotImplementedError(
+                f"The diagram is not trace preserving (weight "
+                f"{state.weight:.3g}): postselection cannot be sampled.")
+        return CQState(state.vector, state.values)
+
+    def trajectory(self, ticks: int, seed=None) -> list:
+        """
+        The outputs measured over `ticks` ticks of one trajectory started
+        from the state of the loops.
+        """
+        rng = np.random.default_rng(seed)
+        widths = [self.levels if self.levels and ob.name == "qmode" else 1
+                  for ob in self.diagram.cod.inside]
+        state, patterns = self.run(
+            self.initial, CQState.empty(), rng), []
+        for _ in range(ticks):
+            pattern, state = self.run(self.step, state, rng).measure(
+                0, sum(widths), rng)
+            bounds = np.cumsum([0] + widths)
+            patterns.append(tuple(sum(pattern[bounds[i]:bounds[i + 1]])
+                                  for i in range(len(widths))))
+        return patterns
+
+    def sample(self, ticks: int, burn_in: int = 0, seed=None) -> list:
+        """
+        A sample of the outputs measured over `ticks` ticks, after
+        `burn_in` ticks.
+        """
+        return self.trajectory(burn_in + ticks, seed)[burn_in:]
+
+
+def levels(diagram) -> int:
+    """
+    The number of internal levels of the photons of a channel `diagram`,
+    the length of the internal states of its boxes, zero when they have
+    none.
+
+    >>> from optyx.photonic import Create
+    >>> levels(Create(1, internal_states=([1, 0], ))), levels(Create(1))
+    (2, 0)
+    """
+    return max([len(states[0]) for box in diagram.boxes
+                for inner in getattr(getattr(box, "kraus", None), "boxes", [])
+                for states in [getattr(inner, "internal_states", None)]
+                if states is not None] + [0])
 
 
 def complete(isometry: np.ndarray) -> np.ndarray:

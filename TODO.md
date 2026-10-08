@@ -34,8 +34,8 @@ Passive (phase 1): the JAX kernel moved to its own pull request, stacked on this
 
 Active (phase 2):
 
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-08 08:00 layer-by-layer interpreter of `one_step`: number resolving measurements sample and collapse, classical boxes compute on sampled values, classically controlled boxes (`BitControlledGate`, `BitControlledPhaseShift`, `ClassicalFunction`, `core.control.ControlledPhaseShift`) pick their matrix, `lax.switch` over the finite set of configurations under JAX (the JAX half goes to the JAX pull request)
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-08 08:00 no burn-in certificate or cost bound for active diagrams: require an explicit burn-in, guard the photon cap, refuse postselection
+- [x] layer-by-layer interpreter of `one_step`: `Unravelling` samples number resolving measurements and collapses, classical boxes sample their outputs from their inputs, classically controlled boxes take the slice of their control values (the JAX half goes to the JAX pull request)
+- [x] no burn-in certificate or cost bound for active diagrams: `Diagram.sample` requires an explicit `burn_in`, the photon cap raises when amplitude passes it, postselection raises at the end of a tick that is not trace preserving
 
 ---
 
@@ -57,8 +57,8 @@ A closed diagram with feedback is sampled as a quantum trajectory: one tick runs
 
 - [x] merge `main`, now squashed, so that the diff is the sampler alone
 - [x] move the JAX kernel to its own pull request, stacked on this one
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-08 08:00 use `channel.Diagram.dilate` from `main` rather than `sampling.dilation`
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-08 08:00 general sampler: the trajectory of any closed `channel.Diagram` with feedback, its initial loop state from `boundary()`, qubits, measurements, classical boxes and classical control in the loop; postselection refused, the photon cap guarded
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-08 08:00 `Diagram.sample` dispatches: passive diagrams to the `Interferometer`, the others to the general sampler with an explicit burn-in
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-08 08:00 tests of the general sampler against the exact distribution of the unrolled diagram: feed-forward inside a loop, a qubit memory, a classical function, internal states
+- [x] use `channel.Diagram.dilate` from `main` rather than `sampling.dilation`
+- [x] general sampler: `Unravelling`, the trajectory of any closed `channel.Diagram` with feedback, its initial loop state from `boundary()`, qubits, measurements, classical boxes and classical control in the loop, non-linear boxes such as a Kerr phase, internal states by inflation (with `Channel.inflate` now inflating the environment); linear optics through the Givens decomposition of its mode matrix, anything else one box of its Kraus map at a time; postselection refused, the photon cap guarded
+- [x] `Diagram.sample` dispatches: passive diagrams to the `Interferometer`, the others to the `Unravelling` with an explicit burn-in
+- [x] tests of the general sampler against the exact distribution of the unrolled diagram: feed-forward inside a loop, a qubit memory, a classical function, internal states with loss, a Kerr phase, and the passive diagram
 
