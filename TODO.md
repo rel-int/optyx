@@ -28,19 +28,14 @@ other x inputs at every tick.
 
 > That's great. Prepare a handout for another session to continue your work on the optyx PR to have jax-compatible sampling of photonic quantum recurrent networks, represented as optyx diagrams with loss and distinguishability, first passive then active.
 
-Passive (phase 1), each point validated against the NumPy sampler and its exact tests:
+Passive (phase 1): the JAX kernel moved to its own pull request, stacked on this one, together with its optimisation; the progressive measurement it builds on stays here.
 
 - [x] progressive measurement of the external modes, so that a tick holds the loop sector times a few modes (prerequisite: fixes the memory wall and changes what the JAX kernel holds)
-- [x] fixed-shape kernels: `Kernel`, the held state at one width with vacuum modes past the occupied ones, each external output one step of a `lax.scan` over the sweep, a `lax.switch` on its photon number, the chain as a `lax.scan` of `turn`, `segment_sum` marginals, `jax.random.categorical` and rank-scatter collapse, loss Kraus on an extra mode counting the lost photons
-- [x] occupation indices computed by combinatorial ranking (`rank`) instead of stored tables: a rotation's partner indices are its rank plus one difference of two `binomials` rows; only the occupations of each sector are stored
-- [x] rotations built from a branch-free Givens decomposition (`givens_rotation`, `Kernel.schedule`), so that gradients reach the mode matrix, loss, efficiency and indistinguishability; the diagram's own parameters are not reachable yet, filed as #81
-- [x] trajectories: one compiled branch per photon number up to the cap n* + |q|, `lax.map` over trajectories (`batch_size` vmaps chunks), colours with private photons as a padded batch of single-photon walks compacted every tick, overflow of either cap flagged and raised
-- [x] gradients: `Kernel.log_prob` replays recorded outcomes (equal to the sampled log probabilities), score-function estimates agree with finite differences within 1σ, exact differentiable `Kernel.distribution` for small systems checked against finite differences of the NumPy one
 
 Active (phase 2):
 
-- [ ] layer-by-layer interpreter of `one_step`: number resolving measurements sample and collapse, classical boxes compute on sampled values, classically controlled boxes (`BitControlledGate`, `BitControlledPhaseShift`, `ClassicalFunction`, `core.control.ControlledPhaseShift`) pick their matrix, `lax.switch` over the finite set of configurations under JAX
-- [ ] no burn-in certificate or cost bound for active diagrams: require an explicit burn-in, guard the photon cap, refuse postselection
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-08 08:00 layer-by-layer interpreter of `one_step`: number resolving measurements sample and collapse, classical boxes compute on sampled values, classically controlled boxes (`BitControlledGate`, `BitControlledPhaseShift`, `ClassicalFunction`, `core.control.ControlledPhaseShift`) pick their matrix, `lax.switch` over the finite set of configurations under JAX (the JAX half goes to the JAX pull request)
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-08 08:00 no burn-in certificate or cost bound for active diagrams: require an explicit burn-in, guard the photon cap, refuse postselection
 
 ---
 
@@ -52,3 +47,18 @@ Names agreed in session: `optyx/sampling.py`, `Interferometer` (was `Recurrent`)
 
 - [x] merge #78 into this PR and `main` (feedback, #57) into it
 - [x] move `optyx/recurrent.py` to `optyx/sampling.py` with the names above
+- [x] the JAX kernel, now moved to its own pull request
+
+---
+
+> The PR has way too many lines. Let's move the jax optimisation to a separate PR on a differentiable photonic sampler in JAX. On this PR the sampler should be implemented generally and compatible with the extension., but the aim of this PR is to extend the sampler to the full generality of optyx diagrams
+
+A closed diagram with feedback is sampled as a quantum trajectory: one tick runs :meth:`one_step` layer by layer on a pure state of the quantum wires and definite values of the classical wires. A box contracts its Kraus map into the state, its environment and its classical outputs are measured in the number basis, sampled and collapsed, and a classical box samples its outputs from its classical inputs. Each tick is then a fixed sequence of tensor contractions, measurements and choices on classical values, which the JAX pull request can compile as it stands. Passive diagrams keep the `Interferometer`, whose ticks are exponentially cheaper and whose burn-in is certified.
+
+- [x] merge `main`, now squashed, so that the diff is the sampler alone
+- [x] move the JAX kernel to its own pull request, stacked on this one
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-08 08:00 use `channel.Diagram.dilate` from `main` rather than `sampling.dilation`
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-08 08:00 general sampler: the trajectory of any closed `channel.Diagram` with feedback, its initial loop state from `boundary()`, qubits, measurements, classical boxes and classical control in the loop; postselection refused, the photon cap guarded
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-08 08:00 `Diagram.sample` dispatches: passive diagrams to the `Interferometer`, the others to the general sampler with an explicit burn-in
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-08 08:00 tests of the general sampler against the exact distribution of the unrolled diagram: feed-forward inside a loop, a qubit memory, a classical function, internal states
+
