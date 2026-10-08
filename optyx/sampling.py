@@ -1663,7 +1663,9 @@ class Kernel:
                 f"private={self.private})")
 
     def __eq__(self, other):
-        return isinstance(other, Kernel) and repr(self) == repr(other)
+        return isinstance(other, Kernel) \
+            and self.interferometer == other.interferometer \
+            and (self.cap, self.private) == (other.cap, other.private)
 
     def size(self, modes: int, photons: int = None) -> int:
         """
