@@ -218,6 +218,12 @@ def test_sweep_holds_the_loop_and_the_occupied_inputs():
     assert Sweep.from_unitary(np.eye(2), 1, (0, )).widths() == [1, 1]
 
 
+def test_equality_ignores_the_sign_of_zero():
+    unitary = np.array([[1, -0j], [0j, 1]])
+    assert eval(repr(Interferometer(unitary, 1, (1, )))) \
+        == Interferometer(unitary, 1, (1, ))
+
+
 def test_loop_state():
     state = FockState([[1, 0], [0, 1]], [3, 4])
     assert state.photons == 1

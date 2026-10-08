@@ -745,7 +745,10 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
     def __eq__(self, other):
         return isinstance(other, Interferometer) \
             and np.array_equal(self.unitary, other.unitary) \
-            and repr(self) == repr(other)
+            and (self.loop, self.inputs, self.transmissivity,
+                 self.efficiency, self.visible, self.indistinguishability) \
+            == (other.loop, other.inputs, other.transmissivity,
+                other.efficiency, other.visible, other.indistinguishability)
 
     @property
     def modes(self) -> int:
