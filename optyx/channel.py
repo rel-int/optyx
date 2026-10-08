@@ -449,25 +449,25 @@ class Diagram(frobenius.Diagram):
             self, dom=dom, cod=cod, mem=mem, state=state, effect=effect)
 
     def sample(self, ticks: int = 1, tol: float = 1e-3,
-               indistinguishability: float = 1., seed=None) -> list:
+               indistinguishability: float = 1., seed=None,
+               burn_in: int = None, cap: int = 4) -> list:
         """
-        Sample the photon numbers on the outputs of a closed photonic diagram
-        with feedback loops over `ticks` consecutive ticks of its stationary
-        regime, within total variation `tol`.
+        Sample the outputs of a closed diagram with feedback loops over
+        `ticks` consecutive ticks: the photon numbers of its optical modes,
+        the values of its qubits in the computational basis and those of
+        its classical wires.
 
-        Each tick is sampled as a pure loop state with a definite photon
-        number, the photons lost or discarded being sampled rather than
-        traced out; see :class:`optyx.sampling.Interferometer`. The loops start
-        in the vacuum and run for the burn-in certified by
-        :meth:`optyx.sampling.Interferometer.burn_in`.
-
-        Parameters:
-            ticks : The number of consecutive ticks sampled.
-            tol : The total variation distance to the stationary stream.
-            indistinguishability : The probability that an injected photon
-                is in the internal state shared by all photons rather than
-                in one of its own.
-            seed : The seed of the random number generator.
+        A passive diagram, linear optics with losses and discards, is
+        sampled by its :class:`optyx.sampling.Interferometer` in its
+        stationary regime, within total variation `tol` after the burn-in
+        certified by :meth:`optyx.sampling.Interferometer.burn_in`, with
+        injected photons in a shared internal state with probability
+        `indistinguishability`. Any other diagram, with measurements,
+        qubits, classical boxes or classical control in its loops, or
+        photons with internal states, is sampled by its
+        :class:`optyx.sampling.Unravelling`, with at most `cap` photons per
+        optical mode, after an explicit `burn_in` since there is no
+        certificate.
 
         A delay line detects at every tick the photon injected one tick
         earlier:
@@ -477,11 +477,31 @@ class Diagram(frobenius.Diagram):
         ...     ).feedback(state=Create(0))
         >>> delay.sample(ticks=2, seed=0)
         [(1,), (1,)]
+
+        A loop that measures its photon and re-injects it:
+
+        >>> from optyx.photonic import NumberResolvingMeasurement
+        >>> from optyx.classical import CopyN
+        >>> recycle = (NumberResolvingMeasurement(1) >> CopyN(2)
+        ...     >> mode @ Encode(mode)).feedback(state=Create(1))
+        >>> recycle.sample(ticks=2, burn_in=0, seed=0)
+        [(1,), (1,)]
         """
         # pylint: disable=import-outside-toplevel
-        from optyx.sampling import Interferometer
-        network = Interferometer.from_diagram(self, indistinguishability)
-        return network.sample(ticks, network.burn_in(tol), seed)
+        from optyx.sampling import Interferometer, Unravelling
+        try:
+            network = Interferometer.from_diagram(
+                self, indistinguishability)
+        except NotImplementedError as error:
+            if indistinguishability != 1 or burn_in is None:
+                raise NotImplementedError(
+                    f"{error} Other diagrams are sampled by their "
+                    "Unravelling, with an explicit burn_in and internal "
+                    "states for distinguishable photons.") from error
+            return Unravelling(self, cap).sample(ticks, burn_in, seed)
+        return network.sample(
+            ticks, network.burn_in(tol) if burn_in is None else burn_in,
+            seed)
 
     def at_time(self, n_steps: int) -> Diagram:
         """
@@ -1634,12 +1654,15 @@ class Channel(Diagram, frobenius.Box):
         to a distinguishable one. For a map on :math:`F(\mathbb{C})`,
         obtain a map on :math:`F(\mathbb{C})^{\widetilde{\otimes} d}`."""
 
+        kraus = self.kraus.inflate(d) if self.needs_inflation() \
+            else self.kraus
+        cod = self.cod.inflate(d)
         return Channel(
             name=self.name + f"^{d}",
-            kraus=self.kraus.inflate(d) if
-            self.needs_inflation() else self.kraus,
+            kraus=kraus,
             dom=self.dom.inflate(d),
-            cod=self.cod.inflate(d),
+            cod=cod,
+            env=kraus.cod[len(cod.single()):],
         )
 
 

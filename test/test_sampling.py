@@ -6,8 +6,8 @@ import pytest
 from scipy.stats import unitary_group
 
 from optyx.sampling import (
-    Interferometer, FockState, Sweep, sector, position, givens, interfere,
-    Kernel, twomode, binomials, rank, twomodes, turn)
+    Interferometer, FockState, Sweep, Unravelling, levels, sector, position,
+    givens, interfere, Kernel, twomode, binomials, rank, twomodes, turn)
 
 try:
     import jax
@@ -316,6 +316,133 @@ def test_complete_refuses_a_non_isometry():
     from optyx.sampling import complete
     with pytest.raises(ValueError):
         complete(np.array([[1.], [1.]]))
+
+
+def exact(diagram, ticks):
+    """
+    The exact distribution of the outputs of `ticks` ticks of a closed
+    diagram, every quantum output measured, from its unrolling.
+    """
+    from optyx.channel import Diagram, Measure
+    measured = diagram.unroll(ticks - 1)
+    for i, ob in enumerate(measured.cod.inside):
+        if ob.name in ("qmode", "qubit"):
+            measured = measured >> Diagram.id(measured.cod[:i]) @ Measure(
+                measured.cod[i:i + 1]) @ Diagram.id(measured.cod[i + 1:])
+    if levels(measured):
+        measured = measured.inflate(levels(measured))
+    width = len(diagram.cod)
+    return {tuple(tuple(key[i * width:(i + 1) * width])
+                  for i in range(ticks)): value
+            for key, value in measured.eval().prob_dist().items()
+            if value > 1e-12}
+
+
+def feedforward():
+    from optyx.channel import qmode, mode, bit
+    from optyx.photonic import Create, MZI, Phase, PhotonLoss
+    from optyx.photonic import NumberResolvingMeasurement
+    from optyx import classical
+    parity = classical.ClassicalFunction(lambda x: [x[0] % 2], mode, bit)
+    step = (Create(1) @ qmode @ qmode >> MZI(.3, .2) @ qmode
+            >> NumberResolvingMeasurement(1) @ qmode @ qmode
+            >> parity @ qmode @ qmode >> classical.CopyBit(2) @ qmode @ qmode
+            >> bit @ classical.BitControlledGate(Phase(.3)) @ qmode
+            >> bit @ MZI(.1, .4) >> bit @ qmode @ PhotonLoss(.8))
+    return step.feedback(mem=qmode @ qmode, state=Create(0) @ Create(1))
+
+
+def qubit_loop():
+    from optyx.channel import qubit, bit, Diagram
+    from optyx import classical, qubits
+    cnot = qubits.Z(1, 2) @ qubit \
+        >> qubit @ qubits.X(2, 1) @ qubits.Scalar(2 ** .5)
+    step = (qubit @ qubits.Ket(0) >> qubits.X(1, 1, .15) @ qubit >> cnot
+            >> qubit @ qubits.Measure(1) >> Diagram.swap(qubit, bit)
+            >> classical.CopyBit(2) @ qubit >> bit @ classical.CtrlZ
+            >> bit @ qubits.H())
+    return step.feedback(mem=qubit, state=qubits.Ket(0))
+
+
+def adder():
+    from optyx.channel import qmode
+    from optyx.photonic import Create, BS, NumberResolvingMeasurement
+    from optyx import classical
+    step = (Create(1) @ Create(1) @ qmode >> qmode @ BS >> BS @ qmode
+            >> NumberResolvingMeasurement(2) @ qmode
+            >> classical.Add(2) @ qmode)
+    return step.feedback(mem=qmode, state=Create(0))
+
+
+def internal_states():
+    from optyx.channel import qmode
+    from optyx.photonic import Create, MZI, PhotonLoss
+    step = Create(1, internal_states=([.3 ** .5, .7 ** .5], )) @ qmode \
+        >> MZI(.2, .3) >> qmode @ PhotonLoss(.6)
+    return step.feedback(
+        mem=qmode, state=Create(1, internal_states=([1, 0], )))
+
+
+def kerr():
+    from optyx.core import zw
+    from optyx.channel import Channel, qmode
+    from optyx.photonic import Create, BS
+    nonlinear = Channel(
+        "Kerr", zw.ZBox(1, 1, lambda n: 1j ** (n * n)), qmode, qmode)
+    step = Create(1) @ qmode >> BS >> qmode @ nonlinear >> BS
+    return step.feedback(mem=qmode, state=Create(1))
+
+
+@pytest.mark.parametrize("diagram, ticks", [
+    (feedforward, 2), (qubit_loop, 3), (adder, 2), (internal_states, 2),
+    (kerr, 2), (lossy_diagram, 2)])
+def test_unravelling_matches_the_unrolled_diagram(diagram, ticks):
+    from collections import Counter
+    diagram = diagram()
+    unravelling = Unravelling(diagram)
+    counts = Counter(tuple(unravelling.sample(ticks, seed=seed))
+                     for seed in range(1000))
+    for history, probability in exact(diagram, ticks).items():
+        assert abs(counts[history] / 1000 - probability) < .05, history
+
+
+def test_unravelling_refuses_what_it_cannot_sample():
+    from optyx.channel import qmode, Diagram
+    from optyx.photonic import Create, BS, Select
+    from optyx import classical
+    selected = (Create(1) @ qmode >> BS >> Select(1) @ qmode).feedback(
+        mem=qmode, state=Create(0))
+    with pytest.raises(NotImplementedError):
+        Unravelling(selected).sample(2, seed=0)
+    postselected = (qmode @ classical.Bit(1) >> qmode @ classical
+                    .PostselectBit(0)).feedback(mem=qmode, state=Create(0))
+    with pytest.raises(NotImplementedError):
+        Unravelling(postselected).sample(1, seed=0)
+    with pytest.raises(ValueError):
+        Unravelling(lossy_diagram(), cap=1).sample(3, seed=0)
+    with pytest.raises(ValueError):
+        Unravelling((Create(2) @ qmode >> BS).feedback(
+            mem=qmode, state=Create(0)), cap=1).sample(1, seed=0)
+    assert repr(Unravelling(adder())).startswith("Unravelling(")
+    with pytest.raises(ValueError):
+        Unravelling(lossy_diagram(), cap=0)
+    with pytest.raises(ValueError):
+        Unravelling(Diagram.id(qmode))
+
+
+def test_sample_dispatches_on_passivity():
+    assert len(lossy_diagram().sample(ticks=2, seed=0)) == 2
+    assert lossy_diagram().sample(ticks=2, seed=0) \
+        == lossy_diagram().sample(ticks=2, seed=0, burn_in=Interferometer
+                                  .from_diagram(lossy_diagram()).burn_in(
+                                      1e-3))
+    assert len(adder().sample(ticks=2, burn_in=1, seed=0)) == 2
+    with pytest.raises(NotImplementedError):
+        adder().sample(ticks=2)
+    with pytest.raises(NotImplementedError):
+        adder().sample(ticks=2, burn_in=1, indistinguishability=.5)
+    with pytest.raises(NotImplementedError):
+        Interferometer.from_diagram(internal_states())
 
 
 @requires_jax
