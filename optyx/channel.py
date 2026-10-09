@@ -452,7 +452,8 @@ class Diagram(frobenius.Diagram):
     # pylint: disable=too-many-arguments
     def sample(self, ticks: int = 1, tol: float = 1e-3,
                indistinguishability: float = 1., seed=None,
-               burn_in: int = None, cap: int = 4, shots: int = None) -> list:
+               burn_in: int = None, cap: int = 4, shots: int = None,
+               source=None) -> list:
         """
         Sample the outputs of a closed diagram with feedback loops over
         `ticks` consecutive ticks: the photon numbers of its optical modes,
@@ -464,7 +465,10 @@ class Diagram(frobenius.Diagram):
         stationary regime, within total variation `tol` after the burn-in
         certified by :meth:`optyx.sampling.Interferometer.burn_in`, with
         injected photons in a shared internal state with probability
-        `indistinguishability`. Any other diagram, with measurements,
+        `indistinguishability`, or drawn from an
+        :class:`optyx.sampling.Source` in place of the photons of its
+        :class:`optyx.photonic.Create` boxes. Any other diagram, with
+        measurements,
         qubits, classical boxes or classical control in its loops, or
         photons with internal states, is sampled by its
         :class:`optyx.sampling.Unravelling`, with at most `cap` photons per
@@ -493,34 +497,42 @@ class Diagram(frobenius.Diagram):
         [(1,), (1,)]
         >>> recycle.sample(ticks=1, burn_in=0, seed=0, shots=2)
         [[(1,)], [(1,)]]
+
+        The delay line fed with coherent light instead of single photons:
+
+        >>> from optyx.sampling import Coherent
+        >>> delay.sample(ticks=3, seed=0, source=Coherent((1., )))
+        [(1,), (0,), (2,)]
         """
         sampler, burn_in = self.sampler(
-            tol, indistinguishability, burn_in, cap)
+            tol, indistinguishability, burn_in, cap, source)
         if shots is None:
             return sampler.sample(ticks, burn_in, seed)
         return [sampler.sample(ticks, burn_in, child)
                 for child in np.random.SeedSequence(seed).spawn(shots)]
 
     def sampler(self, tol: float = 1e-3, indistinguishability: float = 1.,
-                burn_in: int = None, cap: int = 4) -> tuple:
+                burn_in: int = None, cap: int = 4, source=None) -> tuple:
         """
         The sampler of :meth:`sample` and its burn-in: the
         :class:`optyx.sampling.Interferometer` of a passive diagram, with
         the burn-in it certifies within `tol` unless `burn_in` is given,
         and the :class:`optyx.sampling.Unravelling` of any other, with the
-        `burn_in` given.
+        `burn_in` given. Only a passive diagram takes a `source`.
         """
         # pylint: disable=import-outside-toplevel
         from optyx.sampling import Interferometer, Unravelling
         try:
             network = Interferometer.from_diagram(
-                self, indistinguishability)
+                self, indistinguishability, source)
         except NotImplementedError as error:
-            if indistinguishability != 1 or burn_in is None:
+            if indistinguishability != 1 or burn_in is None \
+                    or source is not None:
                 raise NotImplementedError(
                     f"{error} Other diagrams are sampled by their "
-                    "Unravelling, with an explicit burn_in and internal "
-                    "states for distinguishable photons.") from error
+                    "Unravelling, with an explicit burn_in, internal "
+                    "states for distinguishable photons and the photons "
+                    "of their Create boxes.") from error
             return Unravelling(self, cap), burn_in
         return network, network.burn_in(tol) if burn_in is None \
             else burn_in
