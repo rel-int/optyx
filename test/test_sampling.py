@@ -1,3 +1,4 @@
+from collections import Counter
 from itertools import permutations
 from math import comb, factorial, prod
 
@@ -324,18 +325,41 @@ def test_sources():
 
 
 def test_sources_on_diagrams():
-    from optyx.channel import Diagram, qmode
-    from optyx.photonic import Create, NumberResolvingMeasurement
-    delay = (Create(1) @ qmode >> Diagram.swap(qmode, qmode)).feedback(
-        state=Create(0))
-    network, _ = delay.sampler(source=Coherent((2., )))
+    from optyx.channel import Diagram, Encode, qmode, mode
+    from optyx.photonic import (
+        Create, NumberResolvingMeasurement, PhotonLoss, BS)
+    fibre = Diagram.swap(qmode, qmode).feedback(state=Create(0))
+    network, _ = fibre.sampler(source=Coherent((2., )))
     assert network.source == Coherent((2., ))
     with pytest.raises(ValueError):
-        Interferometer.from_diagram(delay, source=Coherent((1., 1.)))
+        fibre.sample()
+    with pytest.raises(ValueError):
+        fibre.sample(source=Coherent((1., 1.)))
+    with pytest.raises(ValueError):
+        (Create(1) @ qmode >> Diagram.swap(qmode, qmode)).feedback(
+            state=Create(0)).sample(source=Fock((1, )))
+    lossy = (Create(1) @ qmode @ qmode >> BS @ qmode >> qmode @ BS
+             >> qmode @ qmode @ PhotonLoss(.5)).feedback(state=Create(0))
+    network, _ = lossy.sampler(source=Thermal((1., )), burn_in=0)
+    assert network.source == Thermal((1., )) @ Fock((1, 0))
+    assert eval(repr(network.source)) == network.source
+    unravelling = Unravelling(lossy, cap=6, source=Fock((1, )))
+    assert "source=Fock((1,))" in repr(unravelling)
+    exact = Interferometer.from_diagram(lossy, source=Fock((1, ))) \
+        .distribution(1, burn_in=3)
+    counts = Counter(tuple(unravelling.sample(1, 3, seed))
+                     for seed in range(1000))
+    assert sum(abs(counts[key] / 1000 - exact.get(key, 0))
+               for key in set(counts) | set(exact)) / 2 < .05
+    with pytest.raises(ValueError):
+        Unravelling(fibre, cap=1, source=Fock((2, ))).sample(1)
     recycle = (Create(1) @ qmode >> NumberResolvingMeasurement(1) @ qmode
                ).feedback(mem=qmode, state=Create(0))
-    with pytest.raises(NotImplementedError):
-        recycle.sample(burn_in=0, source=Coherent((1., )))
+    assert len(recycle.sample(burn_in=0)) == 1
+    encoded = (Encode(mode) @ qmode >> Diagram.swap(qmode, qmode)
+               ).feedback(mem=qmode, state=Create(0))
+    assert encoded.sample(ticks=2, burn_in=0, seed=0,
+                          source=Fock((1, ))) == [(0, ), (1, )]
 
 
 def lossy_diagram():

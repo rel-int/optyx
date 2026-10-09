@@ -26,8 +26,22 @@ classical counterpart `mode` carrying photon counts, plus `qubit` and
 in sequence with `>>` and in parallel with `@`, and the resulting diagram
 is simulated in two ways: exactly, by contracting a tensor network with
 `.eval()`, and the way the hardware runs it, one detection event at a time,
-with `.sample()`. The two must agree, and from the first state on, every
-circuit in this notebook is run both ways.
+with `.sample()`. The two must agree, and every circuit in this notebook is
+run both ways.
+
+The tensor network holds every outcome at once, so its cost grows with the
+whole state space. A sampler instead follows a single run: it carries the
+state the photons are in, applies each box to it and, wherever a photon is
+detected or lost, draws what happens and carries on with the state that
+outcome leaves. Each section says what the sampler does with the components
+it introduces. Two samplers sit behind `sample`, chosen by the diagram:
+
+- an `Interferometer` for **passive** diagrams — linear optics, sources,
+  loss and detectors — which tracks the photons through the optics and
+  detects each output as soon as nothing later can change it;
+- an `Unravelling` for **everything else** — qubits, measurements,
+  classical processing and control — which applies the diagram one box at a
+  time to a state of its quantum wires and the values of its classical ones.
 
 This notebook builds up the picture one component at a time:
 
@@ -50,6 +64,7 @@ from optyx import classical, photonic, qubits
 from optyx.core import control
 from optyx.channel import (
     Channel, Diagram, Discard, Measure, Observable, Ty, bit, mode, qmode)
+from optyx.sampling import Coherent, Fock
 
 import warnings
 
@@ -115,6 +130,22 @@ assert np.allclose(
     (fourier >> fourier.dagger()).to_path().array, np.eye(3))
 ```
 
+A gate has open inputs, so sampling it needs light to feed them. A
+`source` does so at every run: `Fock` injects a fixed number of photons
+into each input, `Coherent` a laser pulse of random phase, i.e. a Poisson
+number of photons. The sampler moves the photons through the gate's
+unitary one pair of modes at a time, its decomposition into beam splitters
+and phases, and counts them at the outputs. One photon in each arm of a
+beam splitter always leaves bunched, while laser light of the same
+intensity splits at random:
+
+```python {.marimo}
+(Counter(run[0] for run in photonic.BS.sample(
+    source=Fock((1, 1)), shots=1000, seed=0)).most_common(),
+ Counter(run[0] for run in photonic.BS.sample(
+    source=Coherent((1., 1.)), shots=1000, seed=0)).most_common(4))
+```
+
 ## 2. States
 
 Sources prepare **Fock states**: `Create(n_1, ..., n_k)` puts `n_i`
@@ -140,7 +171,10 @@ runs the circuit the way the hardware does, `shots` times, drawing one
 detection pattern per run, while `prob_dist` reads the exact distribution
 off the tensor network. `compare` puts them side by side, the exact
 probability then the frequency in 1000 runs, which agree up to sampling
-noise of order $1/\sqrt{1000} \approx 0.03$:
+noise of order $1/\sqrt{1000} \approx 0.03$. `Create` is the source of
+the diagram itself, so the circuit is closed and needs no `source`; the
+sampler starts from the two photons and interferes them as in the beam
+splitter above:
 
 ```python {.marimo}
 compare(hom, hom.eval().prob_dist())
@@ -171,10 +205,13 @@ ghz.draw(figsize=(5, 4))
 ```
 
 Sampling goes through qubits too: each run detects one of the two
-dual-rail patterns of the GHZ state. A circuit made of anything other than
-linear optics takes an explicit `burn_in`, the number of runs to discard
-before recording, which only matters for the loops of section 8 and is
-zero until then:
+dual-rail patterns of the GHZ state. This circuit is not passive linear
+optics, so it is run by the `Unravelling`: the Z spider prepares a state of
+three qubit wires, each `DualRail` box sends a qubit into a photon in one
+of two modes, and the detectors draw one pattern from the modes' state. A
+circuit made of anything other than linear optics takes an explicit
+`burn_in`, the number of runs to discard before recording, which only
+matters for the loops of section 8 and is zero until then:
 
 ```python {.marimo}
 compare(ghz, ghz.eval().prob_dist(), burn_in=0)
@@ -224,27 +261,46 @@ assert np.allclose((_state >> total >> _state.dagger()).eval().tensor.array, (ro
 A sandwich only makes sense for a pure state. The general notion is an
 **observable**: the effect $\rho \mapsto \mathrm{tr}(A \rho)$ of a normal
 operator $A$, a box from its type to nothing. `Observable` builds one from
-an operator or from a classical function of the outcomes. Its
-`expectation` contracts the tensor network, and `measure` measures the
-eigenbasis of $A$ run by run, so that the mean of the samples estimates the
-expectation — here a Fock state, which has a definite photon number:
+an operator or from a classical function of the outcomes, and its
+`expectation` contracts the tensor network:
 
 ```python {.marimo}
 photon_number = Observable(number)
-(photon_number.expectation(photonic.Create(2)),
- photon_number.measure(photonic.Create(2), shots=5))
+photon_number.expectation(photonic.Create(2))
 ```
 
 Discards and postselections are observables too. Discarding is the
 identity operator, whose expectation is the trace, and the postselection
 $\langle 2, 0|$ of the amplitude above is the projector
 $|2, 0\rangle\langle 2, 0|$, whose expectation is the probability
-$|i/\sqrt{2}|^2 = 1/2$; sampled, it is the frequency of the outcome
-$(2, 0)$:
+$|i/\sqrt{2}|^2 = 1/2$:
 
 ```python {.marimo}
 bunched = Observable(function=lambda n: n == [2, 0], dom=qmode ** 2)
-bunched.expectation(hom), bunched.measure(hom, shots=1000, seed=0).mean()
+bunched.expectation(hom)
+```
+
+The sampler does not postselect: a run cannot be made to produce the
+outcome it is conditioned on, so `sample` refuses an effect such as
+`Select`:
+
+```python {.marimo}
+try:
+    amplitude.sample(burn_in=0)
+except NotImplementedError as error:
+    print(error)
+```
+
+The diagram is sampled without the effect instead. What the hardware
+records is the outcome of every run, and an observable that is a function
+of the outcomes is estimated by its mean over the runs. Postselecting on
+$(2, 0)$ is keeping the runs that detected it, whose frequency estimates
+its probability:
+
+```python {.marimo}
+_runs = hom.sample(shots=1000, seed=0)
+bunched.expectation(hom), np.mean(
+    [bunched.function(list(_run[0])) for _run in _runs])
 ```
 
 ## 4. Noise
@@ -283,9 +339,12 @@ lossy_hom = (
 lossy_hom.eval().prob_dist(round_digits=4)
 ```
 
-The sampler sees the loss run by run: in some runs the photon reaches the
-detectors, in others it leaks into the environment, which the sampler
-measures and forgets:
+The sampler sees the loss run by run. A lossy channel is a unitary onto
+the environment as well, so the sampler applies the unitary and then
+measures the environment like any other output, but does not record it: in
+some runs the photon reaches the detectors, in others it leaks into the
+environment. Averaged over runs, measuring and forgetting the environment
+is exactly tracing it out, which is what `.eval()` does:
 
 ```python {.marimo}
 compare(lossy_hom, lossy_hom.eval().prob_dist(), burn_in=0)
@@ -312,17 +371,49 @@ hom_partial = (
 hom_partial.inflate(2).eval().prob_dist(round_digits=4)
 ```
 
-The sampler inflates the diagram by itself:
-
-```python {.marimo}
-compare(hom_partial, hom_partial.inflate(2).eval().prob_dist(), burn_in=0)
-```
-
 The coincidence probability is
 $\frac{1}{2}(1 - |\langle s_1 | s_2 \rangle|^2) = \frac{1}{4}$:
 halfway between the vanishing dip of identical photons and the classical
 $\frac{1}{2}$ of fully distinguishable ones. The depth of this dip is how
 indistinguishability is measured in the lab.
+
+Given internal states, the sampler does what the tensor network does: it
+inflates the diagram, each mode becoming one mode per internal level, runs
+the inflated diagram with the `Unravelling`, and adds up the counts of the
+levels of each mode, since a detector does not see them:
+
+```python {.marimo}
+compare(hom_partial, hom_partial.inflate(2).eval().prob_dist(), burn_in=0)
+```
+
+That is exact for any internal states, but every internal level multiplies
+the modes the sampler holds. For passive diagrams the sampler also offers
+a cheaper model, `indistinguishability=p`, without internal states in the
+diagram: at every run each photon is drawn either in an internal state
+shared by all, with probability $p$, or in one of its own, orthogonal to
+every other. The photons in the shared state interfere as identical ones,
+and each other photon walks through the optics alone, so the cost is that
+of identical photons. This is the model of Renema et al. (2018).
+
+The two are not the same thing. Internal states fix the overlap of every
+pair of photons, a pure state of their internal degrees of freedom, and
+the tensor network follows them exactly. The indistinguishability $p$ is a
+mixture: two photons interfere when both were drawn in the shared state,
+with probability $p^2$, and are fully distinguishable otherwise. On two
+photons it gives the same dip as internal states of overlap
+$|\langle s_1 | s_2 \rangle| = p$, here $1/\sqrt{2}$:
+
+```python {.marimo}
+compare(photonic.Create(1, 1) >> photonic.BS,
+        hom_partial.inflate(2).eval().prob_dist(),
+        indistinguishability=1 / np.sqrt(2))
+```
+
+From three photons on they differ, since a mixture cannot reproduce the
+phases of three pure internal states, which interfere through the
+triple products $\langle s_1 | s_2 \rangle \langle s_2 | s_3 \rangle
+\langle s_3 | s_1 \rangle$; the indistinguishability is a model of a
+source, internal states a description of particular photons.
 
 ## 6. Measurement
 
@@ -352,6 +443,17 @@ The tensor network gives the full distribution over detection patterns —
 note the suppression of some outcomes and enhancement of others, pure
 multi-photon interference at work — and the samples are what the
 experiment records.
+
+In the sampler a detector is a measurement in the number basis: it draws a
+photon count with the probability the state gives it and collapses the
+state onto that count. A `Measure` box turns the drawn count into the value
+of its classical wire, and an output left as a `qmode` is measured at the
+end of the run, so the two give the same samples. Without the detectors,
+the open outputs are counted all the same:
+
+```python {.marimo}
+compare(photonic.Create(1, 0, 1) >> fourier, sampling.eval().prob_dist())
+```
 
 ## 7. Classical control
 
@@ -453,12 +555,27 @@ compare(loop, stationary, tol=1e-3)
 ```
 
 An observable of the output, the photon count, has the same mean in the
-fixed point and in the samples:
+fixed point and in the samples; a single long run gives it too, its ticks
+correlated through the loop but each one stationary:
 
 ```python {.marimo}
 photons = Observable(function=lambda n: n[0], dom=qmode)
+_trajectory = loop.sample(ticks=1000, seed=0)
 (sum(count * p for (count, ), p in stationary.items()),
- photons.measure(loop, shots=1000, seed=0).mean())
+ np.mean([photons.function(list(_tick)) for _tick in _trajectory]))
+```
+
+Leaving the input of the loop open, the source moves out of the diagram
+and into `sample`. Fed one photon per tick it is the loop above; fed laser
+pulses of the same mean photon number, the photons arrive at random and
+the counts at the output spread out:
+
+```python {.marimo}
+fibre = photonic.MZI(0.06, 0).feedback(mem=qmode, state=photonic.Create(0))
+{name: Counter(_tick[0] for _tick in fibre.sample(
+    ticks=1000, seed=0, source=_source)).most_common(4)
+ for name, _source in (("photons", Fock((1, ))),
+                       ("laser", Coherent((1., ))))}
 ```
 
 ## 9. The universal setup
