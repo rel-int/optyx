@@ -24,13 +24,16 @@ structure: a **channel**. Wires are types — the quantum mode `qmode`, its
 classical counterpart `mode` carrying photon counts, plus `qubit` and
 `bit` — and boxes are completely positive maps between them. Boxes compose
 in sequence with `>>` and in parallel with `@`, and the resulting diagram
-is simulated by contracting a tensor network with `.eval()`.
+is simulated in two ways: exactly, by contracting a tensor network with
+`.eval()`, and the way the hardware runs it, one detection event at a time,
+with `.sample()`. The two must agree, and from the first state on, every
+circuit in this notebook is run both ways.
 
 This notebook builds up the picture one component at a time:
 
 1. **gates** — beam splitters, phase shifters, interferometers;
-2. **states** — Fock states and dual-rail qubits;
-3. **effects** — postselection and observables;
+2. **states** — Fock states and dual-rail qubits, and their samples;
+3. **effects** — postselection and observables, exact and sampled;
 4. **noise** — photon loss as a discarded environment;
 5. **distinguishability** — photons with internal states;
 6. **measurement** — classical wires and today's experiments;
@@ -39,16 +42,31 @@ This notebook builds up the picture one component at a time:
 9. **the universal setup** — all of the above in one diagram.
 
 ```python {.marimo}
+from collections import Counter
+
 import numpy as np
 from discopy.symmetric import Equation
 from optyx import classical, photonic, qubits
 from optyx.core import control
 from optyx.channel import (
-    Channel, Diagram, Discard, Measure, Ty, bit, mode, qmode)
+    Channel, Diagram, Discard, Measure, Observable, Ty, bit, mode, qmode)
 
 import warnings
 
 warnings.filterwarnings("ignore", message="Trial error")  # cotengra probes
+
+
+def compare(diagram, exact, shots=1000, **kwargs):
+    """
+    Each outcome of one run of `diagram`, with its `exact` probability and
+    its frequency in `shots` samples.
+    """
+    counts = Counter(trajectory[0] for trajectory in diagram.sample(
+        shots=shots, seed=0, **kwargs))
+    return {outcome: (round(float(exact.get(outcome, 0)), 3),
+                      counts[outcome] / shots)
+            for outcome in sorted(set(exact) | set(counts))
+            if exact.get(outcome, 0) > 5e-4 or counts[outcome]}
 ```
 
 ## 1. Gates
@@ -117,6 +135,17 @@ The coincidence outcome $(1, 1)$ has amplitude zero: indistinguishable
 photons bunch, and leave through the same port. This interference is the
 resource behind linear optical quantum computing.
 
+A detector does not see amplitudes: it sees one outcome per run. `sample`
+runs the circuit the way the hardware does, `shots` times, drawing one
+detection pattern per run, while `prob_dist` reads the exact distribution
+off the tensor network. `compare` puts them side by side, the exact
+probability then the frequency in 1000 runs, which agree up to sampling
+noise of order $1/\sqrt{1000} \approx 0.03$:
+
+```python {.marimo}
+compare(hom, hom.eval().prob_dist())
+```
+
 A **dual-rail qubit** is one photon shared between two modes:
 $|0\rangle \mapsto |01\rangle$ and $|1\rangle \mapsto |10\rangle$.
 `DualRail` encodes qubit states into photonics:
@@ -139,6 +168,16 @@ ghz.draw(figsize=(5, 4))
 {occupation: round(abs(amplitude), 3)
  for occupation, amplitude in ghz.eval().amplitudes().items()
  if abs(amplitude) > 1e-12}
+```
+
+Sampling goes through qubits too: each run detects one of the two
+dual-rail patterns of the GHZ state. A circuit made of anything other than
+linear optics takes an explicit `burn_in`, the number of runs to discard
+before recording, which only matters for the loops of section 8 and is
+zero until then:
+
+```python {.marimo}
+compare(ghz, ghz.eval().prob_dist(), burn_in=0)
 ```
 
 ## 3. Effects
@@ -182,6 +221,32 @@ assert np.allclose((_state >> total >> _state.dagger()).eval().tensor.array, (ro
 (_state >> total >> _state.dagger()).eval().tensor.array
 ```
 
+A sandwich only makes sense for a pure state. The general notion is an
+**observable**: the effect $\rho \mapsto \mathrm{tr}(A \rho)$ of a normal
+operator $A$, a box from its type to nothing. `Observable` builds one from
+an operator or from a classical function of the outcomes. Its
+`expectation` contracts the tensor network, and `measure` measures the
+eigenbasis of $A$ run by run, so that the mean of the samples estimates the
+expectation — here a Fock state, which has a definite photon number:
+
+```python {.marimo}
+photon_number = Observable(number)
+(photon_number.expectation(photonic.Create(2)),
+ photon_number.measure(photonic.Create(2), shots=5))
+```
+
+Discards and postselections are observables too. Discarding is the
+identity operator, whose expectation is the trace, and the postselection
+$\langle 2, 0|$ of the amplitude above is the projector
+$|2, 0\rangle\langle 2, 0|$, whose expectation is the probability
+$|i/\sqrt{2}|^2 = 1/2$; sampled, it is the frequency of the outcome
+$(2, 0)$:
+
+```python {.marimo}
+bunched = Observable(function=lambda n: n == [2, 0], dom=qmode ** 2)
+bunched.expectation(hom), bunched.measure(hom, shots=1000, seed=0).mean()
+```
+
 ## 4. Noise
 
 Everything so far was **pure**: gates were unitary, states were vectors.
@@ -218,6 +283,14 @@ lossy_hom = (
 lossy_hom.eval().prob_dist(round_digits=4)
 ```
 
+The sampler sees the loss run by run: in some runs the photon reaches the
+detectors, in others it leaks into the environment, which the sampler
+measures and forgets:
+
+```python {.marimo}
+compare(lossy_hom, lossy_hom.eval().prob_dist(), burn_in=0)
+```
+
 ## 5. Distinguishability
 
 Photons carry internal degrees of freedom — arrival time, frequency,
@@ -237,6 +310,12 @@ hom_partial = (
     >> photonic.BS
     >> photonic.NumberResolvingMeasurement(2))
 hom_partial.inflate(2).eval().prob_dist(round_digits=4)
+```
+
+The sampler inflates the diagram by itself:
+
+```python {.marimo}
+compare(hom_partial, hom_partial.inflate(2).eval().prob_dist(), burn_in=0)
 ```
 
 The coincidence probability is
@@ -266,12 +345,13 @@ sampling.draw(figsize=(4, 4))
 ```
 
 ```python {.marimo}
-sampling.eval().prob_dist(round_digits=4)
+compare(sampling, sampling.eval().prob_dist(), burn_in=0)
 ```
 
-The output is the full distribution over detection patterns — note the
-suppression of some outcomes and enhancement of others, pure multi-photon
-interference at work.
+The tensor network gives the full distribution over detection patterns —
+note the suppression of some outcomes and enhancement of others, pure
+multi-photon interference at work — and the samples are what the
+experiment records.
 
 ## 7. Classical control
 
@@ -301,7 +381,15 @@ feedforward.draw(figsize=(4, 5))
 
 One gate measures, the other is controlled: the codomain is a quantum
 mode whose state depends on a classical computation on a measurement
-outcome — a genuinely classical-quantum channel.
+outcome — a genuinely classical-quantum channel. The sampler runs it as the
+electronics would: it measures, computes the parity of the count and
+applies the phase, run by run:
+
+```python {.marimo}
+compare(feedforward, (
+    feedforward >> photonic.NumberResolvingMeasurement(1)).eval().prob_dist(),
+    burn_in=0)
+```
 
 ## 8. Feedback
 
@@ -351,6 +439,26 @@ print({count: p for count, p in
 print({count: p for count, p in
        measured.fix(tol=1e-3, max_chi=None).prob_dist(round_digits=4).items()
        if p})
+```
+
+Sampling a loop runs it tick after tick, the photons in the fibre carried
+from one tick to the next. For a passive loop like this one, `sample`
+certifies how many ticks the loop needs to forget its initial state within
+total variation `tol`, discards them, and samples the stationary regime:
+the fixed point.
+
+```python {.marimo}
+stationary = measured.eigen_fix(max_truncation=8).prob_dist()
+compare(loop, stationary, tol=1e-3)
+```
+
+An observable of the output, the photon count, has the same mean in the
+fixed point and in the samples:
+
+```python {.marimo}
+photons = Observable(function=lambda n: n[0], dom=qmode)
+(sum(count * p for (count, ), p in stationary.items()),
+ photons.measure(loop, shots=1000, seed=0).mean())
 ```
 
 ## 9. The universal setup
@@ -459,9 +567,27 @@ a memory carrying a classical control bit:
 setup.eigen_fix(tol=1e-6).prob_dist(round_digits=4)
 ```
 
+and it samples like any other channel. With classical control in its loop
+there is no certificate of its burn-in, so we discard ten ticks before
+recording and compare with the distribution at that time:
+
+```python {.marimo}
+compare(setup, setup.at_time(10).eval().prob_dist(), burn_in=10)
+```
+
+A run of several ticks samples the stream itself, outcome after outcome,
+correlated through the loop:
+
+```python {.marimo}
+setup.sample(ticks=8, burn_in=10, seed=1)
+```
+
 So, what is a channel? It is the one interface behind every box in this
 notebook: a Kraus map with a discarded environment, on quantum and
-classical wires alike. Unitary gates are channels with no environment,
+classical wires alike. It can be contracted, for the exact distribution of
+its outcomes, and it can be sampled, outcome by outcome as the hardware
+produces them; observables tie the two together, their expectation a
+contraction and their samples an experiment. Unitary gates are channels with no environment,
 states are channels from nothing, effects and measurements are channels
 into classical wires, loss is a channel with a one-mode environment,
 feedforward is a channel between classical wires, and a feedback loop is

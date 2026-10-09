@@ -449,6 +449,16 @@ def test_sample_dispatches_on_passivity():
         adder().sample(ticks=2, burn_in=1, indistinguishability=.5)
     with pytest.raises(NotImplementedError):
         Interferometer.from_diagram(internal_states())
+    from optyx.channel import qmode, mode, bit
+    from optyx.photonic import Create, BS, Phase, NumberResolvingMeasurement
+    from optyx import classical
+    parity = classical.ClassicalFunction(lambda n: [n[0] % 2], mode, bit)
+    controlled = Create(1, 1) >> BS \
+        >> NumberResolvingMeasurement(1) @ qmode >> parity @ qmode \
+        >> classical.BitControlledGate(Phase(.5))
+    with pytest.raises(NotImplementedError):
+        Interferometer.from_diagram(controlled)
+    assert len(controlled.sample(burn_in=0, shots=3, seed=0)) == 3
 
 
 @requires_jax
