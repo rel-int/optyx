@@ -569,3 +569,26 @@ def test_sample_dispatches_on_passivity():
     with pytest.raises(NotImplementedError):
         Interferometer.from_diagram(controlled)
     assert len(controlled.sample(burn_in=0, shots=3, seed=0)) == 3
+
+
+@pytest.mark.parametrize("name", ["delay", "mzi", "two inputs"])
+def test_stationary_distribution_matches_fix(name):
+    from optyx.channel import Diagram, qmode
+    from optyx.photonic import (
+        Create, MZI, BS, PhotonLoss, NumberResolvingMeasurement)
+    step = {
+        "delay": Create(1) @ qmode >> Diagram.swap(qmode, qmode)
+        >> qmode @ PhotonLoss(.5),
+        "mzi": Create(1) @ qmode >> MZI(.06, 0) >> qmode @ PhotonLoss(.7),
+        "two inputs": Create(1, 1) @ qmode >> qmode @ BS
+        >> MZI(.3, .2) @ qmode >> qmode @ qmode @ PhotonLoss(.5)}[name]
+    loop = step.feedback(mem=qmode, state=Create(0))
+    network = Interferometer.from_diagram(loop)
+    burn_in = network.burn_in(1e-3)
+    assert burn_in + 1 == loop.unroll_certificate(1e-3)
+    exact = {history[0]: probability for history, probability
+             in network.distribution(1, burn_in).items()}
+    fixed = (loop >> NumberResolvingMeasurement(len(loop.cod))).fix(
+        tol=1e-3, max_chi=None).prob_dist()
+    for outcome in set(exact) | set(fixed):
+        assert np.isclose(exact.get(outcome, 0), fixed.get(outcome, 0))

@@ -13,7 +13,7 @@ other x inputs at every tick.
 - [x] tests against permanents of the unrolled interferometer, with and without loss
 - [x] API docs entry
 - [ ] notebook in `docs/notebooks`: memory and time per tick against loss, and the loopback experiment geometry (numbers so far in the wiki paper plan)
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 10:20 validate against `Diagram.fix` of `armand/minimal-sbs-certificate` once feedback is on main
+- [x] validate against `Diagram.fix`: the exact stationary distribution of the `Interferometer` matches `fix` to machine precision on three lossy loops, and `burn_in` is `unroll_certificate` less its readout step
 - [x] measure each external mode as soon as no later rotation touches it, so that a tick holds the loop sector times a few external modes rather than the whole (L+x)-mode sector (the lossless loopback geometry, L=5, x=20, runs out of 14 GB)
 
 ---
