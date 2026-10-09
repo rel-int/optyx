@@ -1,13 +1,14 @@
 from itertools import permutations
-from math import factorial, prod
+from math import comb, factorial, prod
 
 import numpy as np
 import pytest
 from scipy.stats import unitary_group
 
 from optyx.sampling import (
-    Interferometer, FockState, Sweep, Unravelling, levels, sector, position,
-    givens, interfere, Kernel, twomode, binomials, rank, twomodes, turn)
+    Interferometer, FockState, Sweep, Unravelling, Fock, Coherent, Thermal,
+    Source, levels, sector, position, givens, interfere, Kernel, twomode,
+    binomials, rank, twomodes, turn)
 
 try:
     import jax
@@ -239,6 +240,102 @@ def test_errors():
     with pytest.raises(ValueError):
         Interferometer(np.eye(2), loop=1, inputs=(1, )).burn_in(
             1e-3, max_depth=5)
+
+
+def test_twomode_is_unitary_beyond_twenty_photons():
+    matrix = unitary_group.rvs(2, random_state=0)
+    block = twomode(matrix, 25)
+    assert np.allclose(block.conj().T @ block, np.eye(26))
+
+
+def columns(unitary, loop, transmissivity, depth=100):
+    """
+    The probabilities q_c that a photon injected into the one external input
+    is detected in the one external output a delay c later.
+    """
+    blocks = unitary[:loop, :loop], unitary[loop:, :loop]
+    amplitudes, vector = [unitary[loop, loop]], unitary[:loop, loop]
+    for _ in range(depth):
+        vector = np.sqrt(transmissivity) * vector
+        amplitudes.append(blocks[1][0] @ vector)
+        vector = blocks[0] @ vector
+    return np.abs(amplitudes) ** 2
+
+
+def coefficient(series, order):
+    """ The coefficient of x^order in the product of the power series. """
+    result = np.eye(order + 1)[0]
+    for coefficients in series:
+        result = np.convolve(result, coefficients)[:order + 1]
+    return result[order]
+
+
+def bunching(source, overlap, q, order):
+    """ The stationary factorial moments of bunching-rate.md. """
+    if source is Thermal:
+        return factorial(order) * q.sum() ** order
+    if source is Coherent:
+        return factorial(order) ** 2 * coefficient(
+            [[x ** k / factorial(k) ** 2 for k in range(order + 1)]
+             for x in q], order)
+    gain = sum(comb(order, j) * overlap ** j * (1 - overlap) ** (order - j)
+               * factorial(j) for j in range(order + 1))
+    return factorial(order) * gain * coefficient([[1, x] for x in q], order)
+
+
+@pytest.mark.parametrize("source, overlap", [
+    (Fock, 1.), (Fock, .5), (Fock, 0.), (Coherent, 1.), (Thermal, 1.)])
+def test_stationary_factorial_moments(source, overlap):
+    unitary, transmissivity = unitary_group.rvs(2, random_state=1), .6
+    network = Interferometer(
+        unitary, loop=1, transmissivity=transmissivity,
+        indistinguishability=overlap,
+        source=Fock((1, )) if source is Fock else source((1., )))
+    burn_in, runs = network.burn_in(1e-3), 100
+    counts = np.array([[pattern[0] for pattern in network.sample(
+        50, burn_in, seed)] for seed in range(runs)])
+    q = columns(unitary, 1, transmissivity)
+    for order in (1, 2):
+        falling = prod(counts - k for k in range(order)).mean(axis=1)
+        error = falling.std() / np.sqrt(runs)
+        assert abs(falling.mean() - bunching(source, overlap, q, order)) \
+            < 4 * error
+
+
+def test_sources():
+    thermal = Interferometer(np.eye(2)[::-1], loop=1, source=Thermal((1., )))
+    assert eval(repr(thermal)) == thermal
+    assert thermal.burn_in(1e-3) > 0 and thermal.occupation() == 1.
+    assert Fock((1, )).pad(2) == Fock((1, 0, 0))
+    assert Coherent((1., )).pad(1) == Coherent((1., 0.))
+    assert Coherent((1., )) != Thermal((1., ))
+    with pytest.raises(ValueError):
+        Interferometer(np.eye(2), loop=1)
+    with pytest.raises(ValueError):
+        Interferometer(np.eye(2), loop=1, inputs=(1, ), source=Fock((1, )))
+    with pytest.raises(NotImplementedError):
+        thermal.inputs
+    with pytest.raises(NotImplementedError):
+        thermal.distribution(1)
+    with pytest.raises(NotImplementedError):
+        Source((1., )).draw(None)
+    with pytest.raises(NotImplementedError):
+        Kernel(thermal, cap=2)
+
+
+def test_sources_on_diagrams():
+    from optyx.channel import Diagram, qmode
+    from optyx.photonic import Create, NumberResolvingMeasurement
+    delay = (Create(1) @ qmode >> Diagram.swap(qmode, qmode)).feedback(
+        state=Create(0))
+    network, _ = delay.sampler(source=Coherent((2., )))
+    assert network.source == Coherent((2., ))
+    with pytest.raises(ValueError):
+        Interferometer.from_diagram(delay, source=Coherent((1., 1.)))
+    recycle = (Create(1) @ qmode >> NumberResolvingMeasurement(1) @ qmode
+               ).feedback(mem=qmode, state=Create(0))
+    with pytest.raises(NotImplementedError):
+        recycle.sample(burn_in=0, source=Coherent((1., )))
 
 
 def lossy_diagram():

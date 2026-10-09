@@ -91,6 +91,10 @@ Classes
     :toctree:
 
     Interferometer
+    Source
+    Fock
+    Coherent
+    Thermal
     FockState
     Sweep
     Unravelling
@@ -165,7 +169,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from functools import lru_cache
 from itertools import product
-from math import comb, factorial, prod
+from math import comb, factorial, lgamma, prod
 
 import numpy as np
 
@@ -267,14 +271,15 @@ def twomode(matrix: np.ndarray, photons: int) -> np.ndarray:
     [-0.707, 0.0, 0.707]
     """
     result = np.zeros((photons + 1, photons + 1), dtype=complex)
-    norms = np.sqrt([factorial(m) * factorial(photons - m)
+    logs = np.array([lgamma(m + 1) + lgamma(photons - m + 1)
                      for m in range(photons + 1)])
     for k in range(photons + 1):
         first = [comb(k, a) * matrix[1, 0] ** (k - a) * matrix[0, 0] ** a
                  for a in range(k + 1)]
         second = [comb(photons - k, b) * matrix[1, 1] ** (photons - k - b)
                   * matrix[0, 1] ** b for b in range(photons - k + 1)]
-        result[:, k] = np.convolve(first, second) * norms / norms[k]
+        result[:, k] = np.convolve(first, second) * np.exp(
+            (logs - logs[k]) / 2)
     return np.real_if_close(result)
 
 
@@ -624,6 +629,76 @@ def collapse(vector: np.ndarray, modes: int, photons: int,
     return rows / np.linalg.norm(rows)
 
 
+class Source:
+    """
+    The photons injected into the external inputs of an
+    :class:`Interferometer` at a tick: a product state diagonal in the Fock
+    basis, drawn independently for each input and tick, with mean `means`.
+    Having no phase reference, it is sampled exactly by drawing the photon
+    numbers of each tick.
+
+    >>> Coherent((1., 0.)).draw(np.random.default_rng(0))
+    (1, 0)
+    """
+    def __init__(self, means):
+        self.means = tuple(float(mean) for mean in means)
+
+    def __len__(self):
+        return len(self.means)
+
+    def __repr__(self):
+        return f"{type(self).__name__}({self.means})"
+
+    def __eq__(self, other):
+        return type(self) is type(other) and self.means == other.means
+
+    def draw(self, rng: np.random.Generator) -> tuple:
+        """ The photon numbers injected at one tick. """
+        raise NotImplementedError
+
+    def pad(self, modes: int) -> Source:
+        """ The same source with `modes` more inputs in the vacuum. """
+        return type(self)(self.means + (0, ) * modes)
+
+
+class Fock(Source):
+    """
+    Exactly `photons[a]` photons into input :math:`a` at every tick.
+
+    >>> Fock((1, 0)).draw(None), Fock((1, 0)).means
+    ((1, 0), (1.0, 0.0))
+    """
+    def __init__(self, photons):
+        self.photons = tuple(int(number) for number in photons)
+        super().__init__(self.photons)
+
+    def __repr__(self):
+        return f"Fock({self.photons})"
+
+    def draw(self, rng: np.random.Generator) -> tuple:
+        return self.photons
+
+
+class Coherent(Source):
+    """
+    A coherent state of mean photon number `means[a]` into input :math:`a`,
+    with a uniformly random phase at every tick: a Poisson number of
+    photons.
+    """
+    def draw(self, rng: np.random.Generator) -> tuple:
+        return tuple(int(number) for number in rng.poisson(self.means))
+
+
+class Thermal(Source):
+    """
+    A thermal state of mean photon number `means[a]` into input :math:`a`
+    at every tick: :math:`P(n) = \\bar n^n / (1 + \\bar n)^{n + 1}`.
+    """
+    def draw(self, rng: np.random.Generator) -> tuple:
+        return tuple(int(number) - 1 for number in rng.geometric(
+            1 / (1 + np.array(self.means))))
+
+
 class Interferometer:
     """
     A passive recurrent linear-optical network: an interferometer whose
@@ -636,7 +711,7 @@ class Interferometer:
             modes are fed back.
         loop : The number :math:`L` of loop modes.
         inputs : The photon numbers injected into the :math:`x` external
-            inputs at every tick.
+            inputs at every tick, a :class:`Fock` source.
         transmissivity : The intensity transmissivity :math:`\\gamma` of each
             loop mode per round trip.
         efficiency : The efficiency :math:`\\eta` of the detectors.
@@ -645,7 +720,11 @@ class Interferometer:
             environment of a loss or a discard.
         indistinguishability : The probability :math:`p` that an injected
             photon is in the internal state shared by all photons rather
-            than in one of its own, the model of Renema et al. [RMC+18]_.
+            than in one of its own, the model of Renema et al. [RMC+18]_,
+            whatever the source.
+        source : The :class:`Source` drawing the photons injected at each
+            tick, in place of `inputs`: :class:`Fock`, :class:`Coherent` or
+            :class:`Thermal`.
 
     >>> network = Interferometer([[0, 1], [1, 0]], loop=1, inputs=(1, ))
     >>> network
@@ -653,36 +732,60 @@ class Interferometer:
 efficiency=1.0, visible=(0,), indistinguishability=1.0)
     >>> eval(repr(network)) == network
     True
+
+    A delay line fed with thermal light detects thermal light:
+
+    >>> thermal = Interferometer(
+    ...     [[0, 1], [1, 0]], loop=1, source=Thermal((2., )))
+    >>> thermal
+    Interferometer([[0, 1], [1, 0]], loop=1, source=Thermal((2.0,)), \
+transmissivity=1.0, efficiency=1.0, visible=(0,), indistinguishability=1.0)
+    >>> thermal.occupation()
+    2.0
     """
     # pylint: disable=too-many-arguments,too-many-positional-arguments
-    def __init__(self, unitary, loop: int, inputs: tuple,
+    def __init__(self, unitary, loop: int, inputs: tuple = None,
                  transmissivity: float = 1., efficiency: float = 1.,
-                 visible: tuple = None, indistinguishability: float = 1.):
+                 visible: tuple = None, indistinguishability: float = 1.,
+                 source: Source = None):
+        if (inputs is None) == (source is None):
+            raise ValueError("Give the inputs or a source.")
         self.unitary = np.asarray(unitary)
-        self.loop, self.inputs = loop, tuple(int(q) for q in inputs)
+        self.loop = loop
+        self.source = Fock(inputs) if source is None else source
         self.transmissivity = float(transmissivity)
         self.efficiency = float(efficiency)
-        self.visible = tuple(range(len(self.inputs))) if visible is None \
+        self.visible = tuple(range(len(self.source))) if visible is None \
             else tuple(int(i) for i in visible)
         self.indistinguishability = float(indistinguishability)
-        if self.unitary.shape != (loop + len(self.inputs), ) * 2:
+        if self.unitary.shape != (loop + len(self.source), ) * 2:
             raise ValueError(
-                f"Expected a {loop + len(self.inputs)}-mode matrix, "
+                f"Expected a {loop + len(self.source)}-mode matrix, "
                 f"got shape {self.unitary.shape}.")
         if not np.allclose(
                 self.unitary.conj().T @ self.unitary, np.eye(len(unitary))):
             raise ValueError("The mode matrix must be unitary.")
         self.sweeps = {}
 
+    @property
+    def inputs(self) -> tuple:
+        """ The photons injected at every tick by a :class:`Fock` source. """
+        if not isinstance(self.source, Fock):
+            raise NotImplementedError(
+                f"{self.source} injects a random number of photons.")
+        return self.source.photons
+
     @classmethod
-    def from_diagram(cls, diagram, indistinguishability: float = 1.):
+    def from_diagram(cls, diagram, indistinguishability: float = 1.,
+                     source: Source = None):
         """
         The recurrent network of a closed :class:`optyx.channel.Diagram` with
         feedback loops: its :meth:`one_step` is dilated to a passive matrix
         from the memory and the created photons to the outputs, the memory
         and the environment of its discards and losses, then completed to a
         unitary with vacuum inputs. The outputs of the diagram are recorded,
-        its environment is not.
+        its environment is not. A `source` replaces the photons of its
+        :class:`optyx.photonic.Create` boxes, one input per created mode.
 
         >>> from optyx.channel import Diagram, qmode
         >>> from optyx.photonic import Create
@@ -723,10 +826,16 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         rows = np.vstack([rows[outputs:outputs + loop], rows[:outputs],
                           rows[outputs + loop:]])
         unitary = complete(rows)
-        inputs = tuple(matrix.creations) + (0, ) * (
-            len(unitary) - loop - len(matrix.creations))
-        return cls(unitary, loop, inputs, visible=tuple(range(outputs)),
-                   indistinguishability=indistinguishability)
+        if source is None:
+            source = Fock(matrix.creations)
+        if len(source) != len(matrix.creations):
+            raise ValueError(
+                f"Expected a source of {len(matrix.creations)} modes, the "
+                f"photons created by the diagram, got {source}.")
+        return cls(unitary, loop, visible=tuple(range(outputs)),
+                   indistinguishability=indistinguishability,
+                   source=source.pad(
+                       len(unitary) - loop - len(matrix.creations)))
 
     def sweep(self, inputs: tuple = None) -> Sweep:
         """
@@ -742,8 +851,10 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         return self.sweeps[columns]
 
     def __repr__(self):
+        injection = f"inputs={self.inputs}" \
+            if isinstance(self.source, Fock) else f"source={self.source}"
         return (f"Interferometer({self.unitary.tolist()}, loop={self.loop}, "
-                f"inputs={self.inputs}, "
+                f"{injection}, "
                 f"transmissivity={self.transmissivity}, "
                 f"efficiency={self.efficiency}, visible={self.visible}, "
                 f"indistinguishability={self.indistinguishability})")
@@ -751,9 +862,9 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
     def __eq__(self, other):
         return isinstance(other, Interferometer) \
             and np.array_equal(self.unitary, other.unitary) \
-            and (self.loop, self.inputs, self.transmissivity,
+            and (self.loop, self.source, self.transmissivity,
                  self.efficiency, self.visible, self.indistinguishability) \
-            == (other.loop, other.inputs, other.transmissivity,
+            == (other.loop, other.source, other.transmissivity,
                 other.efficiency, other.visible, other.indistinguishability)
 
     @property
@@ -790,7 +901,7 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         """
         block, size = self.block, self.loop
         source = self.unitary[:self.loop, self.loop:]
-        drive = self.transmissivity * source @ np.diag(self.inputs) \
+        drive = self.transmissivity * source @ np.diag(self.source.means) \
             @ source.conj().T
         stein = np.eye(size ** 2) - np.kron(block, block.conj())
         correlations = np.linalg.solve(stein, drive.reshape(-1))
@@ -818,7 +929,7 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         ...     [[0.6, 0.8], [0.8, -0.6]], 1, (1, )).burn_in(1e-3)
         True
         """
-        qbar = max(self.inputs, default=0)
+        qbar = max(self.source.means, default=0)
         constant = (qbar + 1) * (np.sqrt(6 * qbar * (qbar + 1)) + qbar)
         private = (1 - self.indistinguishability) * qbar
         power = np.eye(self.loop)
@@ -890,17 +1001,18 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
 
     def colour(self, rng: np.random.Generator):
         """
-        The injection of one tick split into colours: the photons in the
-        shared internal state, then one single photon per photon in an
-        internal state of its own.
+        The injection of one tick, drawn from the source, split into
+        colours: the photons in the shared internal state, then one single
+        photon per photon in an internal state of its own.
         """
+        injection = self.source.draw(rng)
         if self.indistinguishability == 1:
-            return self.inputs, []
-        shared = rng.binomial(self.inputs, self.indistinguishability)
+            return injection, []
+        shared = rng.binomial(injection, self.indistinguishability)
         alone = [mode for mode, (total, kept) in enumerate(
-            zip(self.inputs, shared)) for _ in range(total - kept)]
+            zip(injection, shared)) for _ in range(total - kept)]
         return tuple(int(n) for n in shared), [
-            tuple(int(mode == other) for mode in range(len(self.inputs)))
+            tuple(int(mode == other) for mode in range(len(self.source)))
             for other in alone]
 
     def tick(self, colours: list, rng: np.random.Generator):
@@ -910,11 +1022,11 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         of its own is forgotten once its photon has left the loop.
         """
         shared, alone = self.colour(rng)
-        empty = (0, ) * len(self.inputs)
+        empty = (0, ) * len(self.source)
         work = [(colours[0], shared)] \
             + [(state, empty) for state in colours[1:]] \
             + [(FockState.vacuum(self.loop), inputs) for inputs in alone]
-        total, after = np.zeros(len(self.inputs), dtype=int), []
+        total, after = np.zeros(len(self.source), dtype=int), []
         for state, inputs in work:
             pattern, state = self.step(state, inputs, rng)
             total, after = total + pattern, after + [state]
@@ -953,10 +1065,11 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         >>> delay.distribution(2)
         {((0,), (1,)): 1.0}
         """
-        if self.indistinguishability != 1:
+        if self.indistinguishability != 1 \
+                or not isinstance(self.source, Fock):
             raise NotImplementedError(
-                "The exact distribution enumerates indistinguishable photons "
-                "only; sample partially distinguishable ones.")
+                "The exact distribution enumerates a deterministic injection "
+                "of indistinguishable photons only; sample the others.")
         branches = [((), 1., FockState.vacuum(self.loop))]
         for time in range(burn_in + ticks):
             branches = merge(
@@ -1714,6 +1827,10 @@ class Kernel:
     # pylint: disable=too-many-locals,too-many-public-methods
     def __init__(self, interferometer: Interferometer, cap: int,
                  private: int = 0):
+        if not isinstance(interferometer.source, Fock):
+            raise NotImplementedError(
+                "The kernel compiles a deterministic Fock injection, "
+                f"not {interferometer.source}.")
         if jax is None:  # pragma: no cover
             raise ImportError("The kernel needs JAX: pip install jax.")
         self.interferometer, self.cap = interferometer, int(cap)
