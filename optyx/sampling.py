@@ -146,6 +146,7 @@ from itertools import product
 from math import comb, lgamma, prod
 
 import numpy as np
+from discopy import symmetric
 
 
 @lru_cache(maxsize=None)
@@ -628,6 +629,33 @@ class Source:
         """ The same source with `modes` more inputs in the vacuum. """
         return type(self)(self.means + (0, ) * modes)
 
+    def tensor(self, other: Source) -> Source:
+        """
+        The source of both, `self` on the first inputs: a :class:`Product`
+        of sources of different kinds, adjacent ones of the same kind
+        merged.
+
+        >>> Fock((1, )) @ Fock((2, ))
+        Fock((1, 2))
+        >>> Coherent((1., )) @ Fock((1, )) @ Fock((0, ))
+        Coherent((1.0,)) @ Fock((1, 0))
+        """
+        factors = []
+        for factor in self.factors + other.factors:
+            if factors and type(factors[-1]) is type(factor):
+                factors[-1] = type(factor)(factors[-1].means + factor.means)
+            elif len(factor):
+                factors.append(factor)
+        return Product(*factors) if len(factors) > 1 \
+            else factors[0] if factors else Fock(())
+
+    @property
+    def factors(self) -> tuple:
+        """ The sources side by side, of different kinds. """
+        return (self, )
+
+    __matmul__ = tensor
+
 
 class Fock(Source):
     """
@@ -665,6 +693,49 @@ class Thermal(Source):
     def draw(self, rng: np.random.Generator) -> tuple:
         return tuple(int(number) - 1 for number in rng.geometric(
             1 / (1 + np.array(self.means))))
+
+
+class Product(Source):
+    """
+    Independent sources side by side, the first on the first inputs.
+
+    >>> source = Coherent((1., )) @ Fock((1, ))
+    >>> source.draw(np.random.default_rng(0)), source.means
+    ((1, 1), (1.0, 1.0))
+    """
+    def __init__(self, *factors: Source):
+        self.parts = factors
+        super().__init__(sum((factor.means for factor in factors), ()))
+
+    @property
+    def factors(self) -> tuple:
+        return self.parts
+
+    def __repr__(self):
+        return " @ ".join(map(repr, self.factors))
+
+    def __eq__(self, other):
+        return isinstance(other, Product) and self.factors == other.factors
+
+    def draw(self, rng: np.random.Generator) -> tuple:
+        return sum((factor.draw(rng) for factor in self.factors), ())
+
+    def pad(self, modes: int) -> Source:
+        return self @ Fock((0, ) * modes)
+
+
+def feeding(diagram, source: Source = None) -> Source:
+    """
+    The `source` feeding the inputs of `diagram` at every tick, checked
+    to have one mode per input, none for a closed diagram.
+    """
+    if source is None and not diagram.dom:
+        return Fock(())
+    if source is None or len(source) != len(diagram.dom):
+        raise ValueError(
+            f"Expected a source of {len(diagram.dom)} modes to feed the "
+            f"inputs {diagram.dom}, got {source}.")
+    return source
 
 
 class Interferometer:
@@ -747,13 +818,13 @@ transmissivity=1.0, efficiency=1.0, visible=(0,), indistinguishability=1.0)
     def from_diagram(cls, diagram, indistinguishability: float = 1.,
                      source: Source = None):
         """
-        The recurrent network of a closed :class:`optyx.channel.Diagram` with
+        The recurrent network of a :class:`optyx.channel.Diagram` with
         feedback loops: its :meth:`one_step` is dilated to a passive matrix
-        from the memory and the created photons to the outputs, the memory
-        and the environment of its discards and losses, then completed to a
-        unitary with vacuum inputs. The outputs of the diagram are recorded,
-        its environment is not. A `source` replaces the photons of its
-        :class:`optyx.photonic.Create` boxes, one input per created mode.
+        from the memory, the inputs and the created photons to the outputs,
+        the memory and the environment of its discards and losses, then
+        completed to a unitary with vacuum inputs. The inputs of the diagram
+        are fed by `source` at every tick, its outputs are recorded and its
+        environment is not.
 
         >>> from optyx.channel import Diagram, qmode
         >>> from optyx.photonic import Create
@@ -762,17 +833,16 @@ transmissivity=1.0, efficiency=1.0, visible=(0,), indistinguishability=1.0)
         >>> Interferometer.from_diagram(delay).distribution(2)
         {((0,), (1,)): 1.0}
         """
-        # pylint: disable=import-outside-toplevel
-        from optyx.channel import Swap
         initial, _ = diagram.boundary()
         step = diagram.one_step()
-        loop = len(step.dom)
-        if len(diagram.dom):
-            raise ValueError("Only closed diagrams can be sampled.")
+        inputs = len(diagram.dom)
+        loop = len(step.dom) - inputs
+        source = feeding(diagram, source)
         if levels(initial) or levels(step):
             raise NotImplementedError(
                 "Photons with internal states are not passive.")
-        if any(not hasattr(box, "kraus") and not isinstance(box, Swap)
+        if any(not hasattr(box, "kraus")
+               and not isinstance(box, symmetric.Swap)
                for box in initial.boxes + step.boxes):
             raise NotImplementedError(
                 "Classical boxes are not passive linear optics.")
@@ -793,17 +863,13 @@ transmissivity=1.0, efficiency=1.0, visible=(0,), indistinguishability=1.0)
         rows = np.asarray(matrix.array).T
         rows = np.vstack([rows[outputs:outputs + loop], rows[:outputs],
                           rows[outputs + loop:]])
+        rows = np.hstack([rows[:, inputs:inputs + loop], rows[:, :inputs],
+                          rows[:, inputs + loop:]])
         unitary = complete(rows)
-        if source is None:
-            source = Fock(matrix.creations)
-        if len(source) != len(matrix.creations):
-            raise ValueError(
-                f"Expected a source of {len(matrix.creations)} modes, the "
-                f"photons created by the diagram, got {source}.")
+        source = source @ Fock(matrix.creations)
         return cls(unitary, loop, visible=tuple(range(outputs)),
                    indistinguishability=indistinguishability,
-                   source=source.pad(
-                       len(unitary) - loop - len(matrix.creations)))
+                   source=source.pad(len(unitary) - loop - len(source)))
 
     def sweep(self, inputs: tuple = None) -> Sweep:
         """
@@ -1166,22 +1232,48 @@ class Unravelling:
     >>> Unravelling(delay).sample(ticks=3, seed=0)
     [(0,), (1,), (1,)]
     """
-    def __init__(self, diagram, cap: int = 4):
-        if diagram.dom:
-            raise ValueError("Only closed diagrams can be sampled.")
+    def __init__(self, diagram, cap: int = 4, source: Source = None):
+        self.source = feeding(diagram, source)
+        if any(ob.name not in ("qmode", "mode") for ob in diagram.dom.inside):
+            raise NotImplementedError(
+                "A source feeds optical or classical modes only.")
         if cap < 1:
             raise ValueError("The cap must be at least one photon.")
         self.diagram, self.cap = diagram, int(cap)
         self.initial, _ = diagram.boundary()
         self.step = diagram.one_step()
         self.levels = max(levels(self.initial), levels(self.step))
+        if self.levels and self.diagram.dom:
+            raise NotImplementedError(
+                "A source feeds photons without internal states only.")
         if self.levels:
             self.initial = self.initial.inflate(self.levels)
             self.step = self.step.inflate(self.levels)
         self.tensors = {}
 
     def __repr__(self):
-        return f"Unravelling({self.diagram!r}, cap={self.cap})"
+        source = f", source={self.source}" if self.diagram.dom else ""
+        return f"Unravelling({self.diagram!r}, cap={self.cap}{source})"
+
+    def feed(self, state: CQState, rng: np.random.Generator) -> CQState:
+        """
+        The `state` of the memory with the inputs of one tick in front, the
+        photon numbers drawn from the source: a number state on each
+        optical mode, a value on each classical one.
+        """
+        vector, values = state.vector, []
+        drawn = self.source.draw(rng)
+        for ob, number in reversed(list(zip(self.diagram.dom.inside, drawn))):
+            if ob.name == "mode":
+                values = [number] + values
+                continue
+            if number > self.cap:
+                raise ValueError(
+                    f"The source injected {number} photons into a mode of "
+                    f"at most cap={self.cap}.")
+            vector = np.multiply.outer(np.eye(self.cap + 1)[number], vector)
+            values = [None] + values
+        return CQState(vector, values + state.values)
 
     def dimension(self, ob, value=None) -> int:
         """
@@ -1307,10 +1399,8 @@ class Unravelling:
         `start`: contract its array, put its outputs in their place and cut
         each to `cap + 1` levels, raising when the cut loses amplitude.
         """
-        # pylint: disable=import-outside-toplevel
-        from optyx.core.diagram import Swap
         width = len(box.dom)
-        if isinstance(box, Swap):
+        if isinstance(box, symmetric.Swap):
             return np.swapaxes(vector, start, start + 1)
         array = self.tensor(box, vector.shape[start:start + width])
         outputs = array.ndim - width
@@ -1324,11 +1414,9 @@ class Unravelling:
     def apply(self, state: CQState, offset: int, box,
               rng: np.random.Generator) -> CQState:
         """ The state after `box`, on the wires from `offset`. """
-        # pylint: disable=import-outside-toplevel
-        from optyx.channel import Swap
         stop = offset + len(box.dom)
         values = state.values[offset:stop]
-        if isinstance(box, Swap):
+        if isinstance(box, symmetric.Swap):
             vector = np.swapaxes(state.vector, *state.axes(offset, stop)) \
                 if values.count(None) == 2 else state.vector
             return CQState(vector, state.values[:offset] + values[::-1]
@@ -1442,11 +1530,10 @@ class Unravelling:
                 f"{state.weight:.3g}): postselection cannot be sampled.")
         return CQState(state.vector, state.values)
 
-    def trajectory(self, ticks: int, seed=None, observable=None) -> list:
+    def trajectory(self, ticks: int, seed=None) -> list:
         """
         The outputs measured over `ticks` ticks of one trajectory started
-        from the state of the loops, or the values of an `observable` of
-        its outputs measured by :meth:`observe`.
+        from the state of the loops.
         """
         rng = np.random.default_rng(seed)
         widths = [self.levels if self.levels and ob.name == "qmode" else 1
@@ -1454,74 +1541,12 @@ class Unravelling:
         state, patterns = self.run(
             self.initial, CQState.empty(), rng), []
         for _ in range(ticks):
-            state = self.run(self.step, state, rng)
-            if observable is not None:
-                value, state = self.observe(state, observable, rng)
-                patterns.append(value)
-                continue
+            state = self.run(self.step, self.feed(state, rng), rng)
             pattern, state = state.measure(0, sum(widths), rng)
             bounds = np.cumsum([0] + widths)
             patterns.append(tuple(sum(pattern[bounds[i]:bounds[i + 1]])
                                   for i in range(len(widths))))
         return patterns
-
-    def spectrum(self, observable) -> tuple:
-        """
-        The eigenvalues and an orthonormal basis of eigenvectors, as
-        columns, of the operator of an `observable` on the modes of at most
-        `cap` photons, by the Schur decomposition of its normal matrix;
-        computed once.
-        """
-        # pylint: disable=import-outside-toplevel
-        from scipy.linalg import schur
-        key = id(observable), "spectrum"
-        if key not in self.tensors:
-            dims = tuple(self.dimension(ob) for ob in observable.dom.inside)
-            array = np.asarray(observable.operator.get_kraus().to_tensor(
-                input_dims=list(dims)).eval().array)
-            if array.ndim != 2 * len(dims):
-                raise NotImplementedError(
-                    f"{observable} has an output of dimension one.")
-            array = array[(Ellipsis, ) + tuple(
-                slice(size) for size in dims)]
-            array = np.pad(array, [(0, 0)] * len(dims) + [
-                (0, size - width) for size, width
-                in zip(dims, array.shape[len(dims):])])
-            matrix = array.reshape(prod(dims), prod(dims)).T
-            if not np.allclose(matrix @ matrix.conj().T,
-                               matrix.conj().T @ matrix):
-                raise ValueError(
-                    f"{observable} is not normal on modes of at most "
-                    f"cap={self.cap} photons.")
-            triangular, vectors = schur(matrix, output="complex")
-            self.tensors[key] = observable, (np.diag(triangular), vectors)
-        return self.tensors[key][1]
-
-    def observe(self, state: CQState, observable,
-                rng: np.random.Generator) -> tuple:
-        """
-        Measure an `observable` on the outputs of `state`, its first wires:
-        an eigenvalue of its operator sampled with the probability of its
-        eigenvector, and the state of the other wires left. The outputs are
-        dropped, so measuring degenerate eigenspaces one eigenvector at a
-        time leaves the other wires in the same mixture.
-        """
-        width = len(observable.dom)
-        if self.levels or any(
-                value is not None for value in state.values[:width]):
-            raise NotImplementedError(
-                "An operator is measured on quantum outputs without "
-                "internal states.")
-        values, vectors = self.spectrum(observable)
-        amplitudes = vectors.conj().T @ state.vector.reshape(
-            len(vectors), -1)
-        probabilities = np.sum(np.abs(amplitudes) ** 2, axis=1)
-        index = rng.choice(len(values), p=normalise(probabilities))
-        value = values[index].real if np.isclose(values[index].imag, 0) \
-            else values[index]
-        return value, CQState(
-            (amplitudes[index] / np.sqrt(probabilities[index])).reshape(
-                state.vector.shape[width:]), state.values[width:])
 
     def sample(self, ticks: int, burn_in: int = 0, seed=None) -> list:
         """

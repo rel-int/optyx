@@ -6,6 +6,9 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
+import os
+import sys
+
 from optyx import __version__ as version, __version_info__ as v
 trim_version = f'{v[0]}.{v[1]}.{v[2]}'
 if version.startswith(f'{trim_version}.'):
@@ -42,7 +45,14 @@ autodoc_inherit_docstrings = False
 napoleon_use_admonition_for_examples = True
 
 templates_path = ['_templates']
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+# The marimo notebooks under ``notebooks/`` are plain-text ``.md`` files; they
+# are rendered to HTML by ``export_notebooks.py`` and embedded from the
+# generated ``.rst`` pages, so they must not be parsed as Sphinx source pages.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import export_notebooks  # noqa: E402
+
+exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store'] + [
+    f'notebooks/{notebook.name}' for notebook in export_notebooks.notebooks()]
 
 intersphinx_mapping = {
     'discopy': ("https://docs.discopy.org/en/main/", None),
@@ -62,3 +72,9 @@ html_context = {
 }
 
 html_static_path = ['_static']
+
+
+def setup(app):
+    # Render the marimo notebooks (docs/notebooks/*.md) to computed HTML and
+    # generate the pages that embed them, before Sphinx reads the sources.
+    app.connect('builder-inited', lambda _app: export_notebooks.generate())

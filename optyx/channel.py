@@ -236,7 +236,8 @@ from discopy.cat import factory
 from discopy.utils import AxiomError
 from pytket.extensions.pyzx import pyzx_to_tk
 from pyzx import extract_circuit
-from optyx.core import diagram
+from optyx.core import diagram, control
+from optyx.sampling import Interferometer, Unravelling
 
 
 class Ob(frobenius.Ob):
@@ -455,37 +456,96 @@ class Diagram(frobenius.Diagram):
                burn_in: int = None, cap: int = 4, shots: int = None,
                source=None) -> list:
         """
-        Sample the outputs of a closed diagram with feedback loops over
-        `ticks` consecutive ticks: the photon numbers of its optical modes,
-        the values of its qubits in the computational basis and those of
-        its classical wires.
+        Sample a diagram with feedback loops over `ticks` consecutive
+        ticks, its inputs fed by `source` at every tick and its outputs
+        measured: the photon numbers of its optical modes, the values of its
+        qubits in the computational basis and those of its classical wires.
+        The ticks are those of the stationary regime, after `burn_in` ticks
+        from the initial state of the loops, unless `burn_in=0`.
 
-        A passive diagram, linear optics with losses and discards, is
-        sampled by its :class:`optyx.sampling.Interferometer` in its
-        stationary regime, within total variation `tol` after the burn-in
-        certified by :meth:`optyx.sampling.Interferometer.burn_in`, with
-        injected photons in a shared internal state with probability
-        `indistinguishability`, or drawn from an
-        :class:`optyx.sampling.Source` in place of the photons of its
-        :class:`optyx.photonic.Create` boxes. Any other diagram, with
-        measurements,
-        qubits, classical boxes or classical control in its loops, or
-        photons with internal states, is sampled by its
-        :class:`optyx.sampling.Unravelling`, with at most `cap` photons per
-        optical mode, after an explicit `burn_in` since there is no
-        certificate.
+        Parameters:
+            ticks : The number of ticks recorded.
+            tol : The total variation distance to the stationary regime
+                that the certified burn-in of a passive diagram reaches.
+            indistinguishability : For a passive diagram, the probability
+                that a photon is in the internal state shared by all.
+            seed : The seed of the random number generator.
+            burn_in : The number of ticks discarded first, certified from
+                `tol` for a passive diagram when not given.
+            cap : The most photons an optical mode holds in an
+                :class:`optyx.sampling.Unravelling`.
+            shots : The number of independent trajectories, from the same
+                sampler; a list of them when given.
+            source : The :class:`optyx.sampling.Source` feeding the inputs,
+                one mode per input: :class:`optyx.sampling.Fock`,
+                :class:`optyx.sampling.Coherent`,
+                :class:`optyx.sampling.Thermal` or a tensor of them.
 
-        With `shots`, a list of as many independent trajectories, from the
-        same sampler.
+        **Passive diagrams** — beam splitters, phase shifters and any other
+        linear optics, :class:`optyx.photonic.Create` boxes, photon loss and
+        discards, on optical modes only, with loops starting in the vacuum —
+        are sampled by their :class:`optyx.sampling.Interferometer`: the
+        loop is a Fock state evolved by the unitary of the step, each output
+        measured as soon as the modes it depends on are, so a tick costs
+        what the photons in the loop and the inputs cost, not what every
+        mode would. Loss and discards are environment modes, measured and
+        forgotten. The burn-in is certified within `tol`. Photons are
+        partially distinguishable with `indistinguishability`, the model of
+        Renema et al.: each photon is in a shared internal state with that
+        probability and in one of its own otherwise.
+
+        **Every other diagram** is sampled by its
+        :class:`optyx.sampling.Unravelling`, one box at a time on a pure
+        state of the quantum wires and definite values of the classical
+        ones:
+
+        - linear optics is applied through the Givens decomposition of its
+          mode matrix;
+        - any other quantum box — a Kerr phase, ZW and ZX spiders, qubit
+          gates — contracts its Kraus map, truncated to `cap` photons per
+          optical mode;
+        - a box with an environment, such as a loss or a discard, and a
+          measurement have their environment or their classical outputs
+          measured, sampled and collapsed: these are the quantum
+          trajectories of the channel;
+        - a classical box, a :class:`optyx.classical.ClassicalFunction`
+          or a random one, samples its outputs from its inputs, and a
+          classically controlled box applies the box its values select;
+        - photons with internal states are sampled on the diagram inflated
+          to as many internal levels, the detectors adding up the counts.
+
+        Its boundaries:
+
+        - a postselection, or any box that is not trace preserving within
+          a tick, raises, since it is not something a run can do;
+        - a mode holding more than `cap` photons raises rather than
+          truncate the state;
+        - the burn-in is not certified and must be given;
+        - `indistinguishability` is refused, give internal states instead,
+          and so is a source feeding photons with internal states;
+        - a tick is exponential in the number of quantum wires alive at
+          once.
 
         A delay line detects at every tick the photon injected one tick
-        earlier:
+        earlier. From the vacuum loop the first tick detects nothing, the
+        transient, and every tick of the stationary regime detects one
+        photon:
 
         >>> from optyx.photonic import Create
         >>> delay = (Create(1) @ qmode >> Diagram.swap(qmode, qmode)
         ...     ).feedback(state=Create(0))
+        >>> delay.sample(ticks=3, burn_in=0, seed=0)
+        [(0,), (1,), (1,)]
         >>> delay.sample(ticks=2, seed=0)
         [(1,), (1,)]
+
+        The same delay line with its input left open, fed with coherent
+        light:
+
+        >>> from optyx.sampling import Coherent
+        >>> fibre = Diagram.swap(qmode, qmode).feedback(state=Create(0))
+        >>> fibre.sample(ticks=4, burn_in=0, seed=0, source=Coherent((1., )))
+        [(0,), (1,), (0,), (2,)]
 
         A loop that measures its photon and re-injects it:
 
@@ -497,12 +557,6 @@ class Diagram(frobenius.Diagram):
         [(1,), (1,)]
         >>> recycle.sample(ticks=1, burn_in=0, seed=0, shots=2)
         [[(1,)], [(1,)]]
-
-        The delay line fed with coherent light instead of single photons:
-
-        >>> from optyx.sampling import Coherent
-        >>> delay.sample(ticks=3, seed=0, source=Coherent((1., )))
-        [(1,), (0,), (2,)]
         """
         sampler, burn_in = self.sampler(
             tol, indistinguishability, burn_in, cap, source)
@@ -518,22 +572,18 @@ class Diagram(frobenius.Diagram):
         :class:`optyx.sampling.Interferometer` of a passive diagram, with
         the burn-in it certifies within `tol` unless `burn_in` is given,
         and the :class:`optyx.sampling.Unravelling` of any other, with the
-        `burn_in` given. Only a passive diagram takes a `source`.
+        `burn_in` given, both fed by `source`.
         """
-        # pylint: disable=import-outside-toplevel
-        from optyx.sampling import Interferometer, Unravelling
         try:
             network = Interferometer.from_diagram(
                 self, indistinguishability, source)
         except NotImplementedError as error:
-            if indistinguishability != 1 or burn_in is None \
-                    or source is not None:
+            if indistinguishability != 1 or burn_in is None:
                 raise NotImplementedError(
                     f"{error} Other diagrams are sampled by their "
-                    "Unravelling, with an explicit burn_in, internal "
-                    "states for distinguishable photons and the photons "
-                    "of their Create boxes.") from error
-            return Unravelling(self, cap), burn_in
+                    "Unravelling, with an explicit burn_in and internal "
+                    "states for distinguishable photons.") from error
+            return Unravelling(self, cap, source), burn_in
         return network, network.burn_in(tol) if burn_in is None \
             else burn_in
 
@@ -2009,8 +2059,8 @@ class Observable(CQMap):
     \\mathrm{tr}(A \\rho)` of a normal operator :math:`A` on its states, a
     map from `dom` to `Ty()`. Its value on a state is the expectation of
     :math:`A`, computed exactly by contracting the tensor network with
-    :meth:`expectation`, and estimated by measuring the eigenbasis of
-    :math:`A` with :meth:`measure`, averaging the eigenvalues observed.
+    :meth:`expectation`. For a `function`, the mean of its values on the
+    outcomes of :meth:`Diagram.sample` estimates the same number.
 
     It is given either by a normal pure `operator`, a diagram from `dom` to
     itself on quantum wires, or by a classical `function` of the values of
@@ -2034,7 +2084,9 @@ class Observable(CQMap):
     >>> hom = photonic.Create(1, 1) >> photonic.BS
     >>> number = Observable(function=lambda n: n[0], dom=qmode @ qmode)
     >>> assert np.isclose(number.expectation(hom), 1)
-    >>> assert set(number.measure(hom, shots=8, seed=0)) <= {0, 2}
+    >>> samples = (hom >> photonic.NumberResolvingMeasurement(2)).sample(
+    ...     burn_in=0, shots=8, seed=0)
+    >>> assert {number.function(list(s[0])) for s in samples} <= {0, 2}
 
     Discards and postselections:
 
@@ -2046,8 +2098,6 @@ class Observable(CQMap):
     """
     def __init__(self, operator: Diagram = None, function=None,
                  dom: Ty = None, name: str = None):
-        # pylint: disable=import-outside-toplevel
-        from optyx.core import control
         if (operator is None) == (function is None):
             raise ValueError("Give an operator or a function.")
         if operator is not None:
@@ -2075,42 +2125,12 @@ class Observable(CQMap):
         The exact expectation of the observable on a closed `state`, by
         contracting the tensor network of `state >> self`.
         """
-        value = complex(np.asarray(
-            (state >> self).double().to_tensor().eval().array))
-        return value.real if np.isclose(value.imag, 0) else value
-
-    # pylint: disable=too-many-arguments
-    def measure(self, state: Diagram, shots: int = 1, ticks: int = 1,
-                seed: int = None, **kwargs) -> np.ndarray:
-        """
-        The values of the observable measured on `shots` trajectories of
-        `ticks` ticks of a closed `state`, an array of shape
-        `(shots, ticks)`, or `(shots, )` for one tick: their mean estimates
-        :meth:`expectation`. A function is evaluated on the outcomes of
-        :meth:`Diagram.sample`, an operator is measured in its eigenbasis by
-        the :class:`optyx.sampling.Unravelling`; the keywords are those of
-        :meth:`Diagram.sample`.
-        """
-        # pylint: disable=import-outside-toplevel
-        from optyx.sampling import Unravelling, Interferometer
         if state.cod != self.dom:
             raise ValueError(
                 f"Expected a state of {self.dom}, got one of {state.cod}.")
-        seeds = np.random.SeedSequence(seed).spawn(shots)
-        if self.function is not None:
-            values = [[self.function(list(outcome)) for outcome in
-                       trajectory] for trajectory in state.sample(
-                           ticks=ticks, seed=seed, shots=shots, **kwargs)]
-        else:
-            burn_in = kwargs.get("burn_in")
-            if burn_in is None:
-                burn_in = Interferometer.from_diagram(state).burn_in(
-                    kwargs.get("tol", 1e-3))
-            unravelling = Unravelling(state, kwargs.get("cap", 4))
-            values = [unravelling.trajectory(burn_in + ticks, child, self)[
-                burn_in:] for child in seeds]
-        values = np.array(values)
-        return values[:, 0] if ticks == 1 else values
+        value = complex(np.asarray(
+            (state >> self).double().to_tensor().eval().array))
+        return value.real if np.isclose(value.imag, 0) else value
 
 
 class Functor(frobenius.Functor):

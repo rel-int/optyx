@@ -79,18 +79,10 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y pandoc
         pip install .[docs]
-    - name: Execute what-is-a-channel notebook
+    - name: Render notebooks
+      timeout-minutes: 15
       run: |
-        pip install marimo
-        python -m marimo export html \
-          ${{ env.DOCS_DIR }}/notebooks/what_is_a_channel.md \
-          -o /tmp/what_is_a_channel.html -f
-    - name: Execute fixpoint notebook
-      run: |
-        pip install marimo
-        marimo export script \
-          ${{ env.DOCS_DIR }}/notebooks/fixpoints.md -o /tmp/fixpoints.py
-        timeout 600 python /tmp/fixpoints.py
+        python ${{ env.DOCS_DIR }}/export_notebooks.py
     - name: Build
       run: |
         sphinx-build ${{ env.DOCS_DIR }} ${{ env.DOCS_DIR }}/_build/html

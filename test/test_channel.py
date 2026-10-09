@@ -123,21 +123,16 @@ def test_observables_agree_with_their_samples():
     counted = Observable(function=lambda n: n[0], dom=qmode @ qmode)
     assert np.isclose(number.expectation(hom), counted.expectation(hom))
     assert np.isclose(number.expectation(hom), 1)
-    assert abs(number.measure(hom, shots=500, seed=0, burn_in=0).mean()
-               - 1) < .15
-    assert abs(counted.measure(hom, shots=500, seed=0, burn_in=0).mean()
-               - 1) < .15
+    samples = (hom >> photonic.NumberResolvingMeasurement(2)).sample(
+        burn_in=0, shots=500, seed=0)
+    assert abs(np.mean([counted.function(list(sample[0]))
+                        for sample in samples]) - 1) < .15
     trace = Observable(function=lambda n: 1, dom=qmode @ qmode)
     assert np.isclose(trace.expectation(hom), (hom >> Discard(
         qmode @ qmode)).double().to_tensor().eval().array)
     rotated = qubits.Ket("+") >> qubits.Z(1, 1, .1)
     pauli_x = Observable(qubits.X(1, 1, .5))
     assert np.isclose(pauli_x.expectation(rotated), np.cos(.2 * np.pi))
-    values = pauli_x.measure(rotated, shots=1000, seed=1, burn_in=0)
-    assert set(np.round(values, 9)) == {-1, 1}
-    assert abs(values.mean() - np.cos(.2 * np.pi)) < .08
-    assert pauli_x.measure(rotated, ticks=2, shots=3, burn_in=0).shape \
-        == (3, 2)
 
 
 def test_observable_errors():
@@ -150,9 +145,5 @@ def test_observable_errors():
     with pytest.raises(ValueError):
         Observable(Diagram.id(bit))
     with pytest.raises(ValueError):
-        Observable(function=lambda n: n[0], dom=qmode).measure(
+        Observable(function=lambda n: n[0], dom=qmode).expectation(
             photonic.Create(1, 1))
-    annihilation = Observable(Diagram.from_bosonic_operator(
-        1, ((0, False), )))
-    with pytest.raises(ValueError):
-        annihilation.measure(photonic.Create(1), burn_in=0)

@@ -102,10 +102,10 @@ An observable on a type is a normal operator A on its states, as the effect Ï â
 > - `what_is_a_channel.md`, observables: "Why do we need this new .measure method? Isn't the expectation sufficient?"
 > - `what_is_a_channel.md`, distinguishability: "The sampler treats partially distinguishable photons differently from the tensor method, explain how"
 
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 09:35 open diagrams: input modes fed by a `source` at every tick, every output mode measured
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 09:35 `Diagram.sample` documents what each kind of box does under each sampler, and what is refused
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 09:35 the delay doctest shows the transient (`burn_in=0`) against the stationary samples
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 09:35 no imports outside the top level in the code this pull request adds
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 09:35 `Observable.measure` removed: the expectation is the observable, sampling stays on diagrams
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 09:35 notebook: sampling explained and shown in every section; rendered with its outputs as in DisCoPy (`docs/export_notebooks.py`)
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 09:35 notebook: internal states against the `indistinguishability` colouring model
+- [x] open diagrams: input modes fed by a `source` at every tick, every output mode measured
+- [x] `Diagram.sample` documents what each kind of box does under each sampler, and what is refused
+- [x] the delay doctest shows the transient (`burn_in=0`) against the stationary samples
+- [x] no imports outside the top level in the code this pull request adds
+- [x] `Observable.measure` removed: the expectation is the observable, sampling stays on diagrams
+- [x] notebook: sampling explained and shown in every section; rendered with its outputs as in DisCoPy (`docs/export_notebooks.py`)
+- [x] notebook: internal states against the `indistinguishability` colouring model
