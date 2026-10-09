@@ -73,6 +73,15 @@ interferometers; here the cut is the loop itself, whatever the
 interferometer, and within a tick each external output is measured as soon
 as the held modes reach it.
 
+The same tick written with JAX is :meth:`Interferometer.kernel`, a
+:class:`Kernel` with a cap on the loop photon number: it compiles, maps over
+many trajectories, and differentiates in the mode matrix, the loss, the
+efficiency and the indistinguishability. Every outcome it samples is
+recorded, so that :meth:`Kernel.log_prob` replays a trajectory for the
+score-function estimator of a gradient, and :meth:`Kernel.distribution`
+replays every one of a small network for the exact gradient. JAX is an
+optional dependency: ``pip install optyx[jax]``.
+
 Classes
 -------
 
@@ -90,6 +99,7 @@ Classes
     Sweep
     Unravelling
     CQState
+    Kernel
 
 Functions
 ---------
@@ -113,6 +123,17 @@ Functions
     pad
     marginal
     collapse
+    binomials
+    rank
+    expansion
+    powers
+    twomodes
+    turn
+    move
+    givens_rotation
+    safe_log
+    choose
+    choices
 
 Example
 -------
@@ -127,6 +148,11 @@ tick the photon injected one tick earlier:
 1
 >>> delay.occupation()
 1.0
+
+The kernel samples many trajectories at once, here two of three ticks:
+
+>>> delay.kernel(cap=1).sample(ticks=3, shots=2).tolist()
+[[[0], [1], [1]], [[0], [1], [1]]]
 
 .. [RMC+18] J. J. Renema, A. Menssen, W. R. Clements, G. Triginer,
     W. S. Kolthammer and I. A. Walmsley, Efficient classical algorithm for
@@ -143,10 +169,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from functools import lru_cache
 from itertools import product
-from math import comb, lgamma, prod
+from math import comb, factorial, lgamma, prod
 
 import numpy as np
 from discopy import symmetric
+
+try:
+    import jax
+    from jax import numpy as jnp
+except ImportError:  # pragma: no cover
+    jax = jnp = None
 
 
 @lru_cache(maxsize=None)
@@ -182,7 +214,7 @@ def encode(occupations: np.ndarray, photons: int) -> np.ndarray:
 
 
 @lru_cache(maxsize=None)
-def keys(modes: int, photons: int) -> tuple:
+def lookup(modes: int, photons: int) -> tuple:
     """
     The sorted integer keys of the occupations of :func:`sector` and the
     permutation sorting them, to look occupations up in the sector.
@@ -199,7 +231,7 @@ def position(occupations: np.ndarray, photons: int) -> np.ndarray:
     >>> position(np.array([[1, 1], [2, 0]]), 2).tolist()
     [1, 2]
     """
-    values, order = keys(occupations.shape[1], photons)
+    values, order = lookup(occupations.shape[1], photons)
     return order[np.searchsorted(values, encode(occupations, photons))]
 
 
@@ -1118,6 +1150,22 @@ transmissivity=1.0, efficiency=1.0, visible=(0,), indistinguishability=1.0)
             result[history] = result.get(history, 0) + weight
         return result
 
+    def kernel(self, cap: int = None, private: int = None) -> Kernel:
+        """
+        The :class:`Kernel` of this network, with the loop photon cap `cap`
+        and the cap `private` on photons of their own in the loop. Both
+        default to far in the tail of the stationary loop photon number of
+        :meth:`occupation`, :math:`\\bar n + 6 \\sqrt{\\bar n} + 2`, and a
+        trajectory past them is an error.
+        """
+        mean = self.occupation()
+        cap = int(np.ceil(mean + 6 * np.sqrt(mean) + 2)) if cap is None \
+            else cap
+        mean *= 1 - self.indistinguishability
+        private = int(np.ceil(mean + 6 * np.sqrt(mean) + 2)) \
+            if private is None else private
+        return Kernel(self, cap, private)
+
     def lost(self, state: FockState):
         """
         Every loop state left by the losses of one round trip, with its
@@ -1606,3 +1654,790 @@ def normalise(weights) -> np.ndarray:
     """ The probability vector proportional to `weights`. """
     weights = np.asarray(weights, dtype=float)
     return weights / weights.sum()
+
+
+@lru_cache(maxsize=None)
+def binomials(modes: int, photons: int) -> np.ndarray:
+    """
+    The size :math:`\\binom{m + r - 1}{r}` of the :math:`r`-photon sector of
+    :math:`m` modes, for every :math:`m \\leq` `modes` and
+    :math:`r \\leq` `photons`, clipped to 32-bit integers.
+
+    >>> binomials(3, 2).tolist()
+    [[1, 0, 0], [1, 1, 1], [1, 2, 3], [1, 3, 6]]
+    """
+    table = np.array([[comb(m + r - 1, r) if m else int(r == 0)
+                       for r in range(photons + 1)]
+                      for m in range(modes + 1)])
+    return np.minimum(table, np.iinfo(np.int32).max).astype(np.int32)
+
+
+def rank(occupations, photons, table):
+    """
+    The positions in :func:`sector` of the rows of `occupations`, each with
+    `photons` photons, from the :func:`binomials` `table`: the combinatorial
+    number system, where mode :math:`i` with :math:`r_i` photons left to
+    place contributes :math:`D(W - i, r_i) - D(W - i, r_i - n_i)` for
+    :math:`D(m, r)` the size of the :math:`r`-photon sector of :math:`m`
+    modes. Rows with another number of photons have no meaning.
+
+    >>> rank(sector(3, 2), 2, binomials(3, 2)).tolist()
+    [0, 1, 2, 3, 4, 5]
+    """
+    occupations, table = jnp.asarray(occupations, jnp.int32), \
+        jnp.asarray(table)
+    remaining = jnp.asarray(photons, dtype=jnp.int32)[..., None] \
+        - jnp.cumsum(occupations, axis=-1) + occupations
+    modes = jnp.arange(occupations.shape[-1], 0, -1)
+    return jnp.sum(
+        table[modes, jnp.clip(remaining, 0, table.shape[1] - 1)]
+        - table[modes, jnp.clip(remaining - occupations, 0,
+                                table.shape[1] - 1)], axis=-1)
+
+
+@lru_cache(maxsize=None)
+def expansion(photons: int) -> tuple:
+    """
+    The terms of :func:`twomode` for every number of photons up to
+    `photons`: the flat index of the entry :math:`(s, m, k)` each adds to,
+    its coefficient and the powers of :math:`u_{00}, u_{10}, u_{01},
+    u_{11}` it multiplies.
+    """
+    terms = [
+        ((total * (photons + 1) + m) * (photons + 1) + k,
+         comb(k, a) * comb(total - k, m - a) * np.sqrt(
+             factorial(m) * factorial(total - m)
+             / factorial(k) / factorial(total - k)),
+         (a, k - a, m - a, total - k - m + a))
+        for total in range(photons + 1)
+        for k in range(total + 1)
+        for m in range(total + 1)
+        for a in range(max(0, m - total + k), min(k, m) + 1)]
+    index, coefficients, exponents = zip(*terms)
+    return np.array(index), np.array(coefficients), np.array(exponents)
+
+
+def powers(values, photons: int):
+    """
+    The powers :math:`0, \\dots,` `photons` of each of `values`, one row
+    each, as products so that they are differentiable at zero.
+    """
+    values = jnp.asarray(values)
+    return jnp.cumprod(jnp.concatenate([
+        jnp.ones(values.shape + (1, ), values.dtype),
+        jnp.repeat(values[..., None], photons, axis=-1)], axis=-1), axis=-1)
+
+
+def twomodes(matrix, photons: int):
+    """
+    :func:`twomode` of `matrix` on every number :math:`s \\leq` `photons` of
+    photons at once, a tensor with entries :math:`(s, m, k)`, written with
+    JAX so that it is differentiable in `matrix`.
+
+    >>> splitter = np.array([[1, 1], [1, -1]]) / np.sqrt(2)
+    >>> bool(np.allclose(twomodes(splitter, 2)[2], twomode(splitter, 2)))
+    True
+    """
+    index, coefficients, exponents = expansion(photons)
+    matrix = jnp.asarray(matrix)
+    table = powers(jnp.stack([matrix[0, 0], matrix[1, 0], matrix[0, 1],
+                              matrix[1, 1]]), photons)
+    terms = coefficients * jnp.prod(
+        table[jnp.arange(4), exponents], axis=-1)
+    return jnp.zeros((photons + 1) ** 3, terms.dtype).at[index].add(
+        terms).reshape((photons + 1, ) * 3)
+
+
+def turn(vector, occupations, photons: int, mode, tensor, table):
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
+    # pylint: disable=too-many-locals
+    """
+    The rotation with :func:`twomodes` `tensor` of the modes `mode` and
+    `mode + 1` of a `vector` of the `photons`-photon sector with
+    `occupations`: the amplitude of each occupation gathers those of the
+    occupations differing from it on these two modes. Their :func:`rank`
+    differs only in the terms of these two modes, which depend on the
+    photons :math:`k` put in the first one only through
+    :math:`g(r - k)`, for :math:`r` the photons left before it and
+    :math:`g` the difference of two rows of the :func:`binomials` `table`.
+    """
+    size, modes = occupations.shape
+    first = jnp.take(occupations, mode, axis=1)
+    total = first + jnp.take(occupations, mode + 1, axis=1)
+    remaining = photons - jnp.take(
+        np.cumsum(occupations, axis=1) - occupations, mode, axis=1)
+    numbers = jnp.arange(photons + 1)
+    table = jnp.asarray(table)
+    difference = table[modes - mode - 1, :photons + 1] \
+        - table[modes - mode, :photons + 1]
+    targets = jnp.arange(size)[:, None] - difference[remaining - first][
+        :, None] + difference[jnp.clip(
+            remaining[:, None] - numbers[None, :], 0, photons)]
+    targets = jnp.where(numbers[None, :] <= total[:, None], targets, size)
+    padded = jnp.concatenate([vector, jnp.zeros(1, vector.dtype)])
+    rows = tensor.reshape(-1, photons + 1)[total * (photons + 1) + first]
+    return jnp.sum(rows * padded[targets], axis=1)
+
+
+def move(vector, targets, size: int):
+    """
+    The vector of length `size` with the entries of `vector` added at
+    `targets`, those at `size` being dropped.
+    """
+    return jnp.zeros(size + 1, vector.dtype).at[targets].add(vector)[:size]
+
+
+def givens_rotation(top, bottom):
+    """
+    The rotation :math:`r` of two adjacent modes with
+    :math:`r (t, b)^T = (\\sqrt{|t|^2 + |b|^2}, 0)^T`, as in
+    :func:`eliminate` but without branching, the identity when both are
+    zero, and that norm.
+    """
+    square = jnp.real(top * jnp.conj(top) + bottom * jnp.conj(bottom))
+    safe = square > 1e-30
+    top, bottom = jnp.where(safe, top, 1), jnp.where(safe, bottom, 0)
+    norm = jnp.sqrt(jnp.where(safe, square, 1))
+    matrix = jnp.array([[jnp.conj(top), jnp.conj(bottom)],
+                        [-bottom, top]]) / norm
+    return jnp.where(safe, matrix, jnp.eye(2, dtype=matrix.dtype)), \
+        jnp.where(safe, norm, 0)
+
+
+def safe_log(probability):
+    """ The logarithm of `probability`, zero where it vanishes. """
+    return jnp.log(jnp.where(probability > 0, probability, 1))
+
+
+class Kernel:
+    """
+    One tick of an :class:`Interferometer` as a Markov kernel on the states
+    of its loop, written with JAX: fixed shapes, so that it compiles, runs
+    over many trajectories at once and differentiates.
+
+    It runs the :class:`Sweep` of :meth:`Interferometer.step` with every
+    photon number up to the cap :math:`M = n^\\star + |q|` compiled once:
+    each external output switches on the photon number :math:`n` of the
+    held state and works in the :math:`n`-photon sector of the held modes,
+    a vector held in a buffer of the size of the :math:`M`-photon sector.
+    The occupations that a rotation, a collapse or a loss pairs are found by
+    :func:`rank`, so the only tables are the occupations of each sector.
+    The loop is held between ticks in the sectors of :math:`n^\\star` photons
+    in :math:`L + 1` modes, the last one counting the photons missing to
+    :math:`n^\\star`, so that every photon number has its place.
+
+    Photons in an internal state of their own are a padded batch of at most
+    `private` single-photon walks. A trajectory whose loop holds more than
+    `cap` photons, or more than `private` photons of their own, is flagged
+    as an overflow.
+
+    Every outcome a trajectory samples is recorded, so that
+    :meth:`log_prob` replays it: the score-function estimator of the
+    gradient of an expectation :math:`E_\\theta[f]` is the mean of
+    :math:`f \\nabla_\\theta \\log p_\\theta`. The parameters are those of
+    :meth:`parameters`; they change the values of the loss, the efficiency
+    and the indistinguishability but not whether each is simulated, which
+    is decided by the :class:`Interferometer`.
+
+    Parameters:
+        interferometer : The interferometer.
+        cap : The photon cap :math:`n^\\star` of the loop.
+        private : The cap on photons of their own in the loop.
+
+    >>> delay = Interferometer([[0, 1], [1, 0]], loop=1, inputs=(1, ))
+    >>> delay.kernel(cap=2).sample(ticks=3, shots=2).tolist()
+    [[[0], [1], [1]], [[0], [1], [1]]]
+    """
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
+    # pylint: disable=too-many-locals,too-many-public-methods
+    def __init__(self, interferometer: Interferometer, cap: int,
+                 private: int = 0):
+        if not isinstance(interferometer.source, Fock):
+            raise NotImplementedError(
+                "The kernel compiles a deterministic Fock injection, "
+                f"not {interferometer.source}.")
+        if jax is None:  # pragma: no cover
+            raise ImportError("The kernel needs JAX: pip install jax.")
+        self.interferometer, self.cap = interferometer, int(cap)
+        self.private = int(private) \
+            if interferometer.indistinguishability < 1 else 0
+        self.sweep = interferometer.sweep()
+        self.photons = self.cap + sum(interferometer.inputs)
+        self.width = max(self.sweep.probed() + [len(self.sweep.columns)])
+        self.table = binomials(
+            max(self.sweep.probed() + [interferometer.loop]) + 2,
+            self.photons)
+        self.compiled = {}
+
+    def __repr__(self):
+        return (f"Kernel({self.interferometer!r}, cap={self.cap}, "
+                f"private={self.private})")
+
+    def __eq__(self, other):
+        return isinstance(other, Kernel) \
+            and self.interferometer == other.interferometer \
+            and (self.cap, self.private) == (other.cap, other.private)
+
+    def size(self, modes: int, photons: int = None) -> int:
+        """
+        The length of a buffer of the sectors of `modes` modes with at most
+        `photons` photons, :math:`M` by default.
+        """
+        photons = self.photons if photons is None else photons
+        return comb(modes + photons - 1, photons) if modes else 1
+
+    @staticmethod
+    def occupations(modes: int, photons: int) -> np.ndarray:
+        """ The occupations of :func:`sector` as 32-bit integers. """
+        return sector(modes, photons).astype(np.int32)
+
+    def parameters(self) -> dict:
+        """
+        The values the kernel differentiates in: the mode matrix, the
+        transmissivity, the efficiency and the indistinguishability.
+        """
+        network = self.interferometer
+        return {"unitary": jnp.asarray(network.unitary, dtype=complex),
+                "transmissivity": jnp.asarray(network.transmissivity),
+                "efficiency": jnp.asarray(network.efficiency),
+                "indistinguishability":
+                    jnp.asarray(network.indistinguishability)}
+
+    def schedule(self, unitary) -> tuple:
+        """
+        The rotations of the :class:`Sweep` computed from the mode matrix
+        with :func:`givens_rotation`, so that they are differentiable in it:
+        for each external output the chain bringing it to the first held mode,
+        padded with identities to the same length and stacked, then the
+        phases and rotations mapping the held modes left onto the loop, as
+        in :func:`givens`, all in the order they are applied.
+        """
+        unitary, loop = jnp.asarray(unitary), self.interferometer.loop
+        basis, chains = unitary[:, list(self.sweep.columns)], []
+        for index, grows in enumerate(self.sweep.grows):
+            target = jnp.eye(len(unitary), dtype=unitary.dtype)[loop + index]
+            if grows:
+                residual = target - basis @ (basis.conj().T @ target)
+                basis = jnp.hstack([basis, residual[:, None] / jnp.sqrt(
+                    jnp.real(jnp.vdot(residual, residual)))])
+            column, chain = basis.conj().T @ target, []
+            for row in range(basis.shape[1] - 1, 0, -1):
+                matrix, norm = givens_rotation(column[row - 1], column[row])
+                column = column.at[row - 1].set(norm).at[row].set(0)
+                basis = basis.at[:, row - 1:row + 1].set(
+                    basis[:, row - 1:row + 1] @ matrix.conj().T)
+                chain.append((row - 1, matrix))
+            chains += chain + [(0, jnp.eye(2, dtype=unitary.dtype))] * (
+                self.width - basis.shape[1])
+            basis = basis[:, 1:]
+        current, final = basis[:loop], []
+        for column in range(min(current.shape[1], loop - 1)):
+            for row in range(loop - 1, column, -1):
+                matrix, _ = givens_rotation(
+                    current[row - 1, column], current[row, column])
+                current = current.at[row - 1:row + 1].set(
+                    matrix @ current[row - 1:row + 1])
+                final.append((row - 1, matrix.conj().T))
+        phases = jnp.concatenate([
+            jnp.diagonal(current),
+            jnp.ones(loop - current.shape[1], unitary.dtype)])
+        modes, tensors = self.tensors(chains)
+        steps = (len(self.sweep.grows), self.width - 1)
+        return (modes.reshape(steps), tensors.reshape(
+            steps + tensors.shape[1:])), phases, self.tensors(final[::-1])
+
+    def tensors(self, chain: list) -> tuple:
+        """
+        The modes of the rotations `chain`, pairs of a mode and a matrix,
+        and their :func:`twomodes` tensors up to :math:`M` photons.
+        """
+        indices = np.array([mode for mode, _ in chain], dtype=np.int32)
+        if not chain:
+            return indices, jnp.zeros((0, ) + (self.photons + 1, ) * 3)
+        return indices, jax.vmap(lambda matrix: twomodes(
+            matrix, self.photons))(jnp.stack([matrix for _, matrix in chain]))
+
+    def rotate(self, vector, modes: int, photons: int, chain: tuple):
+        """
+        Apply the rotations `chain` of :meth:`schedule`, their modes and
+        :func:`twomodes` tensors, to a `vector` of the `photons`-photon
+        sector of `modes` modes, as one scan.
+        """
+        indices, tensors = chain
+        if indices.size == 0:
+            return vector
+        occupations = self.occupations(modes, photons)
+
+        def body(vector, step):
+            mode, tensor = step
+            return turn(vector, occupations, photons, mode, tensor,
+                        self.table), None
+        return jax.lax.scan(body, vector, (
+            jnp.asarray(indices),
+            tensors[:, :photons + 1, :photons + 1, :photons + 1]))[0]
+
+    def start(self, loop, photons, injected):
+        """
+        The held state of the loop buffer with `photons` photons and the
+        `injected` photons in the occupied inputs, in the buffer of the held
+        modes, the modes past them in the vacuum.
+        """
+        occupations = self.occupations(
+            self.interferometer.loop + 1, self.cap)
+        held = jnp.hstack([
+            occupations[:, :-1],
+            jnp.broadcast_to(injected, (len(occupations), len(injected))),
+            jnp.zeros((len(occupations), self.width - len(self.sweep.columns)),
+                      jnp.int32)])
+        targets = jnp.where(
+            occupations[:, -1] == self.cap - photons,
+            rank(held, photons + jnp.sum(injected), self.table),
+            self.size(self.width))
+        return move(loop, targets, self.size(self.width))
+
+    def measure(self, held, photons, chain: tuple, key, forced):
+        """
+        Measure the next external output of the held state, `chain` bringing
+        it to the first held mode: switch on the photon number of the held
+        state, rotate, sample the photon number of the first mode (or take
+        the `forced` one) and collapse, shifting the other modes down by one.
+        Returns the next held state, its photon number, the outcome, its log
+        probability and whether it was possible.
+        """
+        def branch(photons):
+            def run(held):
+                vector = self.rotate(
+                    held[:comb(self.width + photons - 1, photons)],
+                    self.width, photons, chain)
+                occupations = self.occupations(self.width, photons)
+                probabilities = jax.ops.segment_sum(
+                    jnp.abs(vector) ** 2, occupations[:, 0],
+                    self.photons + 1)
+                number = choose(key, probabilities, forced)
+                probability = probabilities[number]
+                targets = jnp.where(
+                    occupations[:, 0] == number,
+                    rank(jnp.hstack([
+                        occupations[:, 1:],
+                        jnp.zeros((len(occupations), 1), jnp.int32)]),
+                        photons - number, self.table),
+                    len(occupations))
+                return held.at[:len(occupations)].set(move(
+                    vector / jnp.sqrt(jnp.where(
+                        probability > 0, probability, 1)), targets,
+                    len(occupations))), number, \
+                    safe_log(probability), probability > 0
+            return run
+        held, number, logp, possible = jax.lax.switch(
+            photons, [branch(n) for n in range(self.photons + 1)], held)
+        return held, (photons - number).astype(jnp.int32), number, logp, \
+            possible
+
+    def land(self, phases, final, held, photons, transmissivity, subkeys,
+             forced):
+        """
+        Map the held modes left after the last output onto the loop, sample
+        the photons each loop mode loses (or take the `forced` numbers) and
+        store the loop in its buffer. Returns the buffer, the loop photon
+        number, the losses, their log probability, whether they were
+        possible and whether the loop holds more than the cap.
+        """
+        loop, modes = self.interferometer.loop, self.sweep.widths()[-1]
+        lossy = self.interferometer.transmissivity < 1
+
+        def branch(photons):
+            def run(held):
+                occupations = self.occupations(self.width, photons)
+                vector = move(
+                    held[:len(occupations)], jnp.where(
+                        jnp.sum(occupations[:, modes:], axis=1) == 0,
+                        rank(jnp.hstack([occupations[:, :modes], jnp.zeros(
+                            (len(occupations), loop + 1 - modes),
+                            jnp.int32)]), photons, self.table),
+                        comb(loop + photons, photons)),
+                    comb(loop + photons, photons))
+                occupations = self.occupations(loop + 1, photons)
+                vector = vector * jnp.prod(powers(phases, photons)[
+                    jnp.arange(loop), occupations[:, :-1]], axis=1)
+                vector = self.rotate(vector, loop + 1, photons, final)
+                lost = jnp.zeros(loop, jnp.int32)
+                logp, possible = 0., True
+                for mode in range(loop * lossy):
+                    vector, number, step_logp, step_possible = self.lose(
+                        vector, occupations, mode, photons, transmissivity,
+                        subkeys[mode],
+                        None if forced is None else forced[mode])
+                    lost = lost.at[mode].set(number)
+                    logp, possible = logp + step_logp, \
+                        possible & step_possible
+                left = photons - jnp.sum(lost)
+                targets = jnp.where(
+                    (occupations[:, -1] == jnp.sum(lost)) & (left <= self.cap),
+                    rank(jnp.hstack([occupations[:, :-1], jnp.broadcast_to(
+                        self.cap - left, (len(occupations), 1))]),
+                        self.cap, self.table),
+                    self.size(loop + 1, self.cap))
+                buffer = move(vector, targets, self.size(loop + 1, self.cap))
+                return buffer, lost, logp, possible
+            return run
+        buffer, lost, logp, possible = jax.lax.switch(
+            photons, [branch(n) for n in range(self.photons + 1)], held)
+        left = photons - jnp.sum(lost)
+        overflow = left > self.cap
+        vacuum = jnp.zeros_like(buffer).at[0].set(1)
+        return jnp.where(overflow, vacuum, buffer), \
+            jnp.where(overflow, 0, left).astype(jnp.int32), lost, logp, \
+            possible, overflow
+
+    def lose(self, vector, occupations, mode: int, photons: int,
+             transmissivity, key, forced):
+        """
+        Sample the number of photons that loop `mode` loses (or take the
+        `forced` one) and move them to the last mode, which counts them: the
+        Kraus operator losing :math:`l` of :math:`n` photons has amplitude
+        :math:`\\sqrt{\\binom{n}{l} \\gamma^{n - l} (1 - \\gamma)^l}`.
+        """
+        number = occupations[:, mode]
+        lost = jnp.arange(photons + 1)
+        kept = jnp.maximum(number[:, None] - lost[None, :], 0)
+        amplitudes = jnp.where(
+            lost[None, :] <= number[:, None],
+            jnp.sqrt(jnp.asarray(choices(photons))[number])
+            * powers(jnp.sqrt(transmissivity), photons)[kept]
+            * powers(jnp.sqrt(1 - transmissivity), photons)[lost][None, :],
+            0)
+        probabilities = jnp.zeros(self.photons + 1).at[:photons + 1].set(
+            jnp.abs(vector) ** 2 @ jnp.abs(amplitudes) ** 2)
+        chosen = choose(key, probabilities, forced)
+        probability = probabilities[chosen]
+        targets = jnp.where(
+            number >= chosen,
+            rank(jnp.asarray(occupations).at[:, mode].add(-chosen)
+                 .at[:, -1].add(chosen),
+                 photons, self.table), len(vector))
+        return move(vector * jnp.take(amplitudes, jnp.minimum(
+            chosen, photons), axis=1)
+                    / jnp.sqrt(jnp.where(probability > 0, probability, 1)),
+                    targets, len(vector)), \
+            chosen, safe_log(probability), probability > 0
+
+    def walk(self, unitary, transmissivity, walkers, active, private,
+             subkeys, forced):
+        """
+        One tick of the photons in an internal state of their own, each a
+        single-photon walk: those in the loop (`walkers`, the loop amplitudes,
+        where `active`) and those injected now (where `private`, one per
+        injected photon). Each is detected at an external output or stays in
+        the loop, where it survives the loss or not. Returns the detections,
+        the walks left, compacted to the first `private` slots, the outcomes,
+        their log probability, whether they were possible and whether the
+        walks left overflow their slots.
+        """
+        loop = self.interferometer.loop
+        external = len(self.interferometer.inputs)
+        injected = np.zeros((len(self.injected()), loop + external))
+        injected[np.arange(len(injected)), loop + self.injected()] = 1
+        inputs = jnp.vstack([jnp.hstack([
+            walkers, jnp.zeros((len(walkers), external), walkers.dtype)]),
+            jnp.asarray(injected, walkers.dtype)])
+        alive = jnp.concatenate([active, private])
+        outputs = inputs @ unitary.T
+        stay = jnp.sum(jnp.abs(outputs[:, :loop]) ** 2, axis=1)
+        probabilities = jnp.hstack([
+            jnp.abs(outputs[:, loop:]) ** 2, stay[:, None]])
+        steps = choose(subkeys[0], probabilities,
+                       None if forced is None else forced["walk"])
+        stays = steps == external
+        logp = jnp.where(alive, safe_log(jnp.take_along_axis(
+            probabilities, steps[:, None], axis=1)[:, 0]), 0)
+        possible = jnp.all(~alive | (jnp.take_along_axis(
+            probabilities, steps[:, None], axis=1)[:, 0] > 0))
+        survive = jnp.ones(len(alive), bool)
+        if self.interferometer.transmissivity < 1:
+            survive = jax.random.bernoulli(
+                subkeys[1], transmissivity, (len(alive), )) \
+                if forced is None else forced["survive"]
+            logp = logp + jnp.where(alive & stays, jnp.where(
+                survive, jnp.log(transmissivity),
+                safe_log(1 - transmissivity)), 0)
+        detections = jnp.sum(jax.nn.one_hot(steps, external + 1)[:, :external]
+                             * alive[:, None], axis=0).astype(jnp.int32)
+        left = alive & stays & survive
+        walkers = outputs[:, :loop] / jnp.sqrt(jnp.where(
+            stay > 0, stay, 1))[:, None]
+        order = jnp.argsort(~left, stable=True)[:self.private]
+        return detections, walkers[order], left[order], \
+            {"walk": steps, "survive": survive}, jnp.sum(logp), possible, \
+            jnp.sum(left) > self.private
+
+    def injected(self) -> np.ndarray:
+        """ The external input of each photon injected at a tick. """
+        return np.array([mode for mode, number in enumerate(
+            self.interferometer.inputs) for _ in range(number)], dtype=int)
+
+    def vacuum(self, dtype=complex) -> tuple:
+        """
+        The state of a trajectory started from the vacuum: the loop buffer,
+        its photon number, the private walks and which are active.
+        """
+        return (jnp.zeros(self.size(self.interferometer.loop + 1, self.cap),
+                          dtype).at[0].set(1),
+                jnp.asarray(0, jnp.int32),
+                jnp.zeros((self.private, self.interferometer.loop), dtype),
+                jnp.zeros(self.private, bool))
+
+    def colour(self, probability, key, forced):
+        """
+        Which injected photons are in an internal state of their own, each
+        with probability :math:`1 - p`, or the `forced` ones; with their log
+        probability.
+        """
+        injected = len(self.injected())
+        if self.interferometer.indistinguishability == 1:
+            return jnp.zeros(injected, bool), 0.
+        private = jax.random.bernoulli(key, 1 - probability, (injected, )) \
+            if forced is None else forced
+        return private, jnp.sum(jnp.where(
+            private, safe_log(1 - probability), safe_log(probability)))
+
+    def shared(self, params: dict, schedule: tuple, loop, photons, private,
+               subkeys, forced):
+        """
+        One tick of the photons in the shared internal state: inject those
+        not `private`, measure every external output along the
+        :class:`Sweep` and land on the loop. Returns the loop buffer and its
+        photon number, the pattern and the losses, their log probability,
+        whether they were possible and whether the loop overflows.
+        """
+        chains, phases, final = schedule
+        loop_modes = self.interferometer.loop
+        columns = np.array(self.sweep.columns[loop_modes:]) - loop_modes
+        injected = jnp.asarray(self.interferometer.inputs)[columns] \
+            - jax.ops.segment_sum(private.astype(jnp.int32), jnp.asarray(
+                np.searchsorted(columns, self.injected())), len(columns))
+        external = len(self.sweep.grows)
+
+        def step(carry, step):
+            chain, key, number = step
+            held, held_photons, number, logp, possible = self.measure(
+                *carry, chain, key, None if forced is None else number)
+            return (held, held_photons), (number, logp, possible)
+        (held, held_photons), (pattern, logp, possible) = jax.lax.scan(
+            step, (self.start(loop, photons, injected),
+                   (photons + jnp.sum(injected)).astype(jnp.int32)),
+            (chains, jax.random.split(subkeys[0], external) if forced is None
+             else jnp.zeros((external, 2), jnp.uint32),
+             jnp.zeros(external, jnp.int32) if forced is None
+             else forced["shared"]))
+        loop, photons, lost, land_logp, land_possible, overflow = self.land(
+            phases, final, held, held_photons, params["transmissivity"],
+            jax.random.split(subkeys[1], loop_modes) if forced is None
+            else [None] * loop_modes,
+            None if forced is None else forced["lost"])
+        return loop, photons, pattern, lost, jnp.sum(logp) + land_logp, \
+            jnp.all(possible) & land_possible, overflow
+
+    def thin(self, efficiency, detected, key, forced):
+        """
+        The numbers recorded by detectors of efficiency :math:`\\eta` on the
+        `detected` photons, binomially, or the `forced` ones; with their log
+        probability and whether they were possible.
+        """
+        if self.interferometer.efficiency == 1:
+            return detected, 0., True
+        recorded = jax.random.binomial(key, detected, efficiency).astype(
+            jnp.int32) if forced is None else forced
+        gammaln = jax.scipy.special.gammaln
+        possible = recorded <= detected
+        return recorded, jnp.sum(jnp.where(
+            possible, gammaln(detected + 1.) - gammaln(recorded + 1.)
+            - gammaln(detected - recorded + 1.)
+            + recorded * safe_log(efficiency)
+            + (detected - recorded) * safe_log(1 - efficiency), 0)), \
+            jnp.all(possible)
+
+    def tick(self, params: dict, schedule: tuple, state: tuple, key,
+             forced: dict = None):
+        """
+        One tick of a trajectory from `state`, sampling with `key`, or
+        replaying the `forced` outcomes of an earlier tick when given. Returns
+        the next state and a dictionary of the recorded pattern, the
+        outcomes, their log probability, whether they were possible and
+        whether the loop overflows.
+        """
+        loop, photons, walkers, active = state
+        subkeys = jax.random.split(key, 6) if forced is None else [None] * 6
+        forced = {} if forced is None else forced
+        private, logp = self.colour(
+            params["indistinguishability"], subkeys[0], forced.get("private"))
+        loop, photons, pattern, lost, step_logp, possible, overflow = \
+            self.shared(params, schedule, loop, photons, private,
+                        subkeys[1:3], forced or None)
+        outcomes = {"private": private, "shared": pattern, "lost": lost,
+                    "walk": jnp.zeros(len(private) + self.private, jnp.int32),
+                    "survive": jnp.zeros(len(private) + self.private, bool)}
+        logp = logp + step_logp
+        if self.interferometer.indistinguishability < 1:
+            detections, walkers, active, walked, step_logp, step_possible, \
+                crowded = self.walk(
+                    params["unitary"], params["transmissivity"], walkers,
+                    active, private, subkeys[3:5], forced or None)
+            outcomes.update(walked)
+            pattern = pattern + detections
+            logp, possible = logp + step_logp, possible & step_possible
+            overflow = overflow | crowded
+        recorded, step_logp, step_possible = self.thin(
+            params["efficiency"],
+            pattern[np.array(self.interferometer.visible, dtype=int)],
+            subkeys[5], forced.get("recorded"))
+        outcomes["recorded"] = recorded
+        return (loop, photons, walkers, active), {
+            "recorded": recorded, "outcomes": outcomes,
+            "logp": logp + step_logp, "possible": possible & step_possible,
+            "overflow": overflow}
+
+    def run(self, key, ticks: int, params: dict = None) -> dict:
+        """
+        One trajectory of `ticks` ticks from the vacuum loop, sampled with
+        `key`: the outputs of :meth:`tick`, stacked over ticks.
+        """
+        params = self.parameters() if params is None else params
+        schedule = self.schedule(params["unitary"])
+
+        def body(state, key):
+            return self.tick(params, schedule, state, key)
+        return jax.lax.scan(body, self.vacuum(params["unitary"].dtype),
+                            jax.random.split(key, ticks))[1]
+
+    def trajectories(self, ticks: int, shots: int = 1, seed: int = 0,
+                     params: dict = None, batch_size: int = None) -> dict:
+        """
+        `shots` independent trajectories of `ticks` ticks from the vacuum
+        loop: :meth:`run`, compiled once and mapped over the shots,
+        `batch_size` at a time in parallel.
+        """
+        params = self.parameters() if params is None else params
+        if ticks not in self.compiled:
+            self.compiled[ticks] = jax.jit(
+                lambda keys, params: jax.lax.map(
+                    lambda key: self.run(key, ticks, params), keys,
+                    batch_size=batch_size))
+        return self.compiled[ticks](
+            jax.random.split(jax.random.PRNGKey(seed), shots), params)
+
+    def sample(self, ticks: int, burn_in: int = 0, shots: int = 1,
+               seed: int = 0, params: dict = None) -> np.ndarray:
+        """
+        The patterns recorded over `ticks` ticks after `burn_in` ticks, for
+        `shots` trajectories: an array of shape
+        `(shots, ticks, len(visible))`. Raises when a trajectory overflows
+        the caps.
+        """
+        result = self.trajectories(burn_in + ticks, shots, seed, params)
+        if np.any(result["overflow"]):
+            raise ValueError(
+                f"A trajectory overflowed the caps cap={self.cap}, "
+                f"private={self.private}; build a kernel with larger ones.")
+        return np.asarray(result["recorded"])[:, burn_in:]
+
+    def log_prob(self, outcomes: dict, params: dict = None):
+        """
+        The log probability of the trajectories whose `outcomes` were
+        recorded by :meth:`trajectories`, replayed from the vacuum loop, and
+        whether each was possible: differentiable in `params`.
+        """
+        params = self.parameters() if params is None else params
+        schedule = self.schedule(params["unitary"])
+
+        def replay(outcomes):
+            def body(state, forced):
+                state, result = self.tick(params, schedule, state, None,
+                                          forced)
+                return state, (result["logp"], result["possible"])
+            _, (logp, possible) = jax.lax.scan(
+                body, self.vacuum(params["unitary"].dtype), outcomes)
+            return jnp.sum(logp), jnp.all(possible)
+        return jax.lax.map(replay, outcomes)
+
+    def distribution(self, ticks: int, burn_in: int = 0,
+                     params: dict = None) -> dict:
+        """
+        The exact probability of every sequence of patterns recorded over
+        `ticks` ticks after `burn_in` ticks, by replaying every sequence of
+        outcomes with :meth:`log_prob`: differentiable in `params`, for small
+        networks of indistinguishable photons. Impossible sequences are kept,
+        with probability zero.
+
+        >>> delay = Interferometer([[0, 1], [1, 0]], loop=1, inputs=(1, ))
+        >>> {history: round(float(probability), 6) for history, probability
+        ...  in delay.kernel(cap=2).distribution(2).items() if probability}
+        {((0,), (1,)): 1.0}
+        """
+        network = self.interferometer
+        if network.indistinguishability < 1:
+            raise NotImplementedError(
+                "The exact distribution enumerates indistinguishable photons "
+                "only; sample partially distinguishable ones.")
+        if self.cap < (burn_in + ticks) * sum(network.inputs):
+            raise ValueError(
+                "The exact distribution needs a cap of every photon injected, "
+                f"{(burn_in + ticks) * sum(network.inputs)}.")
+        per_tick = [
+            (shared, lost, recorded)
+            for shared in product(range(self.photons + 1),
+                                  repeat=len(network.inputs))
+            for lost in product(range(self.photons + 1), repeat=network.loop
+                                * (network.transmissivity < 1))
+            if sum(shared) + sum(lost) <= self.photons
+            for recorded in product(*(
+                range(shared[i] + 1) if network.efficiency < 1
+                else [shared[i]] for i in network.visible))]
+        sequences = list(product(per_tick, repeat=burn_in + ticks))
+        outcomes = {
+            "private": jnp.zeros((len(sequences), burn_in + ticks,
+                                  len(self.injected())), bool),
+            "shared": jnp.array([[shared for shared, _, _ in sequence]
+                                 for sequence in sequences], jnp.int32),
+            "lost": jnp.array([[lost + (0, ) * (
+                network.loop - len(lost)) for _, lost, _ in sequence]
+                for sequence in sequences], jnp.int32),
+            "walk": jnp.zeros((len(sequences), burn_in + ticks,
+                               len(self.injected())), jnp.int32),
+            "survive": jnp.zeros((len(sequences), burn_in + ticks,
+                                  len(self.injected())), bool),
+            "recorded": jnp.array([[recorded for _, _, recorded in sequence]
+                                   for sequence in sequences], jnp.int32)}
+        logp, possible = self.log_prob(outcomes, params)
+        histories = [tuple(recorded for _, _, recorded in sequence[burn_in:])
+                     for sequence in sequences]
+        distinct = sorted(set(histories))
+        totals = jax.ops.segment_sum(
+            jnp.where(possible, jnp.exp(logp), 0),
+            jnp.array([distinct.index(history) for history in histories]),
+            len(distinct))
+        return dict(zip(distinct, totals))
+
+
+def choose(key, probabilities, forced=None):
+    """
+    An index sampled with `key` with the weights `probabilities` along the
+    last axis, or the `forced` one.
+    """
+    if forced is not None:
+        return jnp.asarray(forced, jnp.int32)
+    return jax.random.categorical(
+        key, jnp.log(jnp.where(probabilities > 0, probabilities, 0))
+    ).astype(jnp.int32)
+
+
+@lru_cache(maxsize=None)
+def choices(photons: int) -> np.ndarray:
+    """
+    The binomial coefficients :math:`\\binom{n}{k}` for
+    :math:`k, n \\leq` `photons`.
+
+    >>> choices(2).tolist()
+    [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [1.0, 2.0, 1.0]]
+    """
+    return np.array([[comb(n, k) for k in range(photons + 1)]
+                     for n in range(photons + 1)], dtype=float)
