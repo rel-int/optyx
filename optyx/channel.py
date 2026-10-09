@@ -121,6 +121,7 @@ Generators and diagrams
     Measure
     Encode
     Discard
+    Observable
     Feedback
 
 Examples
@@ -448,9 +449,10 @@ class Diagram(frobenius.Diagram):
         return self.feedback_factory(
             self, dom=dom, cod=cod, mem=mem, state=state, effect=effect)
 
+    # pylint: disable=too-many-arguments
     def sample(self, ticks: int = 1, tol: float = 1e-3,
                indistinguishability: float = 1., seed=None,
-               burn_in: int = None, cap: int = 4) -> list:
+               burn_in: int = None, cap: int = 4, shots: int = None) -> list:
         """
         Sample the outputs of a closed diagram with feedback loops over
         `ticks` consecutive ticks: the photon numbers of its optical modes,
@@ -469,6 +471,9 @@ class Diagram(frobenius.Diagram):
         optical mode, after an explicit `burn_in` since there is no
         certificate.
 
+        With `shots`, a list of as many independent trajectories, from the
+        same sampler.
+
         A delay line detects at every tick the photon injected one tick
         earlier:
 
@@ -486,6 +491,24 @@ class Diagram(frobenius.Diagram):
         ...     >> mode @ Encode(mode)).feedback(state=Create(1))
         >>> recycle.sample(ticks=2, burn_in=0, seed=0)
         [(1,), (1,)]
+        >>> recycle.sample(ticks=1, burn_in=0, seed=0, shots=2)
+        [[(1,)], [(1,)]]
+        """
+        sampler, burn_in = self.sampler(
+            tol, indistinguishability, burn_in, cap)
+        if shots is None:
+            return sampler.sample(ticks, burn_in, seed)
+        return [sampler.sample(ticks, burn_in, child)
+                for child in np.random.SeedSequence(seed).spawn(shots)]
+
+    def sampler(self, tol: float = 1e-3, indistinguishability: float = 1.,
+                burn_in: int = None, cap: int = 4) -> tuple:
+        """
+        The sampler of :meth:`sample` and its burn-in: the
+        :class:`optyx.sampling.Interferometer` of a passive diagram, with
+        the burn-in it certifies within `tol` unless `burn_in` is given,
+        and the :class:`optyx.sampling.Unravelling` of any other, with the
+        `burn_in` given.
         """
         # pylint: disable=import-outside-toplevel
         from optyx.sampling import Interferometer, Unravelling
@@ -498,10 +521,9 @@ class Diagram(frobenius.Diagram):
                     f"{error} Other diagrams are sampled by their "
                     "Unravelling, with an explicit burn_in and internal "
                     "states for distinguishable photons.") from error
-            return Unravelling(self, cap).sample(ticks, burn_in, seed)
-        return network.sample(
-            ticks, network.burn_in(tol) if burn_in is None else burn_in,
-            seed)
+            return Unravelling(self, cap), burn_in
+        return network, network.burn_in(tol) if burn_in is None \
+            else burn_in
 
     def at_time(self, n_steps: int) -> Diagram:
         """
@@ -1967,6 +1989,116 @@ class Discard(Channel):
         Distinguishable setting for the Discard channel.
         """
         return Discard(self.dom.inflate(d))
+
+
+class Observable(CQMap):
+    """
+    An observable on `dom`: the effect :math:`\\rho \\mapsto
+    \\mathrm{tr}(A \\rho)` of a normal operator :math:`A` on its states, a
+    map from `dom` to `Ty()`. Its value on a state is the expectation of
+    :math:`A`, computed exactly by contracting the tensor network with
+    :meth:`expectation`, and estimated by measuring the eigenbasis of
+    :math:`A` with :meth:`measure`, averaging the eigenvalues observed.
+
+    It is given either by a normal pure `operator`, a diagram from `dom` to
+    itself on quantum wires, or by a classical `function` of the values of
+    its wires in the number basis, the diagonal operator
+    :math:`\\sum_n f(n) |n\\rangle\\langle n|`. Discards and postselections
+    are observables: :class:`Discard` is the function one, whose
+    expectation is the trace, and a postselection :math:`\\langle n|` is
+    the projector :math:`|n\\rangle\\langle n|`, whose expectation is the
+    probability of :math:`n`.
+
+    Parameters:
+        operator : A normal pure diagram from `dom` to itself.
+        function : A function of the list of values of the wires of `dom`.
+        dom : The domain, needed with a `function`.
+        name : The name of the observable.
+
+    The number of photons a beam splitter sends to its first output, from
+    one photon in each input, is one on average:
+
+    >>> from optyx import photonic
+    >>> hom = photonic.Create(1, 1) >> photonic.BS
+    >>> number = Observable(function=lambda n: n[0], dom=qmode @ qmode)
+    >>> assert np.isclose(number.expectation(hom), 1)
+    >>> assert set(number.measure(hom, shots=8, seed=0)) <= {0, 2}
+
+    Discards and postselections:
+
+    >>> trace = Observable(function=lambda n: 1, dom=qmode @ qmode)
+    >>> assert np.isclose(trace.expectation(hom), 1)
+    >>> bunched = Observable(function=lambda n: n == [2, 0], dom=qmode ** 2)
+    >>> assert np.isclose(bunched.expectation(hom), (
+    ...     hom >> photonic.Select(2, 0)).double().to_tensor().eval().array)
+    """
+    def __init__(self, operator: Diagram = None, function=None,
+                 dom: Ty = None, name: str = None):
+        # pylint: disable=import-outside-toplevel
+        from optyx.core import control
+        if (operator is None) == (function is None):
+            raise ValueError("Give an operator or a function.")
+        if operator is not None:
+            dom = operator.dom
+            if operator.cod != dom or any(
+                    ob.is_classical for ob in dom.inside):
+                raise ValueError(
+                    "An operator observable is a diagram from quantum wires "
+                    "to themselves.")
+            single = dom.single()
+            density = diagram.Diagram.permutation(sorted(
+                range(2 * len(single)), key=lambda i: i % 2), dom.double()
+            ) >> operator.get_kraus() @ diagram.Id(single) \
+                >> diagram.Diagram.spiders(2, 0, single)
+        else:
+            merge = diagram.Id().tensor(*(
+                diagram.Id(ob.single) if ob.is_classical
+                else diagram.Spider(2, 1, ob.single) for ob in dom.inside))
+            density = merge >> control.Weight(function, dom.single())
+        self.operator, self.function = operator, function
+        super().__init__(name or "Observable", density, dom, Ty())
+
+    def expectation(self, state: Diagram) -> complex:
+        """
+        The exact expectation of the observable on a closed `state`, by
+        contracting the tensor network of `state >> self`.
+        """
+        value = complex(np.asarray(
+            (state >> self).double().to_tensor().eval().array))
+        return value.real if np.isclose(value.imag, 0) else value
+
+    # pylint: disable=too-many-arguments
+    def measure(self, state: Diagram, shots: int = 1, ticks: int = 1,
+                seed: int = None, **kwargs) -> np.ndarray:
+        """
+        The values of the observable measured on `shots` trajectories of
+        `ticks` ticks of a closed `state`, an array of shape
+        `(shots, ticks)`, or `(shots, )` for one tick: their mean estimates
+        :meth:`expectation`. A function is evaluated on the outcomes of
+        :meth:`Diagram.sample`, an operator is measured in its eigenbasis by
+        the :class:`optyx.sampling.Unravelling`; the keywords are those of
+        :meth:`Diagram.sample`.
+        """
+        # pylint: disable=import-outside-toplevel
+        from optyx.sampling import Unravelling, Interferometer
+        if state.cod != self.dom:
+            raise ValueError(
+                f"Expected a state of {self.dom}, got one of {state.cod}.")
+        seeds = np.random.SeedSequence(seed).spawn(shots)
+        if self.function is not None:
+            values = [[self.function(list(outcome)) for outcome in
+                       trajectory] for trajectory in state.sample(
+                           ticks=ticks, seed=seed, shots=shots, **kwargs)]
+        else:
+            burn_in = kwargs.get("burn_in")
+            if burn_in is None:
+                burn_in = Interferometer.from_diagram(state).burn_in(
+                    kwargs.get("tol", 1e-3))
+            unravelling = Unravelling(state, kwargs.get("cap", 4))
+            values = [unravelling.trajectory(burn_in + ticks, child, self)[
+                burn_in:] for child in seeds]
+        values = np.array(values)
+        return values[:, 0] if ticks == 1 else values
 
 
 class Functor(frobenius.Functor):

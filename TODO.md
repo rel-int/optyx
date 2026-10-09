@@ -74,6 +74,6 @@ A closed diagram with feedback is sampled as a quantum trajectory: one tick runs
 
 An observable on a type is a normal operator A on its states, as the effect ρ ↦ tr(Aρ): `Discard` is A = 1 and `Select(n)` the projector |n⟩⟨n|, a classical function f is the diagonal operator Σ f(n)|n⟩⟨n|. Its exact value on a state is a tensor network contraction; it is sampled by measuring A's eigenbasis, which for a function is the number basis, and averaging the eigenvalues.
 
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 10:00 `channel.Observable`, a `CQMap` from its domain to `Ty()`: from a normal pure diagram (A on the kets, then the trace) or from a classical function (the number basis, then the weight f); `expectation` by the tensor network, `sample` by the sampler, measuring a function in the number basis through `Diagram.sample` and an operator in its eigenbasis through the `Unravelling`
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 10:00 tests: `Discard` and `Select` as observables, the number operator, a non-diagonal qubit observable, exact against sampled
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 10:00 the notebook samples every circuit from the first state on, next to its tensor network: frequencies against `prob_dist`, observables against their expectation
+- [x] `channel.Observable`, a `CQMap` from its domain to `Ty()`: from a normal pure diagram (A on the kets, then the trace) or from a classical function (the number basis, then the weight f); `expectation` by the tensor network, `measure` by the sampler, measuring a function in the number basis through `Diagram.sample` and an operator in its eigenbasis through the `Unravelling`
+- [x] tests: `Discard` and `Select` as observables, the number operator, a non-diagonal qubit observable, exact against sampled
+- [x] the notebook samples every circuit from the first state on, next to its tensor network: frequencies against `prob_dist`, observables against their expectation

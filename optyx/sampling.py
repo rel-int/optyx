@@ -659,6 +659,8 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         >>> Interferometer.from_diagram(delay).distribution(2)
         {((0,), (1,)): 1.0}
         """
+        # pylint: disable=import-outside-toplevel
+        from optyx.channel import Swap
         initial, _ = diagram.boundary()
         step = diagram.one_step()
         loop = len(step.dom)
@@ -667,6 +669,10 @@ efficiency=1.0, visible=(0,), indistinguishability=1.0)
         if levels(initial) or levels(step):
             raise NotImplementedError(
                 "Photons with internal states are not passive.")
+        if any(not hasattr(box, "kraus") and not isinstance(box, Swap)
+               for box in initial.boxes + step.boxes):
+            raise NotImplementedError(
+                "Classical boxes are not passive linear optics.")
         if any(ob.name != "qmode" for ob in (step.dom @ step.cod).inside):
             raise NotImplementedError(
                 "Only optical modes can be sampled; leave the outputs as "
@@ -1323,10 +1329,11 @@ class Unravelling:
                 f"{state.weight:.3g}): postselection cannot be sampled.")
         return CQState(state.vector, state.values)
 
-    def trajectory(self, ticks: int, seed=None) -> list:
+    def trajectory(self, ticks: int, seed=None, observable=None) -> list:
         """
         The outputs measured over `ticks` ticks of one trajectory started
-        from the state of the loops.
+        from the state of the loops, or the values of an `observable` of
+        its outputs measured by :meth:`observe`.
         """
         rng = np.random.default_rng(seed)
         widths = [self.levels if self.levels and ob.name == "qmode" else 1
@@ -1334,12 +1341,74 @@ class Unravelling:
         state, patterns = self.run(
             self.initial, CQState.empty(), rng), []
         for _ in range(ticks):
-            pattern, state = self.run(self.step, state, rng).measure(
-                0, sum(widths), rng)
+            state = self.run(self.step, state, rng)
+            if observable is not None:
+                value, state = self.observe(state, observable, rng)
+                patterns.append(value)
+                continue
+            pattern, state = state.measure(0, sum(widths), rng)
             bounds = np.cumsum([0] + widths)
             patterns.append(tuple(sum(pattern[bounds[i]:bounds[i + 1]])
                                   for i in range(len(widths))))
         return patterns
+
+    def spectrum(self, observable) -> tuple:
+        """
+        The eigenvalues and an orthonormal basis of eigenvectors, as
+        columns, of the operator of an `observable` on the modes of at most
+        `cap` photons, by the Schur decomposition of its normal matrix;
+        computed once.
+        """
+        # pylint: disable=import-outside-toplevel
+        from scipy.linalg import schur
+        key = id(observable), "spectrum"
+        if key not in self.tensors:
+            dims = tuple(self.dimension(ob) for ob in observable.dom.inside)
+            array = np.asarray(observable.operator.get_kraus().to_tensor(
+                input_dims=list(dims)).eval().array)
+            if array.ndim != 2 * len(dims):
+                raise NotImplementedError(
+                    f"{observable} has an output of dimension one.")
+            array = array[(Ellipsis, ) + tuple(
+                slice(size) for size in dims)]
+            array = np.pad(array, [(0, 0)] * len(dims) + [
+                (0, size - width) for size, width
+                in zip(dims, array.shape[len(dims):])])
+            matrix = array.reshape(prod(dims), prod(dims)).T
+            if not np.allclose(matrix @ matrix.conj().T,
+                               matrix.conj().T @ matrix):
+                raise ValueError(
+                    f"{observable} is not normal on modes of at most "
+                    f"cap={self.cap} photons.")
+            triangular, vectors = schur(matrix, output="complex")
+            self.tensors[key] = observable, (np.diag(triangular), vectors)
+        return self.tensors[key][1]
+
+    def observe(self, state: CQState, observable,
+                rng: np.random.Generator) -> tuple:
+        """
+        Measure an `observable` on the outputs of `state`, its first wires:
+        an eigenvalue of its operator sampled with the probability of its
+        eigenvector, and the state of the other wires left. The outputs are
+        dropped, so measuring degenerate eigenspaces one eigenvector at a
+        time leaves the other wires in the same mixture.
+        """
+        width = len(observable.dom)
+        if self.levels or any(
+                value is not None for value in state.values[:width]):
+            raise NotImplementedError(
+                "An operator is measured on quantum outputs without "
+                "internal states.")
+        values, vectors = self.spectrum(observable)
+        amplitudes = vectors.conj().T @ state.vector.reshape(
+            len(vectors), -1)
+        probabilities = np.sum(np.abs(amplitudes) ** 2, axis=1)
+        index = rng.choice(len(values), p=normalise(probabilities))
+        value = values[index].real if np.isclose(values[index].imag, 0) \
+            else values[index]
+        return value, CQState(
+            (amplitudes[index] / np.sqrt(probabilities[index])).reshape(
+                state.vector.shape[width:]), state.values[width:])
 
     def sample(self, ticks: int, burn_in: int = 0, seed=None) -> list:
         """
