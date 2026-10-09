@@ -77,3 +77,16 @@ An observable on a type is a normal operator A on its states, as the effect ρ �
 - [x] `channel.Observable`, a `CQMap` from its domain to `Ty()`: from a normal pure diagram (A on the kets, then the trace) or from a classical function (the number basis, then the weight f); `expectation` by the tensor network, `measure` by the sampler, measuring a function in the number basis through `Diagram.sample` and an operator in its eigenbasis through the `Unravelling`
 - [x] tests: `Discard` and `Select` as observables, the number operator, a non-diagonal qubit observable, exact against sampled
 - [x] the notebook samples every circuit from the first state on, next to its tensor network: frequencies against `prob_dist`, observables against their expectation
+
+---
+
+> ## Request: source classes for `Interferometer`, and a fix in `twomode`
+>
+> (comment by another session on #76, https://github.com/rel-int/optyx/pull/76#issuecomment-6076984929)
+>
+> 1. Source classes: a `source` argument drawing the injection of one tick per external input mode: `Fock(q)` (the current behaviour, shared internal state with probability `indistinguishability`), `Coherent(mean)` (Poisson, a coherent state with a uniformly random phase), `Thermal(mean)` (geometric with mean n̄). Keep the current signature (`inputs=(...)` means `Fock(inputs)`); wire the source through `colour`, `tick`, `burn_in` (q̄ the maximal mean injection) and `occupation` (the mean injection Q); leave `distribution` alone; expose it on diagrams; no phase-locked sources. Tests: stationary factorial moments of a collective output mode against the exact formulas of `content/photonic-loops/bunching-rate.md`, with long batches or independent runs for the error bars.
+> 2. Bug: `twomode` overflows above 20 photons, `np.sqrt` of an object array of Python integers. Compute the norms in floating point or log space, check the binomial sums at that size, and add a regression test with 25 photons in two modes against the unitarity of the block.
+
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 10:30 `twomode` in floating point, with a 25-photon unitarity test
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 10:30 `Fock`, `Coherent` and `Thermal` sources wired through `Interferometer` (`colour`, `tick`, `burn_in`, `occupation`), `distribution` refusing random ones, `Diagram.sample(source=...)` replacing the photons of the `Create` boxes
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 10:30 stationary factorial moments of an output mode against `bunching-rate.md`, for indistinguishable, partially distinguishable, distinguishable, coherent and thermal injection
