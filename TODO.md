@@ -67,4 +67,13 @@ A closed diagram with feedback is sampled as a quantum trajectory: one tick runs
 
 > Let's extend the What is a channel? notebook with the sampling story, we should now be able to sample from these circuits and check that the outputs agree with the tensor network model
 
-- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 09:00 a sampling section in `docs/notebooks/what_is_a_channel.md`: sample the circuits of the earlier sections (boson sampling, distinguishable photons, feedforward, the delay loop, the universal setup) and compare the frequencies with the tensor network's distribution
+> It seems that the passage enabling this kind of testing is a good definition of obsevable, which the library still seems to lack
+> The sampling should be carried though the notebook as a featue from the stat
+
+> An Observable should be a class of effects dom -> 1, which contains discards and postselections, it can be initialised by a classical function or a normal/self adjoint diagram.
+
+An observable on a type is a normal operator A on its states, as the effect ρ ↦ tr(Aρ): `Discard` is A = 1 and `Select(n)` the projector |n⟩⟨n|, a classical function f is the diagonal operator Σ f(n)|n⟩⟨n|. Its exact value on a state is a tensor network contraction; it is sampled by measuring A's eigenbasis, which for a function is the number basis, and averaging the eigenvalues.
+
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 10:00 `channel.Observable`, a `CQMap` from its domain to `Ty()`: from a normal pure diagram (A on the kets, then the trace) or from a classical function (the number basis, then the weight f); `expectation` by the tensor network, `sample` by the sampler, measuring a function in the number basis through `Diagram.sample` and an operator in its eigenbasis through the `Unravelling`
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 10:00 tests: `Discard` and `Select` as observables, the number operator, a non-diagonal qubit observable, exact against sampled
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 10:00 the notebook samples every circuit from the first state on, next to its tensor network: frequencies against `prob_dist`, observables against their expectation
