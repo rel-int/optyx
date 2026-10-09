@@ -62,3 +62,9 @@ A closed diagram with feedback is sampled as a quantum trajectory: one tick runs
 - [x] `Diagram.sample` dispatches: passive diagrams to the `Interferometer`, the others to the `Unravelling` with an explicit burn-in
 - [x] tests of the general sampler against the exact distribution of the unrolled diagram: feed-forward inside a loop, a qubit memory, a classical function, internal states with loss, a Kerr phase, and the passive diagram
 
+
+---
+
+> Let's extend the What is a channel? notebook with the sampling story, we should now be able to sample from these circuits and check that the outputs agree with the tensor network model
+
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 09:00 a sampling section in `docs/notebooks/what_is_a_channel.md`: sample the circuits of the earlier sections (boson sampling, distinguishable photons, feedforward, the delay loop, the universal setup) and compare the frequencies with the tensor network's distribution
