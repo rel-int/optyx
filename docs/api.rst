@@ -10,5 +10,6 @@ API
     optyx.classical
     optyx.photonic
     optyx.qubits
+    optyx.sampling
     optyx.compiler
 

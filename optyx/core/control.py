@@ -18,6 +18,7 @@ Classes
 
     BitControlledBox
     ControlledPhaseShift
+    Weight
 
 
 Examples
@@ -374,6 +375,35 @@ class ClassicalFunctionBox(ClassicalBox):
         return ClassicalFunctionBox(
             self.function, self.cod, self.dom, not self.is_dagger
         )
+
+
+class Weight(ClassicalBox):
+    """
+    The effect weighting each basis state of its wires by a `function` of
+    their values, a list as for :class:`ClassicalFunctionBox`: the diagonal
+    functional :math:`|n\\rangle \\mapsto f(n)`.
+
+    >>> from optyx.core.zw import Create
+    >>> parity = Weight(lambda n: (-1) ** n[0], diagram.Mode(1))
+    >>> [complex((Create(n) >> parity).to_tensor().eval().array)
+    ...  for n in (1, 2)]
+    [(-1+0j), (1+0j)]
+    """
+    def __init__(self, function: Callable[[List[int]], complex],
+                 dom: diagram.Ty):
+        super().__init__("Weight", dom, diagram.Ty())
+        self.function = function
+
+    def truncation_specification(
+        self,
+        inp: Tuple[int, ...] = None,
+        max_output_dims: Tuple[int, ...] = None
+    ) -> Iterable[BasisTransition]:
+        yield BasisTransition(
+            out=(), amp=np.conj(complex(self.function(list(inp)))))
+
+    def determine_output_dimensions(self, input_dims: List[int]) -> List[int]:
+        return []
 
 
 class BinaryMatrixBox(ClassicalBox):
