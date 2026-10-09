@@ -90,3 +90,22 @@ An observable on a type is a normal operator A on its states, as the effect Ï â
 - [x] `twomode` in floating point, with a 25-photon unitarity test
 - [x] `Fock`, `Coherent` and `Thermal` sources wired through `Interferometer` (`colour`, `tick`, `burn_in`, `occupation`), `distribution` refusing random ones, `Diagram.sample(source=...)` replacing the photons of the `Create` boxes
 - [x] stationary factorial moments of an output mode against `bunching-rate.md`, for indistinguishable, partially distinguishable, distinguishable, coherent and thermal injection
+
+---
+
+> Review by @giodefelice (https://github.com/rel-int/optyx/pull/76#pullrequestreview-5468177376):
+> - `channel.py`, `Diagram.sample`: "Why closed? This should work for any diagram with input and output modes at least, where every qmode is assumed to be measured"
+> - `channel.py`, `Diagram.sample`: "Explain what happens when other box types are sampled and what are the boundaries of the current implementation."
+> - `channel.py`, `Diagram.sample` doctest: "Shouldn't this give 0 photons at the first tick and 1 at all subsequent ones?"
+> - `channel.py`, `Observable`: "This trick is used a couple of times and is not allowed"
+> - `what_is_a_channel.md`, introduction: "The sampling should be explained in each section and shown in practice. Make sure that the notebook outputs are viewable as in DisCoPy."
+> - `what_is_a_channel.md`, observables: "Why do we need this new .measure method? Isn't the expectation sufficient?"
+> - `what_is_a_channel.md`, distinguishability: "The sampler treats partially distinguishable photons differently from the tensor method, explain how"
+
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 09:35 open diagrams: input modes fed by a `source` at every tick, every output mode measured
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 09:35 `Diagram.sample` documents what each kind of box does under each sampler, and what is refused
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 09:35 the delay doctest shows the transient (`burn_in=0`) against the stationary samples
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 09:35 no imports outside the top level in the code this pull request adds
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 09:35 `Observable.measure` removed: the expectation is the observable, sampling stays on diagrams
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 09:35 notebook: sampling explained and shown in every section; rendered with its outputs as in DisCoPy (`docs/export_notebooks.py`)
+- [WIP] @session_01AotUfRNtbiTmw5DToMZ91K-2026-10-09 09:35 notebook: internal states against the `indistinguishability` colouring model
