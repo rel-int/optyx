@@ -234,10 +234,38 @@ def test_errors():
             1e-3, max_depth=5)
 
 
-def test_twomode_is_unitary_beyond_twenty_photons():
+@pytest.mark.parametrize("photons", [25, 30, 60, 200])
+def test_twomode_is_unitary_beyond_twenty_photons(photons):
     matrix = unitary_group.rvs(2, random_state=0)
-    block = twomode(matrix, 25)
-    assert np.allclose(block.conj().T @ block, np.eye(26))
+    block = twomode(matrix, photons)
+    assert np.allclose(block.conj().T @ block, np.eye(photons + 1),
+                       rtol=0, atol=1e-12)
+
+
+@pytest.mark.parametrize("photons", [30, 100])
+def test_twomode_is_a_representation(photons):
+    first, second = unitary_group.rvs(2, size=2, random_state=1)
+    assert np.allclose(twomode(first @ second, photons),
+                       twomode(first, photons) @ twomode(second, photons),
+                       rtol=0, atol=1e-12)
+
+
+@pytest.mark.parametrize("matrix", [
+    np.eye(2), -np.eye(2), np.diag([1j, -1]), [[0, 1j], [1, 0]],
+    np.array([[1, 1], [1, -1]]) / np.sqrt(2)])
+def test_twomode_expands_the_products(matrix):
+    matrix = np.asarray(matrix, dtype=complex)
+    photons = 4
+    for k in range(photons + 1):
+        expansion = np.convolve(
+            [comb(k, a) * matrix[1, 0] ** (k - a) * matrix[0, 0] ** a
+             for a in range(k + 1)],
+            [comb(photons - k, b) * matrix[1, 1] ** (photons - k - b)
+             * matrix[0, 1] ** b for b in range(photons - k + 1)])
+        norms = np.sqrt([factorial(m) * factorial(photons - m)
+                         for m in range(photons + 1)])
+        assert np.allclose(twomode(matrix, photons)[:, k],
+                           expansion * norms / norms[k])
 
 
 def columns(unitary, loop, transmissivity, depth=100):

@@ -109,3 +109,25 @@ An observable on a type is a normal operator A on its states, as the effect ρ �
 - [x] `Observable.measure` removed: the expectation is the observable, sampling stays on diagrams
 - [x] notebook: sampling explained and shown in every section; rendered with its outputs as in DisCoPy (`docs/export_notebooks.py`)
 - [x] notebook: internal states against the `indistinguishability` colouring model
+
+---
+
+> In `rel-int/optyx`, `optyx/sampling.py`, the function `twomode(matrix, photons)` computes
+>
+> ```
+> norms = np.sqrt([factorial(m) * factorial(photons - m) for m in range(photons + 1)])
+> ```
+>
+> From `photons >= 21`, `factorial(m) * factorial(photons - m)` exceeds int64, so NumPy builds an object array and `np.sqrt` raises `TypeError: loop of ufunc does not support argument 0 of type int which has no callable sqrt method`. It is reached from `Sweep.table` whenever a tick of `Interferometer.tick` holds 21+ shared photons, e.g. `Interferometer(U, loop=7, inputs=(3,), transmissivity=0.95, indistinguishability=1.0)` with a Haar-random 8x8 `U` after a few hundred ticks.
+> Fix: compute the norms in floating point, e.g.
+>
+> ```
+> from math import lgamma
+> norms = np.exp([(lgamma(m + 1) + lgamma(photons - m + 1)) / 2 for m in range(photons + 1)])
+> ```
+>
+> This agrees with the current version to ~1e-15 for photons < 20 and gives a unitary `twomode` at 25 photons (checked: max |T T^† - I| ~ 1.6e-13). The `comb(...) * matrix ** ...` terms in the convolution can also get large for high photon numbers; check whether they need the same treatment (e.g. at 40–60 photons) and add a doctest/test that `twomode` of a random 2x2 unitary is unitary at, say, 30 photons. Done when the test passes and the existing doctests still pass.
+> The wiki notebook `content/photonic-loops/threshold-qbar.md` in `rel-int/wiki` currently monkeypatches `optyx.sampling.twomode` with this fix; once optyx is fixed and the notebook's pinned `rev` bumped, that patch can be removed.
+
+- [x] `twomode` stable at high photon numbers (the norms already moved to log space in 6d570fb, but the convolution cancels: max |T T^† - I| is 1e-9 at 60 photons and O(1) by 150), with a test at 30 photons and beyond
+  - `twomode` is `exp dΓ(log u)`: the lift of the generator is tridiagonal and skew-Hermitian, exponentiated by `eigh`, so the block is unitary to ~5e-15 at 30 to 400 photons and agrees with the expansion to ~5e-14 up to 20; the wiki patch can go once the notebook pins a commit with it
