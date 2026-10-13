@@ -106,6 +106,7 @@ Functions
     position
     pairs
     twomode
+    generator
     eliminate
     givens
     interfere
@@ -143,7 +144,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from functools import lru_cache
 from itertools import product
-from math import comb, lgamma, prod
+from math import comb, prod
 
 import numpy as np
 from discopy import symmetric
@@ -226,12 +227,19 @@ def pairs(modes: int, photons: int, mode: int) -> tuple:
 
 def twomode(matrix: np.ndarray, photons: int) -> np.ndarray:
     """
-    The action of a two-mode `matrix` on the `photons`-photon sector of two
-    modes, in the basis :math:`|k, s - k\\rangle` ordered by :math:`k`: the
-    column :math:`k` expands
+    The action of a two-mode unitary `matrix` on the `photons`-photon sector
+    of two modes, in the basis :math:`|k, s - k\\rangle` ordered by
+    :math:`k`: the column :math:`k` expands
     :math:`(u_{00} a^\\dagger + u_{10} b^\\dagger)^k
     (u_{01} a^\\dagger + u_{11} b^\\dagger)^{s - k}|0\\rangle
     / \\sqrt{k! (s - k)!}`.
+
+    It is computed as :math:`\\exp d\\Gamma(H)` for the logarithm
+    :math:`u = \\exp H` of :func:`generator`, where
+    :math:`d\\Gamma(H) = \\sum_{ij} H_{ij} a_i^\\dagger a_j` is
+    tridiagonal and skew-Hermitian on the sector, so that the result is
+    unitary to machine precision at any number of photons, where expanding
+    the products cancels catastrophically.
 
     A balanced beam splitter bunches two photons:
 
@@ -239,17 +247,38 @@ def twomode(matrix: np.ndarray, photons: int) -> np.ndarray:
     >>> twomode(splitter, 2)[:, 1].round(3).tolist()
     [-0.707, 0.0, 0.707]
     """
-    result = np.zeros((photons + 1, photons + 1), dtype=complex)
-    logs = np.array([lgamma(m + 1) + lgamma(photons - m + 1)
-                     for m in range(photons + 1)])
-    for k in range(photons + 1):
-        first = [comb(k, a) * matrix[1, 0] ** (k - a) * matrix[0, 0] ** a
-                 for a in range(k + 1)]
-        second = [comb(photons - k, b) * matrix[1, 1] ** (photons - k - b)
-                  * matrix[0, 1] ** b for b in range(photons - k + 1)]
-        result[:, k] = np.convolve(first, second) * np.exp(
-            (logs - logs[k]) / 2)
-    return np.real_if_close(result)
+    log = generator(matrix)
+    levels = np.arange(photons + 1)
+    hopping = np.sqrt(levels[1:] * levels[:0:-1])
+    lift = np.diag(levels * log[0, 0] + levels[::-1] * log[1, 1]) \
+        + np.diag(hopping * log[0, 1], -1) + np.diag(hopping * log[1, 0], 1)
+    phases, vectors = np.linalg.eigh(-1j * lift)
+    return np.real_if_close(vectors * np.exp(1j * phases) @ vectors.conj().T)
+
+
+def generator(unitary: np.ndarray) -> np.ndarray:
+    """
+    A skew-Hermitian logarithm :math:`H` of a 2x2 `unitary`
+    :math:`u = e^{i \\alpha} v` with :math:`v \\in SU(2)` and
+    :math:`\\mathrm{tr}\\, v \\geq 0`, i.e. :math:`v = \\cos \\theta + K`
+    for a traceless skew-Hermitian :math:`K` with :math:`K^2 = -\\sin^2
+    \\theta` and :math:`\\theta \\leq \\pi / 2`: then
+    :math:`H = i \\alpha + \\theta K / \\sin \\theta`.
+
+    >>> from scipy.linalg import expm
+    >>> unitary = np.array([[0, 1j], [1, 0]])
+    >>> bool(np.allclose(expm(generator(unitary)), unitary))
+    True
+    """
+    unitary = np.asarray(unitary, dtype=complex)
+    alpha = np.angle(np.linalg.det(unitary)) / 2
+    special = unitary * np.exp(-1j * alpha)
+    if np.trace(special).real < 0:
+        special, alpha = -special, alpha + np.pi
+    skew = (special - special.conj().T) / 2
+    theta = np.arctan2(np.sqrt(abs(skew[0, 0]) ** 2 + abs(skew[0, 1]) ** 2),
+                       np.trace(special).real / 2)
+    return 1j * alpha * np.eye(2) + skew / np.sinc(theta / np.pi)
 
 
 def eliminate(matrix: np.ndarray, column: int) -> list:
