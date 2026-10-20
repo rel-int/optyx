@@ -248,3 +248,30 @@ def full_test(spec):
     json.dump(result, open(f"{folder}/hotelling.json", "w"))
     vol.commit()
     return result
+
+
+@app.function(image=image, volumes={"/vol": vol}, timeout=1800)
+def read_many(experiment, pairs, names):
+    """The small result files of many pairs in one call, gzipped, so that a
+    fetch of the whole run is a few calls rather than a few hundred."""
+    import base64
+    import gzip
+    try:
+        vol.reload()
+    except RuntimeError:
+        pass
+    out = {}
+    root = f"/vol/{experiment}"
+    for pair in pairs:
+        folder = f"{root}/{pair}"
+        if not os.path.isdir(folder):
+            continue
+        for seed in sorted(os.listdir(folder)):
+            for name in names:
+                path = f"{folder}/{seed}/{name}"
+                key = f"{experiment}/{pair}/{seed}/{name}"
+                try:
+                    out[key] = json.load(open(path))
+                except Exception as e:  # noqa: BLE001
+                    out[key] = f"ERR {e!r}"
+    return base64.b64encode(gzip.compress(json.dumps(out).encode())).decode()

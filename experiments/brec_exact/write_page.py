@@ -148,7 +148,7 @@ Timings: a sweep point, both graphs at order 4, took under a second on most pair
 63-vertex pairs at $\\gamma=0.97$, on 8 CPU cores."""
 
 ORDER5 = """**Order 5 on the unseparated distance-regular pair.** The paper's run left `Distance_regular_3`, 38 vertices,
-unseparated at order 4. At order 5, on three cells so far, indistinguishable photons and coherent light separate it,
+unseparated at order 4. At order 5, on all four cells, indistinguishable photons and coherent light separate it,
 by a relative gap of $10^{-8}$ to $10^{-7}$ against a floor of $10^{-15}$, while distinguishable photons and thermal
 light do not. This is the first pair on which the reach of the sources differs by interference alone: the
 difference between the two graphs lies in a term that only survives when the five amplitudes interfere, which
@@ -162,12 +162,14 @@ FULL = """## 5. Full BREC on the GPU, and coherent light at high brightness
 
 The Gram-tensor computation moves to the GPU unchanged, in complex128: an H100 computes an order-4 profile of a
 63-vertex graph in 0.65 s where 8 CPU cores take 108 s, a speedup of 130 to 170 on graphs of 52 to 136 vertices,
-with the two agreeing to $10^{-15}$. The order-4 cutoff moves from 64 to 110 vertices, which the 80 GB of the card
-allow, and the four sources come out of one pass, since only the coefficients of the expansion differ between them.
-Coherent light also gets its noise at any brightness: with Poisson counts given the field, the variance of a
-coincidence at brightness $w$ is a polynomial in $w$ whose coefficients are phase averages of products of
-intensities, estimated to a few percent from $10^5$ random phase draws in single precision in a few seconds, while
-the gap stays exact. As $w$ grows the Poisson terms fade and the variance tends to the intensity floor.
+with the two agreeing to $10^{-15}$. The four sources come out of one pass, since only the coefficients of the
+expansion differ between them. The order-4 cutoff moves from 64 to 96 vertices: the 80 GB of the card run out on
+the eight CFI pairs of 98 to 106 vertices, whose loops decay slowly enough that the path matrix has $2\\times10^5$
+slots, and those run at order 3 as in the paper. Coherent light also gets its noise at any brightness: with
+Poisson counts given the field, the variance of a coincidence at brightness $w$ is a polynomial in $w$ whose
+coefficients are phase averages of products of intensities, estimated to a few percent from $10^5$ random phase
+draws in single precision in a few seconds, while the gap stays exact. As $w$ grows the Poisson terms fade and the
+variance tends to the intensity floor.
 
 **BREC's test without relabelled copies.** On an exact embedding the copies differ by rounding only, so the paired
 covariance is about $10^{-32}$ and vanishes against $\\varepsilon=10^{-7}$: the statistic collapses to
@@ -179,35 +181,66 @@ rounding variance per order measured on the pilot's copies, $4$ to $9\\times10^{
 of the covariance. The relabelled copies verify that the embedding is invariant, which the pilot did at $10^{-15}$;
 they add nothing to the decision.
 
-The tables below are the run on all 400 pairs, four cells each, $\\gamma=0.9$: the pairs separated by every source
-under the exact rule and under BREC's test, and the samples coherent light needs at brightnesses from 0.05 to 100
-photons per pulse, with the device time at a GHz tick.
+The tables below are the run on all 400 pairs, four cells each, $\\gamma=0.9$.
 
 ```python {.marimo hide_code="true"}
 mo.md(DATA["full"])
-```"""
+```
+
+**Reading the full run.**
+
+- *Reach.* Under the exact rule indistinguishable photons separate 375 pairs, coherent light 372, distinguishable
+  photons 370 and thermal light 305, against the paper's 373, 373, 371 and 301 at order 4 up to 64 vertices. The
+  gain is on CFI: 76 pairs against 71, from the 24 CFI pairs between 64 and 96 vertices now run at order 4.
+- *Where the sources differ, they differ by interference.* Seven CFI pairs of 80 to 112 vertices have gaps between
+  $5\\times10^{-13}$ and $6\\times10^{-11}$ for indistinguishable photons, a hundred to ten thousand times the
+  relabelling floor of $5\\times10^{-15}$; coherent light sees each of them at about half the gap, the pair-weight
+  ratio of the paper; distinguishable photons sit at the floor on five of them and at $10^{-13}$ on the other two.
+  The threshold of $10^{-12}$ cuts through this group, which is why the three counts differ by a few pairs, and the
+  noise-scaled test, which thresholds near the floor, gives 377 for both photons and coherent light and 373 for
+  distinguishable photons. These five pairs, with the distance-regular pair at order 5, are the separations that
+  only interference provides: waves see them, classical particles do not.
+- *BREC's test verbatim scores 211.* Photons 211, coherent light 209, distinguishable photons 209, thermal light 85:
+  every pair whose relative gap exceeds about $2.7\\times10^{-3}$, which is the Basic, Regular and Extension classes,
+  one strongly regular pair and one CFI pair. This is the number a reader can reproduce with BREC's script on the
+  exact embedding, and it is below 3-WL's 270, because BREC's regularisation was set for trained network outputs of
+  order one. The exact-embedding count of 375 and the verbatim count of 211 measure the same profiles with two
+  thresholds eleven orders of magnitude apart, and the paper should say so when it puts the photonic row in BREC's table.
+- *Brightness.* Coherent light's sample counts, cumulated over the orders with the Monte Carlo noise, fall by a
+  factor of 300 to 7000 from $w=0.05$ to $w=1$ and by 3000 to 200,000 at $w=100$, where the intensity floor is
+  reached. At a GHz tick and $w=100$, 337 pairs separate within an hour, 359 within a day and 365 within a year; at
+  $w=0.05$ the same budgets give 253, 268 and 316.
+- *Cost.* A pair and cell took under 10 s on the GPU below 40 vertices, about 50 s at 40 to 63 vertices at order 4,
+  3 to 6 minutes at 64 to 96 vertices at order 4, and 15 to 60 s at order 3 above 110 vertices: the whole benchmark,
+  four cells and six brightnesses, in about ten GPU-hours.
+"""
 
 SUMMARY = """## 6. What this establishes
 
-- **The Exact column is a like-for-like BREC number once the regularisation is set to the noise.** BREC's test with its
-  own $\\varepsilon$ measures gaps above $10^{-3.5}$ and reports 28 of 49; set to the rounding noise it reproduces the
-  exact rule on every pair. The paper should report the second and state the first, since the first is the number a
-  BREC reader expects to be able to reproduce with BREC's script and will not.
+- **The Exact column is a BREC number once the regularisation is set to the noise, and 211 otherwise.** BREC's test
+  with its own $\\varepsilon$ is a gap threshold at $2.7\\times10^{-3}$ relative and reports 211 of 400 for photons;
+  set to the rounding noise it reproduces the exact rule, 375 to 377. The paper should report both and say which
+  threshold its row uses.
 - **Reach is a property of the pair and the source, not of the loss or the cell**, over four cells and seven
-  transmissivities on 49 pairs.
+  transmissivities on 49 pairs and four cells on all 400.
+- **Indistinguishable photons and coherent light separate the same pairs; distinguishable photons miss a handful.**
+  Five CFI pairs of 80 to 112 vertices and the distance-regular pair at order 5 are separated by interference alone,
+  coherent light seeing them at half the photon gap and classical particles not at all. Thermal light is one rung
+  lower throughout.
 - **The factor four between coherent light and photons holds across the loss range**, and distinguishable photons pay
   up to three orders of magnitude where order 3 or 4 carries the difference.
-- **Order 5 shows the first interference-only separation**: a distance-regular pair that waves separate and particles
-  do not, at a cost of about an hour per graph on CPUs.
-- **On the GPU the exact profiles are cheap enough for the full benchmark at order 4 up to 110 vertices**, and the
-  coherent noise at any brightness comes for free from the same path matrix.
+- **On the GPU the exact profiles are cheap enough for the full benchmark at order 4 up to 96 vertices**, ten
+  GPU-hours for 400 pairs, four cells and six brightnesses, and the coherent noise at any brightness comes from the
+  same path matrix: a bright laser at a GHz tick separates 337 pairs within an hour.
 
-Caveats: the cells are fresh draws, not the paper's; the sample counts are the optimal diagonal test with Poisson
-noise at $w=0.05$ and with the phase Monte Carlo at higher brightness, not the protocol's; the pilot is the 49-pair
-subset.
+Caveats: the cells are fresh draws, not the paper's; the sample counts are the optimal diagonal test, with Poisson
+noise at $w=0.05$ on the pilot and with the phase Monte Carlo on the full run, not the protocol's; the noise-scaled
+BREC column on the full run uses the pilot's rounding variance rather than copies of each pair; eight CFI pairs
+above 96 vertices ran at order 3.
 
-Code: `brecphot.py` (profiles and BREC's test), `coherent_gpu.py` (the torch version and the noise), `modal_app.py`
-and `gpu_app.py` (the Modal jobs), in the session's scratch directory, to be moved into `optyx` or this repo."""
+Code: `experiments/brec_exact/` in [rel-int/optyx#88](https://github.com/rel-int/optyx/pull/88), with the Modal jobs
+and the aggregation that produced every table here.
+"""
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ app = modal.App("brec-photonic-gpu")
 vol = modal.Volume.from_name("photonic-brec-rates")
 image = (modal.Image.debian_slim(python_version="3.12")
          .pip_install("numpy", "torch")
+         .env({"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"})
          .add_local_python_source("brecphot", "coherent_gpu"))
 
 BREC_RAW = "/home/user/graphpku/brec/customize/Data/raw"

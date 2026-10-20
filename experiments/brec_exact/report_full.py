@@ -30,14 +30,17 @@ def all_pairs():
 
 
 def fetch():
+    import base64
+    import gzip
     import modal
-    read_json = modal.Function.from_name("brec-photonic", "read_json")
-    paths = [f"brec-full-coherent/{pair}/s{seed}/{name}"
-             for pair in all_pairs() for seed in SEEDS
-             for name in ("g0.9.json", "hotelling.json")]
+    read_many = modal.Function.from_name("brec-photonic", "read_many")
+    pairs = list(all_pairs())
     results = {}
-    for start in range(0, len(paths), 150):
-        results.update(read_json.remote(paths[start:start + 150]))
+    for start in range(0, len(pairs), 60):
+        blob = read_many.remote("brec-full-coherent", pairs[start:start + 60],
+                                ["g0.9.json", "hotelling.json"])
+        results.update(json.loads(gzip.decompress(base64.b64decode(blob))))
+        print(f"{len(results)} files after {start + 60} pairs", flush=True)
     os.makedirs(OUT, exist_ok=True)
     json.dump(results, open(f"{OUT}/raw_full.json", "w"))
     missing = [p for p, v in results.items() if isinstance(v, str)]
@@ -115,7 +118,7 @@ def tables():
         cells.append(f"{sum(r['photons p=1'] is None for r in recs)} / {sum(r['coherent'] is None for r in recs)}")
         lines.append(f"| {SHORT[c]} | " + " | ".join(cells) + " |")
     lines.append("\n## Coherent light: median samples per network against brightness (best of four cells)\n")
-    lines.append("| Class | Poisson, w = 0.05 | " + " | ".join(f"w = {w}" for w in BRIGHTNESSES) + " |")
+    lines.append("| Class | top order only, Poisson noise, w = 0.05 | " + " | ".join(f"all orders, w = {w}" for w in BRIGHTNESSES) + " |")
     lines.append("|---|---|" + "---|" * len(BRIGHTNESSES))
     for c in CLASSES:
         recs = [r for r in per_class.get(c, []) if r["coherent"] is not None]

@@ -56,13 +56,24 @@ def gram_tensor_torch(W, Wc, P, Q):
         return positions, factors[0].sum(dim=1)
     if k == 2:
         return positions, factors[0] @ factors[1].T
-    left = (factors[0][:, None, :] * factors[1][None, :, :]).reshape(n * n, -1)
-    if k == 3:
-        return positions, (left @ factors[2].T).reshape(n, n, n)
-    if k == 4:
-        right = (factors[2][:, None, :] * factors[3][None, :, :]).reshape(n * n, -1)
-        return positions, (left @ right.T).reshape(n, n, n, n)
-    raise NotImplementedError(k)
+    if k not in (3, 4):
+        raise NotImplementedError(k)
+    # the products over pairs of positions are n^2 x slots; sum over the
+    # slots in chunks so that they never exceed a few GB on the card
+    slots = W.shape[1]
+    chunk = max(1, int(2 ** 28 // (n * n)))
+    shape = (n, n, n) if k == 3 else (n, n, n, n)
+    total = torch.zeros(n * n, n ** (k - 2), dtype=W.dtype, device=W.device)
+    for start in range(0, slots, chunk):
+        sl = slice(start, start + chunk)
+        left = (factors[0][:, None, sl] * factors[1][None, :, sl]).reshape(n * n, -1)
+        if k == 3:
+            right = factors[2][:, sl]
+        else:
+            right = (factors[2][:, None, sl] * factors[3][None, :, sl]).reshape(n * n, -1)
+        total += left @ right.T
+        del left, right
+    return positions, total.reshape(shape)
 
 
 def rate_tensors_torch(W, N, sources=bp.SOURCES):
