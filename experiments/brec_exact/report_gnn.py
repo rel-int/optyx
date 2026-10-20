@@ -22,14 +22,23 @@ from report import CLASSES, SHORT  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = f"{HERE}/results"
 FILES = ("step-lin.json", "step-tanh.json", "init-lin.json", "init-tanh.json",
-         "coherent-w100.0.json", "coherent-w1.0.json",
+         "coherent-w100.json", "coherent-w1.json",
          "step-lin-fp.json", "step-tanh-fp.json", "init-lin-fp.json", "init-tanh-fp.json",
-         "coherent-w100.0-fp.json", "coherent-w1.0-fp.json")
-MODELS = ("coherent-w100.0", "coherent-w1.0", "step-tanh", "step-lin", "init-tanh", "init-lin")
-LABEL = {"coherent-w100.0": "coherent light, w = 100", "coherent-w1.0": "coherent light, w = 1",
+         "coherent-w100-fp.json", "coherent-w1-fp.json")
+MODELS = ("coherent-w100", "coherent-w1", "step-tanh", "step-lin", "init-tanh", "init-lin")
+LABEL = {"coherent-w100": "coherent light, w = 100", "coherent-w1": "coherent light, w = 1",
          "step-tanh": "GNN, noise every step, tanh", "step-lin": "GNN, noise every step, linear",
          "init-tanh": "GNN, noise at init, tanh", "init-lin": "GNN, noise at init, linear"}
 FLOOR = 1e-12
+CELLS = 4
+EXPERIMENT = os.environ.get("GNN_EXPERIMENT", "gnn-compare-v2")
+
+
+def separated(r, T):
+    """The protocol's decision at alpha / (J * cells): Bonferroni over the
+    cells, so that 'any cell' keeps the nominal level."""
+    t = r.get("budgets", {}).get(str(T), {}).get("test")
+    return bool(t and min(t["pvalues"].values()) <= 0.05 / (t["J"] * CELLS))
 
 
 def fetch():
@@ -38,7 +47,7 @@ def fetch():
     pairs = list(pairs_of(None))
     results = {}
     for start in range(0, len(pairs), 25):
-        blob = read_many.remote("gnn-compare", pairs[start:start + 25], list(FILES))
+        blob = read_many.remote(EXPERIMENT, pairs[start:start + 25], list(FILES))
         results.update(json.loads(gzip.decompress(base64.b64decode(blob))))
         print(f"{len(results)} files after {start + 25} pairs", flush=True)
     os.makedirs(OUT, exist_ok=True)
@@ -67,15 +76,14 @@ def tables():
     lines = []
 
     # 1. pairs separated against the budget, per model, any cell
-    lines.append("## Pairs separated by the protocol against the budget (any of four cells)\n")
+    lines.append("## Pairs separated by the protocol against the budget (any cell, alpha / (J cells))\n")
     lines.append("| Model | " + " | ".join(f"T = {T:.0e}" for T in BUDGETS) + " | exact |")
     lines.append("|---|" + "---|" * (len(BUDGETS) + 1))
     per_model_budget = {}
     for model in MODELS:
         counts = []
         for T in BUDGETS:
-            sep = {pair for (pair, seed, m), r in runs.items()
-                   if m == model and r["budgets"].get(str(T), {}).get("test", {}).get("separated")}
+            sep = {pair for (pair, seed, m), r in runs.items() if m == model and separated(r, T)}
             per_model_budget[(model, T)] = sep
             counts.append(len(sep))
         exact = "-"
@@ -117,8 +125,7 @@ def tables():
         for pair in pairs:
             best = None
             for T in BUDGETS:
-                if any(runs.get((pair, seed, model), {}).get("budgets", {}).get(str(T), {}).get("test", {}).get("separated")
-                       for seed in SEEDS):
+                if any(separated(runs.get((pair, seed, model), {}), T) for seed in SEEDS):
                     best = T
                     break
             first[(model, pair)] = best
@@ -143,7 +150,7 @@ def tables():
     lines.append(f"\n## Coherent light at w = 100 against each network at T = {T:.0e}\n")
     lines.append("| Network | both | coherent only | network only |")
     lines.append("|---|---|---|---|")
-    coh = per_model_budget[("coherent-w100.0", T)]
+    coh = per_model_budget[("coherent-w100", T)]
     for model in MODELS[1:]:
         other = per_model_budget[(model, T)]
         lines.append(f"| {LABEL[model]} | {len(coh & other)} | {len(coh - other)} | {len(other - coh)} |")

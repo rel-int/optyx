@@ -100,7 +100,7 @@ def validate(big_graph6=None):
 
 
 @app.function(image=image, gpu="H100", cpu=8, memory=65536, volumes={"/vol": vol},
-              timeout=4 * 3600, max_containers=20, retries=1)
+              timeout=4 * 3600, max_containers=30, retries=1)
 def compare_job(spec):
     """One pair, seed and model: the protocol at every budget, the exact
     linear column, and the sampled Hotelling test."""
@@ -109,7 +109,7 @@ def compare_job(spec):
     import brecphot as bp
     import gnn_bench as gb
     device = "cuda"
-    folder = f"/vol/gnn-compare/{spec['pair']}/s{spec['seed']}"
+    folder = f"/vol/{spec.get('experiment', 'gnn-compare')}/{spec['pair']}/s{spec['seed']}"
     path = f"{folder}/{spec['model']}{spec.get('suffix', '')}.json"
     if os.path.exists(path):
         return json.load(open(path))
@@ -156,7 +156,7 @@ def compare_job(spec):
 
 
 @app.function(image=image, gpu="H100", cpu=8, memory=65536, volumes={"/vol": vol},
-              timeout=4 * 3600, max_containers=20, retries=1)
+              timeout=4 * 3600, max_containers=30, retries=1)
 def false_positive_job(spec):
     """The protocol on G against relabelled copies of G, at every budget."""
     import numpy as np
@@ -164,7 +164,7 @@ def false_positive_job(spec):
     import brecphot as bp
     import gnn_bench as gb
     device = "cuda"
-    folder = f"/vol/gnn-compare/{spec['pair']}/s{spec['seed']}"
+    folder = f"/vol/{spec.get('experiment', 'gnn-compare')}/{spec['pair']}/s{spec['seed']}"
     path = f"{folder}/{spec['model']}{spec.get('suffix', '')}-fp.json"
     if os.path.exists(path):
         return json.load(open(path))

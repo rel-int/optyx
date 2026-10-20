@@ -23,11 +23,13 @@ FP_PAIRS = ("Basic_0", "Extension_0", "Strongly_regular_0", "CFI_12",
             "Distance_regular_1", "4-vertex_condition_0")
 
 
-def spec_of(model, pair, g, h, seed, budgets, nmax, exact_nmax, hotelling):
+def spec_of(model, pair, g, h, seed, budgets, nmax, exact_nmax, hotelling, experiment="gnn-compare-v2",
+            order4_max_n=64):
     name, _, brightness = model.partition("-") if model.startswith("coherent") else (model, "", "")
-    spec = {"pair": pair, "seed": seed, "model": name, "G": g, "H": h,
-            "budgets": list(budgets), "nmax": nmax, "exact_nmax": exact_nmax,
-            "hotelling": hotelling}
+    n = bp.adjacency(g).shape[0]
+    spec = {"experiment": experiment, "pair": pair, "seed": seed, "model": name, "G": g, "H": h,
+            "budgets": list(budgets), "nmax": min(nmax, 4 if n <= order4_max_n else 3),
+            "exact_nmax": exact_nmax, "hotelling": hotelling}
     if name == "coherent":
         spec["brightness"] = float(brightness)
         spec["suffix"] = f"-w{brightness}"
@@ -41,7 +43,9 @@ def main():
     parser.add_argument("--seeds", default="100,101,102,103")
     parser.add_argument("--models", default=",".join(MODELS))
     parser.add_argument("--budgets", default=",".join(map(str, BUDGETS)))
-    parser.add_argument("--nmax", type=int, default=3)
+    parser.add_argument("--nmax", type=int, default=4)
+    parser.add_argument("--experiment", default="gnn-compare-v2")
+    parser.add_argument("--all", action="store_true", help="every BREC pair, not the subset")
     parser.add_argument("--exact-nmax", type=int, default=4)
     parser.add_argument("--hotelling", type=int, default=HOTELLING_BUDGET)
     parser.add_argument("--runs", type=int, default=10)
@@ -50,12 +54,17 @@ def main():
     budgets = [int(b) for b in args.budgets.split(",")]
     if args.command == "status":
         status = modal.Function.from_name("brec-photonic", "status")
-        print(json.dumps(status.remote("gnn-compare"), indent=1))
+        print(json.dumps(status.remote(args.experiment), indent=1))
         return
     names = set(args.pairs.split(",")) if args.pairs else None
     if args.command == "fp" and names is None:
         names = set(FP_PAIRS)
-    pairs = pairs_of(names)
+    if args.all:
+        data = bp.load_brec(BREC_RAW)
+        pairs = {f"{c}_{i}": pair for c in data for i, pair in enumerate(data[c])
+                 if names is None or f"{c}_{i}" in names}
+    else:
+        pairs = pairs_of(names)
     compare = modal.Function.from_name("brec-gnn", "compare_job")
     fp = modal.Function.from_name("brec-gnn", "false_positive_job")
     count = 0
@@ -63,7 +72,7 @@ def main():
         for seed in seeds:
             for model in args.models.split(","):
                 spec = spec_of(model, pair, g, h, seed, budgets, args.nmax,
-                               args.exact_nmax, args.hotelling)
+                               args.exact_nmax, args.hotelling, args.experiment)
                 if args.command == "compare":
                     compare.spawn(spec)
                 else:

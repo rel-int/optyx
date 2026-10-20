@@ -45,14 +45,17 @@ def neighbour_mean(adj):
 
 
 def cell_weights(seed, width=WIDTH, rho=RHO):
-    """W_self, W_nbr with ||W_self|| + ||W_nbr|| = rho, and the readout w."""
+    """An orthogonal feature map Q, drawn by QR of a Gaussian matrix, and
+    the readout w.  The update is x_v <- rho Q (x_v + mean_{u~v} x_u) / 2:
+    the lazy walk operator (I + A_mean) / 2 has spectrum in [0, 1] and Q
+    preserves norms, so every direction decays at most at rate rho and the
+    slow modes exactly at rho, a memory of 1 / (1 - rho) ticks whatever the
+    graph."""
     rng = np.random.default_rng(seed)
-    ws = rng.normal(size=(width, width))
-    wn = rng.normal(size=(width, width))
-    ws /= np.linalg.norm(ws, 2)
-    wn /= np.linalg.norm(wn, 2)
+    q, r = np.linalg.qr(rng.normal(size=(width, width)))
+    q = q * np.sign(np.diag(r))
     w = rng.normal(size=width)
-    return rho / 2 * ws, rho / 2 * wn, w / np.linalg.norm(w)
+    return rho * q, w / np.linalg.norm(w)
 
 
 class Sampler:
@@ -74,10 +77,10 @@ class Sampler:
             self.W = torch.as_tensor(W, dtype=torch.complex64, device=device)
             self.brightness = brightness
             return
-        ws, wn, w = cell_weights(seed, width)
-        self.A = torch.as_tensor(neighbour_mean(adj), dtype=torch.float32, device=device)
-        self.ws = torch.as_tensor(ws, dtype=torch.float32, device=device)
-        self.wn = torch.as_tensor(wn, dtype=torch.float32, device=device)
+        q, w = cell_weights(seed, width)
+        lazy = (np.eye(self.n) + neighbour_mean(adj)) / 2
+        self.L = torch.as_tensor(lazy, dtype=torch.float32, device=device)
+        self.q = torch.as_tensor(q, dtype=torch.float32, device=device)
         self.w = torch.as_tensor(w, dtype=torch.float32, device=device)
         self.width, self.depth = width, depth
         self.tanh = model.endswith("tanh")
@@ -86,7 +89,7 @@ class Sampler:
     def step(self, x, noise):
         """One update on a batch of states x (chunk, n, width)."""
         import torch
-        pre = x @ self.ws.T + torch.einsum("vu,buw->bvw", self.A, x) @ self.wn.T
+        pre = torch.einsum("vu,buw->bvw", self.L, x) @ self.q.T
         if noise is not None:
             pre = pre + noise
         return torch.tanh(pre) if self.tanh else pre
@@ -175,8 +178,15 @@ class Accumulator:
         return out, self.count.cpu().numpy()
 
 
+def chunk_size(n, nmax):
+    """Samples per chunk such that a chunk of N-set products is about 2 GB."""
+    from math import comb
+    return int(max(32, min(32768, 2.5e8 // comb(n, nmax))))
+
+
 def sampled_statistics(model, adj, seed, total, nmax, device, noise_seed=0, **kw):
-    sampler = Sampler(model, adj, seed, device, noise_seed=noise_seed, **kw)
+    sampler = Sampler(model, adj, seed, device, noise_seed=noise_seed,
+                      chunk=chunk_size(adj.shape[0], nmax), **kw)
     acc = Accumulator(adj.shape[0], nmax, total, device)
     for y in sampler.chunks(total):
         acc.add(y)
@@ -216,8 +226,8 @@ def linear_covariance(model, adj, seed, width=WIDTH, depth=DEPTH):
     """Covariance of the pre-readout z_v = w . x_v across vertices."""
     from scipy.linalg import solve_discrete_lyapunov
     n = adj.shape[0]
-    ws, wn, w = cell_weights(seed, width)
-    M = np.kron(np.eye(n), ws) + np.kron(neighbour_mean(adj), wn)
+    q, w = cell_weights(seed, width)
+    M = np.kron((np.eye(n) + neighbour_mean(adj)) / 2, q)
     if model == "step-lin":
         sigma = solve_discrete_lyapunov(M, np.eye(n * width))
     else:
@@ -256,38 +266,50 @@ def levels(values, errors, factor=10.0):
 
 def batch_features(stats, counts, index, nmax):
     """The feature vectors of every batch: profiles per order, and type
-    means and spreads per order >= 2, keyed by type."""
+    means and spreads per order >= 2, keyed by type.  The type of a pair is
+    its order-2 level with the levels of its two vertices; the type of an
+    N-set is the sorted tuple of the codes of its pairs."""
     features = []
     B = counts.shape[0]
+    idx = {N: np.asarray(index[N].cpu().numpy() if hasattr(index[N], "cpu") else index[N])
+           for N in index}
+    n = int(idx[1].max()) + 1
     for b in range(B):
         feats = {}
         mean1, var1 = stats[1][0][b], stats[1][1][b]
-        err1 = np.sqrt(var1 / counts[b])
-        colour = levels(mean1, err1)
-        pair_colour = {}
+        colour = levels(mean1, np.sqrt(var1 / counts[b]))
+        pair_code = None
         if nmax >= 2:
             mean2, var2 = stats[2][0][b], stats[2][1][b]
-            err2 = np.sqrt(var2 / counts[b])
-            rank2 = levels(mean2, err2)
-            for s, (a, c) in enumerate(index[2].T):
-                pair_colour[(int(a), int(c))] = (rank2[s], tuple(sorted((colour[a], colour[c]))))
+            rank2 = levels(mean2, np.sqrt(var2 / counts[b]))
+            a, c = idx[2]
+            lo, hi = np.minimum(colour[a], colour[c]), np.maximum(colour[a], colour[c])
+            codes = np.stack([rank2, lo, hi], axis=1)
+            _, pair_code_of_set = np.unique(codes, axis=0, return_inverse=True)
+            pair_code = np.zeros((n, n), dtype=np.int64)
+            pair_code[a, c] = pair_code[c, a] = pair_code_of_set.reshape(-1)
         for N in range(1, nmax + 1):
-            mean, var = stats[N][0][b], stats[N][1][b]
+            mean = stats[N][0][b]
             feats[("profile", N)] = np.sort(np.sqrt(np.maximum(mean, 0)))
             if N == 1:
                 continue
-            types = {}
-            for s, S in enumerate(index[N].T):
-                S = [int(a) for a in S]
-                if N == 2:
-                    key = pair_colour[(S[0], S[1])][1]
-                else:
-                    key = tuple(sorted(pair_colour[(a, c)] for a, c in combinations(S, 2)))
-                types.setdefault(key, []).append(mean[s])
-            feats[("type-mean", N)] = {k: float(np.mean(v)) for k, v in types.items()}
-            feats[("type-spread", N)] = {
-                k: float(max(np.var(v) - np.mean(np.maximum(v, 0)) / counts[b], 0.0))
-                for k, v in types.items()}
+            sets = idx[N].T  # (M, N)
+            if N == 2:
+                keys = pair_code[sets[:, 0], sets[:, 1]][:, None]
+            else:
+                pairs = [(i, j) for i in range(N) for j in range(i + 1, N)]
+                keys = np.sort(np.stack([pair_code[sets[:, i], sets[:, j]] for i, j in pairs], axis=1), axis=1)
+            uniq, type_id = np.unique(keys, axis=0, return_inverse=True)
+            type_id = type_id.reshape(-1)
+            count = np.bincount(type_id, minlength=len(uniq)).astype(float)
+            total = np.bincount(type_id, weights=mean, minlength=len(uniq))
+            total_sq = np.bincount(type_id, weights=mean * mean, minlength=len(uniq))
+            type_mean = total / count
+            type_var = np.maximum(total_sq / count - type_mean ** 2, 0)
+            poisson = np.bincount(type_id, weights=np.maximum(mean, 0), minlength=len(uniq)) / count / counts[b]
+            feats[("type-mean", N)] = {tuple(k): float(v) for k, v in zip(uniq, type_mean)}
+            feats[("type-spread", N)] = {tuple(k): float(max(v - p, 0.0))
+                                         for k, v, p in zip(uniq, type_var, poisson)}
         features.append(feats)
     return features
 
@@ -335,7 +357,9 @@ def permutation_test(features_g, features_h, nmax, splits=SPLITS, alpha=ALPHA, s
     for name in names:
         kind = name[0]
         F = _matrix([f[name] for f in allf], kind)
-        d = _distances(F, masks, kind)
+        step = max(1, int(2e8 // max(F.shape[1], 1)))
+        d = np.concatenate([_distances(F, masks[r:r + step], kind)
+                            for r in range(0, masks.shape[0], step)])
         pvalues[f"{kind}-{name[1]}"] = float((1 + np.sum(d[1:] >= d[0])) / (splits + 1))
     J = len(names)
     return {"pvalues": pvalues, "J": J,
@@ -361,6 +385,10 @@ def sampled_hotelling(model, adj_g, adj_h, seed, total, nmax, device, copies=bp.
     X = np.array([profile_of(adj_g, k) for k in range(copies)]).T
     Y = np.array([profile_of(adj_h, copies + k) for k in range(copies)]).T
     Z = np.array([profile_of(adj_g, 2 * copies + k) for k in range(copies)]).T
+    # BREC's outputs are of order one; the profiles are scaled to the same
+    # size so that the verbatim regularisation means the same for every model
+    scale = np.sqrt(np.mean(np.concatenate([X, Y, Z], axis=1) ** 2))
+    X, Y, Z = X / scale, Y / scale, Z / scale
     noise = float(np.mean(np.diag(np.cov(X - Z))))
     out = {"noise_variance": noise}
     for label, eps in (("verbatim", bp.EPSILON_MATRIX), ("scaled", bp.EPSILON_MATRIX * noise)):
