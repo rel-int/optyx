@@ -31,6 +31,13 @@ copies, and the exact rule of the draft.
   features; BREC's test on sampled copies; and the GPU jobs and tables.
 - `write_page.py`: fills the wiki page from the aggregated results.
 
+`results/` holds the per-pair result files of each run, gzipped (`raw.json.gz`:
+the pilot's relabelled copies and loss sweep, `raw_full.json.gz`: full BREC on
+the GPU with BREC's test from the profiles), and the tables built from them;
+`report.py tables` and `report_full.py tables` regenerate the tables from a
+decompressed copy without Modal. The profiles and noise moments behind them,
+tens of gigabytes, stay on the volume.
+
 The BREC data is read from a clone of `GraphPKU/BREC` at
 `/home/user/graphpku/brec/customize/Data/raw`; results live on the Modal
 volume `photonic-brec-rates` under `column-pilot/`, `loss-sweep/` and
