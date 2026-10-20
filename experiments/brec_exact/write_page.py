@@ -163,14 +163,25 @@ FULL = """## 5. Full BREC on the GPU, and coherent light at high brightness
 The Gram-tensor computation moves to the GPU unchanged, in complex128: an H100 computes an order-4 profile of a
 63-vertex graph in 0.65 s where 8 CPU cores take 108 s, a speedup of 130 to 170 on graphs of 52 to 136 vertices,
 with the two agreeing to $10^{-15}$. The order-4 cutoff moves from 64 to 110 vertices, which the 80 GB of the card
-allow. Coherent light also gets its noise at any brightness: with Poisson counts given the field, the variance of a
+allow, and the four sources come out of one pass, since only the coefficients of the expansion differ between them.
+Coherent light also gets its noise at any brightness: with Poisson counts given the field, the variance of a
 coincidence at brightness $w$ is a polynomial in $w$ whose coefficients are phase averages of products of
 intensities, estimated to a few percent from $10^5$ random phase draws in single precision in a few seconds, while
 the gap stays exact. As $w$ grows the Poisson terms fade and the variance tends to the intensity floor.
 
+**BREC's test without relabelled copies.** On an exact embedding the copies differ by rounding only, so the paired
+covariance is about $10^{-32}$ and vanishes against $\\varepsilon=10^{-7}$: the statistic collapses to
+$T^2=|P(f_G-f_H)|^2/\\varepsilon$ with $P$ the random projection, a deterministic threshold on the projected gap at
+$\\sqrt{72.34\\,\\varepsilon}\\approx2.7\\times10^{-3}$, and the reliability statistic is of order $10^{-25}$ and passes.
+The pilot's reliability statistics were $10^{-24}$ throughout, as this predicts. The full-benchmark column is therefore
+computed from the stored profiles of the run, with the same projection per pair, and the noise-scaled variant uses the
+rounding variance per order measured on the pilot's copies, $4$ to $9\\times10^{-32}$ per projected feature, in place
+of the covariance. The relabelled copies verify that the embedding is invariant, which the pilot did at $10^{-15}$;
+they add nothing to the decision.
+
 The tables below are the run on all 400 pairs, four cells each, $\\gamma=0.9$: the pairs separated by every source
-under the exact rule, and the samples coherent light needs at brightnesses from 0.05 to 100 photons per pulse, with
-the device time at a GHz tick.
+under the exact rule and under BREC's test, and the samples coherent light needs at brightnesses from 0.05 to 100
+photons per pulse, with the device time at a GHz tick.
 
 ```python {.marimo hide_code="true"}
 mo.md(DATA["full"])

@@ -32,8 +32,9 @@ def all_pairs():
 def fetch():
     import modal
     read_json = modal.Function.from_name("brec-photonic", "read_json")
-    paths = [f"brec-full-coherent/{pair}/s{seed}/g0.9.json"
-             for pair in all_pairs() for seed in SEEDS]
+    paths = [f"brec-full-coherent/{pair}/s{seed}/{name}"
+             for pair in all_pairs() for seed in SEEDS
+             for name in ("g0.9.json", "hotelling.json")]
     results = {}
     for start in range(0, len(paths), 150):
         results.update(read_json.remote(paths[start:start + 150]))
@@ -60,6 +61,8 @@ def tables():
         rec = {"pair": pair, "n": runs[0]["n"], "nmax": runs[0]["nmax"], "seeds": len(runs)}
         seconds.append((runs[0]["n"], runs[0]["nmax"], median(r["seconds"] for r in runs)))
         order4.setdefault(cat, []).append(rec["nmax"] == 4)
+        tests = [raw.get(f"brec-full-coherent/{pair}/s{seed}/hotelling.json") for seed in SEEDS]
+        tests = [t for t in tests if isinstance(t, dict)]
         for source in bp.SOURCES:
             sep = None
             for N in range(1, rec["nmax"] + 1):
@@ -67,6 +70,15 @@ def tables():
                     sep = N
                     break
             rec[source] = sep
+            for variant in ("verbatim", "scaled"):
+                sep = None
+                for N in range(1, rec["nmax"] + 1):
+                    if any(t["orders"][str(N)][source][f"separated_{variant}"] for t in tests):
+                        sep = N
+                        break
+                rec[(source, variant)] = sep
+            rec[(source, "projected_gap")] = max(
+                (t["orders"][str(t["nmax"])][source]["projected_gap"] for t in tests), default=None)
         # coherent light: samples per network at every brightness, best cell,
         # cumulated over all orders
         for w in BRIGHTNESSES:
@@ -86,6 +98,13 @@ def tables():
                  + f" | {sum(len(v) for v in per_class.values())} |")
     lines.append("| at order 4 | " + " | ".join(str(sum(order4.get(c, []))) for c in CLASSES)
                  + f" | {sum(sum(v) for v in order4.values())} |")
+    lines.append("\n## Pairs separated under BREC's test computed from the profiles\n")
+    lines.append("| Source | Test | " + " | ".join(SHORT[c] for c in CLASSES) + " | Total |")
+    lines.append("|---|---|" + "---|" * (len(CLASSES) + 1))
+    for source in bp.SOURCES:
+        for variant, label in (("verbatim", "eps = 1e-7"), ("scaled", "eps at the pilot's rounding noise")):
+            counts = [sum(r.get((source, variant)) is not None for r in per_class.get(c, [])) for c in CLASSES]
+            lines.append(f"| {source} | {label} | " + " | ".join(map(str, counts)) + f" | {sum(counts)} |")
     lines.append("\n## Separation order (pairs per order), indistinguishable photons / coherent\n")
     lines.append("| Class | " + " | ".join(f"order {N}" for N in range(1, 5)) + " | none |")
     lines.append("|---|" + "---|" * 5)
@@ -132,7 +151,8 @@ def tables():
             lines.append(f"| {lo}-{hi - 1} | {','.join(map(str, sorted(nm)))} | {len(sel)} | {median(sel):.0f} | {max(sel):.0f} |")
     text = "\n".join(lines)
     open(f"{OUT}/tables_full.md", "w").write(text)
-    json.dump({"per_class": per_class, "seconds": seconds}, open(f"{OUT}/results_full.json", "w"))
+    json.dump({"per_class": {c: [{str(k): v for k, v in r.items()} for r in recs] for c, recs in per_class.items()},
+               "seconds": seconds}, open(f"{OUT}/results_full.json", "w"))
     print(text)
 
 

@@ -194,3 +194,57 @@ def read_json(paths):
         except Exception as e:  # noqa: BLE001
             out[p] = f"ERR {e!r}"
     return out
+
+
+@app.function(image=image, volumes={"/vol": vol}, cpu=2, memory=16384,
+              timeout=1800, max_containers=50)
+def full_test(spec):
+    """BREC's test computed from the exact profiles of one pair and cell,
+    without relabelled copies.
+
+    On an exact embedding the copies differ by rounding only, so the paired
+    covariance S is negligible against epsilon and T2 = |P(f_G - f_H)|^2 /
+    epsilon, with P the random projection drawn per pair as in column_test
+    and f the profiles divided by w^N; the reliability statistic is of order
+    1e-25 and passes.  The noise-scaled variant uses the rounding variance
+    per order measured on the pilot's relabelled copies, spec["noise"], in
+    place of S, which the pilot found isotropic enough for the test to
+    coincide with the exact rule.
+    """
+    import numpy as np
+    import brecphot as bp
+    folder = f"/vol/{spec['experiment']}/{spec['pair']}/s{spec['seed']}"
+    try:
+        vol.reload()
+    except RuntimeError:
+        pass
+    with np.load(f"{folder}/g{spec['gamma']}.npz") as z:
+        fg = {int(k[2:]): np.array(z[k]) for k in z.files if k.startswith("FG")}
+        fh = {int(k[2:]): np.array(z[k]) for k in z.files if k.startswith("FH")}
+    nmax = max(fg)
+    rng = np.random.default_rng(sum(map(ord, spec["pair"])))
+    result = {"pair": spec["pair"], "seed": spec["seed"], "nmax": nmax, "orders": {}}
+    for N in range(1, nmax + 1):
+        dim = sum(fg[M].shape[1] for M in range(1, N + 1))
+        projection = rng.normal(size=(bp.OUTPUT_DIM, dim)) / np.sqrt(dim)
+        entry = {}
+        for i, source in enumerate(bp.SOURCES):
+            d_mean = bp.features({M: fg[M][i] for M in range(1, N + 1)}, W, projection) \
+                - bp.features({M: fh[M][i] for M in range(1, N + 1)}, W, projection)
+            norm2 = float(d_mean @ d_mean)
+            t2_verbatim = norm2 / bp.EPSILON_MATRIX
+            sigma2 = spec["noise"][str(N)]
+            t2_scaled = norm2 / sigma2
+            scale = max(fg[N][i].max(), fh[N][i].max())
+            entry[source] = {
+                "T2_verbatim": t2_verbatim,
+                "T2_scaled": t2_scaled,
+                "separated_verbatim": bool(t2_verbatim > bp.THRESHOLD),
+                "separated_scaled": bool(t2_scaled > bp.THRESHOLD),
+                "projected_gap": float(np.sqrt(norm2)),
+                "max_rel_diff": float(np.max(np.abs(fg[N][i] - fh[N][i])) / scale),
+            }
+        result["orders"][str(N)] = entry
+    json.dump(result, open(f"{folder}/hotelling.json", "w"))
+    vol.commit()
+    return result

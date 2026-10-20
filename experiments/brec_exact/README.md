@@ -20,6 +20,9 @@ copies, and the exact rule of the draft.
   copies, loss sweep, the aggregation of the pilot).
 - `gpu_app.py`, `launch_gpu.py`, `report_full.py`: the GPU jobs for the full
   benchmark with coherent light at several brightnesses.
+- `launch_full_test.py`: BREC's test on the stored profiles of the full run,
+  without relabelled copies, which on an exact embedding reduce the statistic
+  to the projected gap over the regularisation.
 - `write_page.py`: fills the wiki page from the aggregated results.
 
 The BREC data is read from a clone of `GraphPKU/BREC` at
