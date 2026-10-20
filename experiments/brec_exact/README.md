@@ -23,6 +23,12 @@ copies, and the exact rule of the draft.
 - `launch_full_test.py`: BREC's test on the stored profiles of the full run,
   without relabelled copies, which on an exact embedding reduce the statistic
   to the projected gap over the regularisation.
+- `gnn_bench.py`, `gnn_app.py`, `launch_gnn.py`, `report_gnn.py`: the comparison
+  with probabilistic graph networks: samplers for Gaussian noise at every step
+  or at initialisation, linear or tanh, with a squared readout; the coherent
+  sampler at any brightness; exact moments of the linear models by Wick's
+  theorem; the paper's batch-permutation protocol with profile and type
+  features; BREC's test on sampled copies; and the GPU jobs and tables.
 - `write_page.py`: fills the wiki page from the aggregated results.
 
 The BREC data is read from a clone of `GraphPKU/BREC` at
