@@ -1,0 +1,199 @@
+"""Aggregate the forward-pass test on the pilot subset.
+
+    python report_tick.py fetch
+    python report_tick.py tables
+"""
+
+import base64
+import gzip
+import json
+import os
+import re
+import sys
+from statistics import median
+
+import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import single_tick as st  # noqa: E402
+from launch import SEEDS, pairs_of  # noqa: E402
+from report import CLASSES, SHORT  # noqa: E402
+from tick_app import EXPERIMENT  # noqa: E402
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+OUT = f"{HERE}/results"
+LABEL = {"coherent-w1": "coherent light, w = 1", "coherent-w100": "coherent light, w = 100",
+         "coherent-inf": "coherent light, intensities", "thermal-inf": "thermal light, intensities"}
+PROFILE_COLUMN = {"coherent-w1": "coherent", "coherent-w100": "coherent",
+                  "coherent-inf": "coherent", "thermal-inf": "thermal"}
+FLOOR = 1e-12
+
+
+def fetch():
+    import modal
+    read_many = modal.Function.from_name("brec-photonic", "read_many")
+    pairs = list(pairs_of(None))
+    names = [f"{s}.json" for s in st.SOURCES] + ["anchors.json"]
+    results = {}
+    for start in range(0, len(pairs), 10):
+        blob = read_many.remote(EXPERIMENT, pairs[start:start + 10], names)
+        results.update(json.loads(gzip.decompress(base64.b64decode(blob))))
+        print(f"{len(results)} files after {start + 10} pairs", flush=True)
+    os.makedirs(OUT, exist_ok=True)
+    with gzip.open(f"{OUT}/raw_tick.json.gz", "wt") as f:
+        json.dump(results, f)
+    print(len(results), "files")
+
+
+def category_of(pair):
+    return pair.rsplit("_", 1)[0]
+
+
+def exact_orders():
+    """The exact separation order of every pair and source of the pilot's
+    sorted profiles, read off results/tables_pilot.md."""
+    orders = {}
+    columns = ("photons", "distinguishable", "coherent", "thermal")
+    for line in open(f"{HERE}/results/tables_pilot.md"):
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) == 8 and cells[0] in pairs_of(None):
+            for column, cell in zip(columns, cells[3:7]):
+                m = re.match(r"(\S+) / (\S+), (\S+)", cell)
+                orders[(cells[0], column)] = (None if m.group(2) == "None" else int(m.group(2)),
+                                              float(m.group(3)))
+    return orders
+
+
+def tables():
+    with gzip.open(f"{OUT}/raw_tick.json.gz", "rt") as f:
+        raw = json.load(f)
+    pairs = pairs_of(None)
+    runs, anchors = {}, {}
+    for key, value in raw.items():
+        if not isinstance(value, dict):
+            continue
+        _, pair, seed, name = key.split("/")
+        if name == "anchors.json":
+            anchors[(pair, int(seed[1:]))] = value
+        else:
+            runs[(pair, int(seed[1:]), name[:-5])] = value
+    orders = exact_orders()
+    budgets = sorted({int(R) for r in runs.values() for R in r["decisions"]})
+    lines = []
+
+    def separated(pair, source, R, rule):
+        return any(runs[(pair, s, source)]["decisions"][str(R)][rule]["separated"]
+                   for s in SEEDS if (pair, s, source) in runs)
+
+    def unreliable(pair, source, R, rule):
+        return sum(not runs[(pair, s, source)]["decisions"][str(R)][rule]["reliable"]
+                   for s in SEEDS if (pair, s, source) in runs)
+
+    for rule in ("scaled", "verbatim"):
+        lines.append(f"## Pairs separated by BREC's test, regularisation {rule}, any of four cells\n")
+        lines.append("| Source | " + " | ".join(f"R = {R:.0e}" for R in budgets) + " | profiles, exact |")
+        lines.append("|---|" + "---|" * (len(budgets) + 1))
+        for source in st.SOURCES:
+            counts = [sum(separated(p, source, R, rule) for p in pairs) for R in budgets]
+            exact = sum(orders.get((p, PROFILE_COLUMN[source]), (None,))[0] is not None for p in pairs)
+            lines.append(f"| {LABEL[source]} | " + " | ".join(map(str, counts)) + f" | {exact} |")
+        lines.append(f"| pairs run | " + " | ".join(
+            str(sum(any((p, s, src) in runs for s in SEEDS for src in st.SOURCES) for p in pairs))
+            for _ in budgets) + f" | {len(pairs)} |")
+        lines.append("")
+    R = budgets[-1]
+    lines.append(f"## Pairs separated per class at R = {R:.0e}, scaled rule, any cell\n")
+    lines.append("| Source | " + " | ".join(SHORT[c] for c in CLASSES) + " | Total |")
+    lines.append("|---|" + "---|" * (len(CLASSES) + 1))
+    for source in st.SOURCES:
+        row = [sum(separated(p, source, R, "scaled") for p in pairs if category_of(p) == c) for c in CLASSES]
+        lines.append(f"| {LABEL[source]} | " + " | ".join(map(str, row)) + f" | {sum(row)} |")
+    for column, name in (("coherent", "profiles, coherent, exact"), ("thermal", "profiles, thermal, exact")):
+        row = [sum(orders.get((p, column), (None,))[0] is not None for p in pairs if category_of(p) == c)
+               for c in CLASSES]
+        lines.append(f"| {name} | " + " | ".join(map(str, row)) + f" | {sum(row)} |")
+    lines.append("| pairs | " + " | ".join(str(sum(category_of(p) == c for p in pairs)) for c in CLASSES)
+                 + f" | {len(pairs)} |")
+    lines.append("")
+    lines.append(f"## Agreement with the exact profiles at R = {R:.0e}, scaled rule\n")
+    lines.append("| Source | both | test only | profiles only | neither |")
+    lines.append("|---|---|---|---|---|")
+    for source in st.SOURCES:
+        both = test_only = prof_only = neither = 0
+        for p in pairs:
+            t = separated(p, source, R, "scaled")
+            e = orders.get((p, PROFILE_COLUMN[source]), (None,))[0] is not None
+            both += t and e
+            test_only += t and not e
+            prof_only += e and not t
+            neither += not t and not e
+        lines.append(f"| {LABEL[source]} | {both} | {test_only} | {prof_only} | {neither} |")
+    lines.append("")
+    lines.append("## Reliability failures (pair-cell cases of 196) and median T² at the largest budget\n")
+    lines.append("| Source | unreliable, scaled | unreliable, verbatim | median T² pair | median T² reliability |")
+    lines.append("|---|---|---|---|---|")
+    for source in st.SOURCES:
+        cases = [r["decisions"][str(R)] for (p, s, src), r in runs.items() if src == source]
+        if not cases:
+            continue
+        lines.append(f"| {LABEL[source]} | {sum(not c['scaled']['reliable'] for c in cases)} | "
+                     f"{sum(not c['verbatim']['reliable'] for c in cases)} | "
+                     f"{median(c['scaled']['T2_pair'] for c in cases):.3g} | "
+                     f"{median(c['scaled']['T2_reliability'] for c in cases):.3g} |")
+    lines.append("")
+    lines.append("## Which feature carries the gap: the feature with the largest gap over noise, counted over the pairs separated at the largest budget\n")
+    lines.append("| Source | " + " | ".join(st.feature_names()) + " |")
+    lines.append("|---|" + "---|" * len(st.feature_names()))
+    for source in st.SOURCES:
+        counts = np.zeros(len(st.feature_names()), dtype=int)
+        for p in pairs:
+            if not separated(p, source, R, "scaled"):
+                continue
+            best = max((np.array(runs[(p, s, source)]["decisions"][str(R)]["gap_over_noise"])
+                        for s in SEEDS if (p, s, source) in runs), key=np.max)
+            counts[int(np.argmax(best))] += 1
+        lines.append(f"| {LABEL[source]} | " + " | ".join(map(str, counts)) + " |")
+    lines.append("")
+    lines.append("## Exact anchors: relative gap of the exact readout between G and H (cell 100), against the profile's exact order\n")
+    lines.append("| Pair | n | " + " | ".join(k for k in sorted(next(iter(anchors.values())).keys()) if k != "seconds")
+                 + " | profile order coherent / thermal |" if anchors else "")
+    if anchors:
+        keys = [k for k in sorted(next(iter(anchors.values())).keys()) if k != "seconds"]
+        lines.append("|---|---|" + "---|" * (len(keys) + 1))
+        for p in pairs:
+            a = anchors.get((p, SEEDS[0]))
+            if a is None:
+                continue
+            n = next((r["n"] for (pp, s, src), r in runs.items() if pp == p), "")
+            cells = [f"{a[k]['relative_gap']:.1e}" if k in a else "-" for k in keys]
+            oc, ot = orders.get((p, "coherent"), (None,))[0], orders.get((p, "thermal"), (None,))[0]
+            lines.append(f"| {p} | {n} | " + " | ".join(cells) + f" | {oc} / {ot} |")
+        lines.append("")
+    lines.append("## Per pair: smallest budget that separates, scaled rule, best cell\n")
+    lines.append("| Pair | n | slots | " + " | ".join(LABEL[s] for s in st.SOURCES) + " | profile order coherent / thermal |")
+    lines.append("|---|---|---|" + "---|" * (len(st.SOURCES) + 1))
+    for p in pairs:
+        n = slots = ""
+        cells = []
+        for source in st.SOURCES:
+            first = next((R for R in budgets if separated(p, source, R, "scaled")), None)
+            cells.append("-" if first is None else f"{first:.0e}")
+            r = next((runs[(p, s, source)] for s in SEEDS if (p, s, source) in runs), None)
+            if r:
+                n, slots = r["n"], r["slots"]
+        oc, ot = orders.get((p, "coherent"), (None,))[0], orders.get((p, "thermal"), (None,))[0]
+        lines.append(f"| {p} | {n} | {slots} | " + " | ".join(cells) + f" | {oc} / {ot} |")
+    lines.append("")
+    lines.append("## GPU seconds per pair and cell, all four sources at every budget\n")
+    secs = {}
+    for (p, s, src), r in runs.items():
+        secs[(p, s)] = secs.get((p, s), 0) + r["seconds"]
+    if secs:
+        lines.append(f"median {median(secs.values()):.0f}, max {max(secs.values()):.0f}, "
+                     f"total {sum(secs.values()) / 3600:.2f} GPU-hours over {len(secs)} pair-cell jobs")
+    open(f"{OUT}/tables_tick.md", "w").write("\n".join(lines) + "\n")
+    print("\n".join(lines))
+
+
+if __name__ == "__main__":
+    {"fetch": fetch, "tables": tables}[sys.argv[1]]()
