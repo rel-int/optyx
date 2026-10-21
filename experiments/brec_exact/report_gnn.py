@@ -23,7 +23,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = f"{HERE}/results"
 MODELS = ("coherent-w100", "step-tanh", "step-lin", "init-tanh", "init-lin")
 FILES = tuple(f"{m}-{kind}.json" for m in MODELS
-              for kind in [f"T{T}" for T in BUDGETS] + ["exact", "hotelling", "fp"])
+              for kind in [f"T{T}" for T in BUDGETS] + [f"T{T}-retest" for T in BUDGETS]
+              + ["exact", "hotelling", "fp", "ideal", "synthetic"])
 LABEL = {"coherent-w100": "coherent light, w = 100",
          "step-tanh": "GNN, noise every step, tanh", "step-lin": "GNN, noise every step, linear",
          "init-tanh": "GNN, noise at init, tanh", "init-lin": "GNN, noise at init, linear"}
@@ -32,11 +33,23 @@ CELLS = 4
 EXPERIMENT = os.environ.get("GNN_EXPERIMENT", "gnn-compare-v4")
 
 
-def separated(r, T):
+def separated(r, T, studentised=False):
     """The protocol's decision at alpha / (J * cells): Bonferroni over the
-    cells, so that 'any cell' keeps the nominal level."""
-    t = r.get("budgets", {}).get(str(T), {}).get("test")
-    return bool(t and min(t["pvalues"].values()) <= 0.05 / (t["J"] * CELLS))
+    cells, so that 'any cell' keeps the nominal level.  With `studentised`
+    the features include the studentised profile, from the retest of the
+    checkpoint where there is one, else from the test itself when it has
+    them; without, the original features only."""
+    b = r.get("budgets", {}).get(str(T), {})
+    t = b.get("retest") or b.get("test")
+    if not t:
+        return False
+    p = t["pvalues"]
+    if studentised:
+        if not any(k.startswith("studentised") for k in p):
+            return False
+        return bool(min(p.values()) <= 0.05 / (t["J"] * CELLS))
+    old = {k: v for k, v in p.items() if not k.startswith("studentised")}
+    return bool(min(old.values()) <= 0.05 / (len(old) * CELLS))
 
 
 def fetch():
@@ -44,10 +57,10 @@ def fetch():
     read_many = modal.Function.from_name("brec-photonic", "read_many")
     pairs = list(pairs_of(None))
     results = {}
-    for start in range(0, len(pairs), 25):
-        blob = read_many.remote(EXPERIMENT, pairs[start:start + 25], list(FILES))
+    chunks = [pairs[start:start + 5] for start in range(0, len(pairs), 5)]
+    for blob in read_many.starmap([(EXPERIMENT, chunk, list(FILES)) for chunk in chunks]):
         results.update(json.loads(gzip.decompress(base64.b64decode(blob))))
-        print(f"{len(results)} files after {start + 25} pairs", flush=True)
+        print(f"{len(results)} files", flush=True)
     os.makedirs(OUT, exist_ok=True)
     json.dump(results, open(f"{OUT}/raw_gnn.json", "w"))
     print(len(results), "files")
@@ -67,6 +80,11 @@ def tables():
             continue
         _, pair, seed, name = key.split("/")
         model, _, kind = name[:-5].rpartition("-")
+        if kind == "retest":
+            model, _, tkind = model.rpartition("-")
+            entry = runs.setdefault((pair, int(seed[1:]), model), {"budgets": {}, "n": value.get("n")})
+            entry["budgets"].setdefault(tkind[1:], {})["retest"] = value["test"]
+            continue
         if kind == "fp":
             fps[(pair, int(seed[1:]), model)] = value
             continue
@@ -93,11 +111,29 @@ def tables():
             counts.append(len(sep))
         exact = "-"
         if model in ("step-lin", "init-lin"):
-            exact = len({pair for (pair, seed, m), r in runs.items() if m == model and "exact" in r
-                         and any(v["max_rel_diff"] > FLOOR for v in r["exact"].values())})
+            exact = len({pair for (pair, seed, m), r in runs.items() if m == model
+                         and any(v["max_rel_diff"] > FLOOR
+                                 for v in (r.get("exact") or r.get("ideal", {}).get("exact", {})).values())})
         lines.append(f"| {LABEL[model]} | " + " | ".join(map(str, counts)) + f" | {exact} |")
     lines.append(f"| pairs run | " + " | ".join(
         str(len({p for (p, s, m) in runs if m == MODELS[0]})) for _ in BUDGETS) + " | |")
+
+    # 1b. with the studentised profile, at the budgets where it was computed
+    def has_studentised(r, T):
+        b = r["budgets"].get(str(T), {})
+        t = b.get("retest") or b.get("test") or {}
+        return any(k.startswith("studentised") for k in t.get("pvalues", {}))
+
+    lines.append("\n## Pairs separated with the studentised profile added (retest from checkpoints or native), any cell\n")
+    lines.append("| Model | " + " | ".join(f"T = {T:.0e}" for T in BUDGETS) + " |")
+    lines.append("|---|" + "---|" * len(BUDGETS))
+    for model in MODELS:
+        counts = []
+        for T in BUDGETS:
+            have = {pair for (pair, seed, m), r in runs.items() if m == model and has_studentised(r, T)}
+            sep = {pair for (pair, seed, m), r in runs.items() if m == model and separated(r, T, True)}
+            counts.append(f"{len(sep)} of {len(have)}")
+        lines.append(f"| {LABEL[model]} | " + " | ".join(counts) + " |")
 
     # 2. per class at the largest budget
     T = BUDGETS[-1]
@@ -122,15 +158,18 @@ def tables():
         lines.append(f"| {LABEL[model]} | {len(v)} | {len(sc)} | {un} |")
 
     # 4. smallest budget that separates, median per class, and ratios to coherent w = 100
-    lines.append("\n## Smallest budget that separates (median over pairs the model separates at some budget, best cell)\n")
+    lines.append("\n## Smallest budget from which the pair stays separated at every larger budget (median over such pairs, best cell)\n")
     lines.append("| Model | " + " | ".join(SHORT[c] for c in CLASSES) + " |")
     lines.append("|---|" + "---|" * len(CLASSES))
     first = {}
     for model in MODELS:
         for pair in pairs:
             best = None
-            for T in BUDGETS:
-                if any(separated(runs.get((pair, seed, model), {}), T) for seed in SEEDS):
+            available = [T for T in BUDGETS if any(
+                str(T) in runs.get((pair, seed, model), {}).get("budgets", {}) for seed in SEEDS)]
+            for T in available:
+                larger = [U for U in available if U >= T]
+                if all(any(separated(runs.get((pair, seed, model), {}), U) for seed in SEEDS) for U in larger):
                     best = T
                     break
             first[(model, pair)] = best
@@ -159,6 +198,83 @@ def tables():
     for model in MODELS[1:]:
         other = per_model_budget[(model, T)]
         lines.append(f"| {LABEL[model]} | {len(coh & other)} | {len(coh - other)} | {len(other - coh)} |")
+
+    # 6b. ideal counts: the optimal diagonal test, exact gap over sampled noise,
+    # for the linear networks against coherent light at w = 100 from the full run
+    full_path = f"{OUT}/raw_full.json"
+    if os.path.exists(full_path):
+        full = json.load(open(full_path))
+        lines.append("\n## Ideal sample counts (exact gap, estimated noise, all orders), median per class, best cell\n")
+        lines.append("| Model | " + " | ".join(SHORT[c] for c in CLASSES) + " |")
+        lines.append("|---|" + "---|" * len(CLASSES))
+        ideal = {}
+        for pair in pairs:
+            vals = [full.get(f"brec-full-coherent/{pair}/s{seed}/g0.9.json") for seed in SEEDS]
+            vals = [v for v in vals if isinstance(v, dict)]
+            if vals:
+                ideal[("coherent-w100", pair)] = min(
+                    v["coherent_samples_by_brightness"]["100.0"][str(v["nmax"])] for v in vals)
+            for model in ("step-lin", "init-lin"):
+                vs = [runs.get((pair, seed, model), {}).get("ideal") for seed in SEEDS]
+                vs = [v for v in vs if isinstance(v, dict)]
+                if vs:
+                    ideal[(model, pair)] = min(v["ideal_samples"][str(v["nmax"])] for v in vs)
+        for model in ("coherent-w100", "step-lin", "init-lin"):
+            cells = []
+            for c in CLASSES:
+                v = [ideal[(model, p)] for p in pairs if category_of(p) == c and (model, p) in ideal
+                     and np.isfinite(ideal[(model, p)])]
+                cells.append(f"{median(v):.2g} ({len(v)})" if v else "-")
+            lines.append(f"| {LABEL[model]} | " + " | ".join(cells) + " |")
+        lines.append("\n**Ratio of a network's ideal count to coherent light's, median over pairs both have finite**\n")
+        lines.append("| Network | " + " | ".join(SHORT[c] for c in CLASSES) + " |")
+        lines.append("|---|" + "---|" * len(CLASSES))
+        for model in ("step-lin", "init-lin"):
+            cells = []
+            for c in CLASSES:
+                r = [ideal[(model, p)] / ideal[("coherent-w100", p)] for p in pairs
+                     if category_of(p) == c and (model, p) in ideal and ("coherent-w100", p) in ideal
+                     and np.isfinite(ideal[(model, p)]) and np.isfinite(ideal[("coherent-w100", p)])]
+                cells.append(f"{median(r):.3g} ({len(r)})" if r else "-")
+            lines.append(f"| {LABEL[model]} | " + " | ".join(cells) + " |")
+
+    # 6c. synthetic batches: original against studentised statistic at every budget
+    synth = {(p, s_, m): r["synthetic"] for (p, s_, m), r in runs.items() if "synthetic" in r}
+    if synth:
+        from gnn_app import SYNTHETIC_BUDGETS
+        lines.append("\n## Synthetic batches from exact moments: pairs separated in at least half the draws, any cell, original statistic / with the studentised profile\n")
+        lines.append("| Model | " + " | ".join(f"{T:.0e}" for T in SYNTHETIC_BUDGETS) + " |")
+        lines.append("|---|" + "---|" * len(SYNTHETIC_BUDGETS))
+        for model in ("coherent-w100", "step-lin", "init-lin"):
+            cells = []
+            for T in SYNTHETIC_BUDGETS:
+                old = {p for (p, s_, m), r in synth.items() if m == model and r["budgets"].get(str(T), {}).get("old", 0) >= 0.5}
+                new = {p for (p, s_, m), r in synth.items() if m == model and r["budgets"].get(str(T), {}).get("new", 0) >= 0.5}
+                cells.append(f"{len(old)} / {len(new)}")
+            lines.append(f"| {LABEL[model]} | " + " | ".join(cells) + " |")
+        lines.append("\n**Median budget to separate (smallest T separated in half the draws and at every larger budget), per class, original / studentised**\n")
+        lines.append("| Model | " + " | ".join(SHORT[c] for c in CLASSES) + " |")
+        lines.append("|---|" + "---|" * len(CLASSES))
+        for model in ("coherent-w100", "step-lin", "init-lin"):
+            cells = []
+            for c in CLASSES:
+                firsts = {"old": [], "new": []}
+                for pair in pairs:
+                    if category_of(pair) != c:
+                        continue
+                    for key in ("old", "new"):
+                        best = None
+                        for T in SYNTHETIC_BUDGETS:
+                            ok = all(any(synth.get((pair, s_, model), {}).get("budgets", {}).get(str(U), {}).get(key, 0) >= 0.5
+                                         for s_ in SEEDS) for U in SYNTHETIC_BUDGETS if U >= T)
+                            if ok:
+                                best = T
+                                break
+                        if best:
+                            firsts[key].append(best)
+                cells.append(f"{median(firsts['old']):.0e} ({len(firsts['old'])}) / {median(firsts['new']):.0e} ({len(firsts['new'])})"
+                             if firsts["old"] or firsts["new"] else "-") if (firsts["old"] and firsts["new"]) else cells.append("-")
+            lines.append(f"| {LABEL[model]} | " + " | ".join(cells) + " |")
 
     # 7. false positives
     if fps:

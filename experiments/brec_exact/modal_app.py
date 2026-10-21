@@ -267,7 +267,10 @@ def read_many(experiment, pairs, names):
         if not os.path.isdir(folder):
             continue
         for seed in sorted(os.listdir(folder)):
+            present = set(os.listdir(f"{folder}/{seed}"))
             for name in names:
+                if name not in present:
+                    continue
                 path = f"{folder}/{seed}/{name}"
                 key = f"{experiment}/{pair}/{seed}/{name}"
                 try:

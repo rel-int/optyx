@@ -373,6 +373,20 @@ def _distances(F, masks, kind):
     sq = F * F
     var_a = np.maximum(a @ sq - mean_a ** 2, 0)
     var_b = np.maximum(b @ sq - mean_b ** 2, 0)
+    if kind == "studentised":
+        # the variance of a profile entry is a smooth function of its mean:
+        # fit v = c0 + c1 m + c2 m^2 over the entries of every split and
+        # weight each squared difference by the fitted variance, which is
+        # the optimal diagonal statistic up to the quality of the fit
+        m = (mean_a + mean_b) / 2
+        v = (var_a + var_b) / 2
+        fitted = np.empty_like(v)
+        for r in range(v.shape[0]):
+            X = np.stack([np.ones_like(m[r]), m[r], m[r] ** 2], axis=1)
+            coef, *_ = np.linalg.lstsq(X, v[r], rcond=None)
+            fitted[r] = np.maximum(X @ coef, 0)
+        floor = 1e-6 * np.mean(v, axis=1, keepdims=True) + 1e-300
+        return np.sum(diff ** 2 / (fitted + floor), axis=1)
     within = (var_a + var_b) / 2 + 1e-12 * (mean_a ** 2 + mean_b ** 2) + 1e-300
     return np.sum(diff ** 2 / within, axis=1)
 
@@ -388,18 +402,22 @@ def permutation_test(features_g, features_h, nmax, splits=SPLITS, alpha=ALPHA, s
     for r in range(1, splits + 1):
         masks[r, rng.choice(2 * m, m, replace=False)] = 1
     names = [("profile", N) for N in range(1, nmax + 1)]
+    names += [("studentised", N) for N in range(1, nmax + 1)]
     names += [(kind, N) for N in range(2, nmax + 1) for kind in ("type-mean", "type-spread")]
     pvalues = {}
     for name in names:
         kind = name[0]
-        F = _matrix([f[name] for f in allf], kind)
+        source = ("profile", name[1]) if kind == "studentised" else name
+        F = _matrix([f[source] for f in allf], "profile" if kind == "studentised" else kind)
         step = max(1, int(2e8 // max(F.shape[1], 1)))
         d = np.concatenate([_distances(F, masks[r:r + step], kind)
                             for r in range(0, masks.shape[0], step)])
         pvalues[f"{kind}-{name[1]}"] = float((1 + np.sum(d[1:] >= d[0])) / (splits + 1))
     J = len(names)
-    return {"pvalues": pvalues, "J": J,
-            "separated": bool(min(pvalues.values()) <= alpha / J)}
+    old = {k: v for k, v in pvalues.items() if not k.startswith("studentised")}
+    return {"pvalues": pvalues, "J": J, "J_old": len(old),
+            "separated": bool(min(pvalues.values()) <= alpha / J),
+            "separated_old": bool(min(old.values()) <= alpha / len(old))}
 
 
 # --------------------------------------------------- sampled Hotelling test

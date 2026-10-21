@@ -24,3 +24,4 @@ build/*
 dist/*
 todo.md
 optyx/_version.py
+!experiments/brec_exact/results/*.gz

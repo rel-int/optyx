@@ -11,7 +11,7 @@ from statistics import median
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, "/tmp/claude-0/-home-user/2258d4a3-8088-52d8-9954-5113d3147de7/scratchpad/work")
 import brecphot as bp  # noqa: E402
 from gpu_app import BREC_RAW, BRIGHTNESSES  # noqa: E402
 from report import CLASSES, SHORT, FLOOR  # noqa: E402
