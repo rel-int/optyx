@@ -20,6 +20,8 @@ image = (modal.Image.debian_slim(python_version="3.12")
 BREC_RAW = "/home/user/graphpku/brec/customize/Data/raw"
 EXPERIMENT = "tick-pilot"
 GAMMA = 0.9
+GPU = os.environ.get("TICK_GPU", "H100")
+GPU = None if GPU.lower() == "cpu" else GPU
 
 
 def _graphs():
@@ -35,7 +37,7 @@ def _graphs():
     return cycle, two
 
 
-@app.function(image=image, gpu="H100", cpu=8, memory=32768, timeout=3600)
+@app.function(image=image, gpu=GPU, cpu=8, memory=32768, timeout=3600)
 def validate(big_graph6=None):
     """Self-checks, invariance of the embedding under relabelling, the false
     positive rate on G against relabelled G, the power on C6 against 2C3, the
@@ -44,7 +46,7 @@ def validate(big_graph6=None):
     import torch
     import brecphot as bp
     import single_tick as st
-    device = "cuda"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     out = {"self_check": st.self_check()}
     g, h = _graphs()
     cells = bp.cell(100)
@@ -78,10 +80,12 @@ def validate(big_graph6=None):
         W = bp.path_matrix(bp.network(adj, cells, GAMMA), tol=st.PATH_TOL)
         out["big: n, slots"] = list(W.shape)
         for source in ("coherent-w100", "thermal-inf"):
-            torch.cuda.synchronize()
+            if device == "cuda":
+                torch.cuda.synchronize()
             t0 = time.time()
             st.copy_embeddings(W, source, 1, [1000000], device)
-            torch.cuda.synchronize()
+            if device == "cuda":
+                torch.cuda.synchronize()
             out[f"big {source}: seconds per copy at 1e6 draws"] = time.time() - t0
         t0 = time.time()
         out["big thermal e4(I^3) exact"] = st.exact_readout(W, "thermal", 4, 3, device)
@@ -89,15 +93,16 @@ def validate(big_graph6=None):
     return json.dumps(out, default=str)
 
 
-@app.function(image=image, gpu="H100", cpu=8, memory=65536, volumes={"/vol": vol},
+@app.function(image=image, gpu=GPU, cpu=8, memory=65536, volumes={"/vol": vol},
               timeout=4 * 3600, max_containers=40, retries=1)
 def tick_job(spec):
     """One pair and cell: the path matrices of the 96 copies, then the test
     for every source and the exact anchors, each cached in its own file."""
     import numpy as np
+    import torch
     import brecphot as bp
     import single_tick as st
-    device = "cuda"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     folder = f"/vol/{spec.get('experiment', EXPERIMENT)}/{spec['pair']}/s{spec['seed']}"
     os.makedirs(folder, exist_ok=True)
     todo = [s for s in spec["sources"] if not os.path.exists(f"{folder}/{s}.json")]
