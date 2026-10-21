@@ -21,17 +21,15 @@ from report import CLASSES, SHORT  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = f"{HERE}/results"
-FILES = ("step-lin.json", "step-tanh.json", "init-lin.json", "init-tanh.json",
-         "coherent-w100.json", "coherent-w1.json",
-         "step-lin-fp.json", "step-tanh-fp.json", "init-lin-fp.json", "init-tanh-fp.json",
-         "coherent-w100-fp.json", "coherent-w1-fp.json")
-MODELS = ("coherent-w100", "coherent-w1", "step-tanh", "step-lin", "init-tanh", "init-lin")
-LABEL = {"coherent-w100": "coherent light, w = 100", "coherent-w1": "coherent light, w = 1",
+MODELS = ("coherent-w100", "step-tanh", "step-lin", "init-tanh", "init-lin")
+FILES = tuple(f"{m}-{kind}.json" for m in MODELS
+              for kind in [f"T{T}" for T in BUDGETS] + ["exact", "hotelling", "fp"])
+LABEL = {"coherent-w100": "coherent light, w = 100",
          "step-tanh": "GNN, noise every step, tanh", "step-lin": "GNN, noise every step, linear",
          "init-tanh": "GNN, noise at init, tanh", "init-lin": "GNN, noise at init, linear"}
 FLOOR = 1e-12
 CELLS = 4
-EXPERIMENT = os.environ.get("GNN_EXPERIMENT", "gnn-compare-v2")
+EXPERIMENT = os.environ.get("GNN_EXPERIMENT", "gnn-compare-v4")
 
 
 def separated(r, T):
@@ -62,17 +60,24 @@ def category_of(pair):
 def tables():
     raw = json.load(open(f"{OUT}/raw_gnn.json"))
     pairs = pairs_of(None)
-    runs = {}   # (pair, seed, model) -> result
+    runs = {}   # (pair, seed, model) -> {"budgets": {T: {"test": ...}}, "exact": ..., "hotelling": ...}
     fps = {}
     for key, value in raw.items():
         if not isinstance(value, dict):
             continue
         _, pair, seed, name = key.split("/")
-        model = name[:-5]
-        if model.endswith("-fp"):
-            fps[(pair, int(seed[1:]), model[:-3])] = value
+        model, _, kind = name[:-5].rpartition("-")
+        if kind == "fp":
+            fps[(pair, int(seed[1:]), model)] = value
+            continue
+        entry = runs.setdefault((pair, int(seed[1:]), model), {"budgets": {}, "n": value.get("n")})
+        if kind.startswith("T"):
+            entry["budgets"][kind[1:]] = value
+            entry["n"] = value["n"]
+            entry["seconds"] = entry.get("seconds", 0) + value["seconds"]
         else:
-            runs[(pair, int(seed[1:]), model)] = value
+            entry[kind] = value
+            entry["seconds"] = entry.get("seconds", 0) + value.get("seconds", 0)
     lines = []
 
     # 1. pairs separated against the budget, per model, any cell
@@ -157,7 +162,7 @@ def tables():
 
     # 7. false positives
     if fps:
-        lines.append("\n## False-positive rate of the protocol on G against relabelled G (10 runs per cell)\n")
+        lines.append("\n## False-positive rate of the protocol on G against relabelled G (10 runs per cell): at alpha / J, and at alpha / (J cells)\n")
         lines.append("| Model | " + " | ".join(f"T = {T:.0e}" for T in BUDGETS if T <= 1000000) + " |")
         lines.append("|---|" + "---|" * sum(T <= 1000000 for T in BUDGETS))
         for model in MODELS:
@@ -167,11 +172,14 @@ def tables():
                     continue
                 vals = [r["runs"].get(str(T)) for (p, s, m), r in fps.items() if m == model]
                 vals = [v for v in vals if v is not None]
-                cells.append(f"{np.mean(vals):.3f} ({len(vals)})" if vals else "-")
+                strict = [p_ <= 0.05 / (J * CELLS) for (p, s, m), r in fps.items() if m == model
+                          for p_, J in r.get("min_p", {}).get(str(T), [])]
+                cells.append(f"{np.mean(vals):.3f} / {np.mean(strict):.3f} ({len(vals)})" if vals and strict
+                             else (f"{np.mean(vals):.3f} ({len(vals)})" if vals else "-"))
             lines.append(f"| {LABEL[model]} | " + " | ".join(cells) + " |")
 
     # 8. timings
-    secs = [(r["n"], m, r["seconds"]) for (p, s, m), r in runs.items()]
+    secs = [(r.get("n"), m, r.get("seconds", 0)) for (p, s, m), r in runs.items()]
     lines.append("\n## GPU seconds per pair and cell, all budgets and the Hotelling copies\n")
     lines.append("| Model | median | max |\n|---|---|---|")
     for model in MODELS:

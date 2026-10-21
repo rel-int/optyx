@@ -29,7 +29,7 @@ import brecphot as bp
 
 MODELS = ("step-lin", "step-tanh", "init-lin", "init-tanh", "coherent")
 WIDTH = 8
-DEPTH = 20
+DEPTH = 4
 RHO = 0.95
 BURN_IN = 100
 BATCHES = 16
@@ -84,7 +84,23 @@ class Sampler:
         self.w = torch.as_tensor(w, dtype=torch.float32, device=device)
         self.width, self.depth = width, depth
         self.tanh = model.endswith("tanh")
+        # noise of variance 1 - rho^2 per step gives the linear stationary
+        # pre-activation unit variance, so that tanh works in its natural
+        # regime rather than saturated; the linear models are scale-free
+        self.noise_scale = float(np.sqrt(1 - RHO ** 2))
         self.state = None
+
+    def state_dict(self):
+        out = {"gen": self.gen.get_state().cpu().numpy()}
+        if getattr(self, "state", None) is not None:
+            out["state"] = self.state.cpu().numpy()
+        return out
+
+    def load_state_dict(self, state, device):
+        import torch
+        self.gen.set_state(torch.as_tensor(state["gen"]).to(torch.uint8).cpu())
+        if "state" in state:
+            self.state = torch.as_tensor(state["state"], device=device)
 
     def step(self, x, noise):
         """One update on a batch of states x (chunk, n, width)."""
@@ -124,11 +140,11 @@ class Sampler:
         if self.state is None:
             self.state = torch.zeros((self.chunk, self.n, self.width), device=self.device)
             for _ in range(BURN_IN):
-                self.state = self.step(self.state, torch.randn(
+                self.state = self.step(self.state, self.noise_scale * torch.randn(
                     self.state.shape, generator=self.gen, device=self.device))
         while done < total:
             k = min(self.chunk, total - done)
-            self.state = self.step(self.state, torch.randn(
+            self.state = self.step(self.state, self.noise_scale * torch.randn(
                 self.state.shape, generator=self.gen, device=self.device))
             yield self.readout(self.state[:k]).to(torch.float64)
             done += k
@@ -140,7 +156,7 @@ class Accumulator:
     """Per-batch mean and variance of every N-set product, N = 1..nmax; the
     samples are split into `batches` consecutive groups."""
 
-    def __init__(self, n, nmax, total, device, batches=BATCHES):
+    def __init__(self, n, nmax, total=0, device="cpu", batches=BATCHES):
         import torch
         self.index = {N: torch.as_tensor(np.array(list(combinations(range(n), N))).T,
                                          device=device) for N in range(1, nmax + 1)}
@@ -152,11 +168,16 @@ class Accumulator:
         self.seen = 0
         self.batches = batches
 
-    def add(self, y):
+    def add(self, y, stationary=False):
+        """Add a chunk; in a stationary stream row i of every chunk is stream
+        i, and stream i always feeds batch i mod B, so that batches are
+        independent runs and the permutation test's exchangeability holds."""
         import torch
         k = y.shape[0]
-        batch = torch.div(torch.arange(self.seen, self.seen + k, device=y.device),
-                          self.per_batch, rounding_mode="floor").clamp(max=self.batches - 1)
+        if stationary:
+            batch = torch.arange(k, device=y.device) % self.batches
+        else:
+            batch = torch.arange(self.seen, self.seen + k, device=y.device) % self.batches
         one_hot = torch.nn.functional.one_hot(batch, self.batches).to(torch.float64)  # (k, B)
         for N, idx in self.index.items():
             prod = y[:, idx[0]]
@@ -166,6 +187,19 @@ class Accumulator:
             self.sq[N] += one_hot.T @ (prod * prod)
         self.count += one_hot.sum(dim=0)
         self.seen += k
+
+    def state_dict(self):
+        return {**{f"sum{N}": self.sum[N].cpu().numpy() for N in self.sum},
+                **{f"sq{N}": self.sq[N].cpu().numpy() for N in self.sq},
+                "count": self.count.cpu().numpy(), "seen": np.array(self.seen)}
+
+    def load_state_dict(self, state, device):
+        import torch
+        for N in self.sum:
+            self.sum[N] = torch.as_tensor(state[f"sum{N}"], device=device)
+            self.sq[N] = torch.as_tensor(state[f"sq{N}"], device=device)
+        self.count = torch.as_tensor(state["count"], device=device)
+        self.seen = int(state["seen"])
 
     def stats(self):
         """Dict N -> (mean (B, M_N), variance (B, M_N)) as numpy arrays."""
@@ -181,15 +215,16 @@ class Accumulator:
 def chunk_size(n, nmax):
     """Samples per chunk such that a chunk of N-set products is about 2 GB."""
     from math import comb
-    return int(max(32, min(32768, 2.5e8 // comb(n, nmax))))
+    return int(max(32, min(32768, 2.5e8 // comb(n, nmax))) // BATCHES * BATCHES)
 
 
 def sampled_statistics(model, adj, seed, total, nmax, device, noise_seed=0, **kw):
     sampler = Sampler(model, adj, seed, device, noise_seed=noise_seed,
                       chunk=chunk_size(adj.shape[0], nmax), **kw)
     acc = Accumulator(adj.shape[0], nmax, total, device)
+    stationary = model.startswith("step")
     for y in sampler.chunks(total):
-        acc.add(y)
+        acc.add(y, stationary)
     return acc.stats()
 
 
@@ -229,7 +264,8 @@ def linear_covariance(model, adj, seed, width=WIDTH, depth=DEPTH):
     q, w = cell_weights(seed, width)
     M = np.kron((np.eye(n) + neighbour_mean(adj)) / 2, q)
     if model == "step-lin":
-        sigma = solve_discrete_lyapunov(M, np.eye(n * width))
+        # the step noise has variance 1 - rho^2, see Sampler.noise_scale
+        sigma = solve_discrete_lyapunov(M, (1 - RHO ** 2) * np.eye(n * width))
     else:
         P = np.linalg.matrix_power(M, depth)
         sigma = P @ P.T
