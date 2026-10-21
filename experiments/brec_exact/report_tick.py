@@ -18,10 +18,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import single_tick as st  # noqa: E402
 from launch import SEEDS, pairs_of  # noqa: E402
 from report import CLASSES, SHORT  # noqa: E402
-from tick_app import EXPERIMENT  # noqa: E402
+from tick_app import EXPERIMENT as DEFAULT_EXPERIMENT  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = f"{HERE}/results"
+EXPERIMENT = os.environ.get("TICK_EXPERIMENT", DEFAULT_EXPERIMENT)
+SUFFIX = "" if EXPERIMENT == DEFAULT_EXPERIMENT else "_" + EXPERIMENT.replace("tick-pilot-", "")
 LABEL = {"coherent-w1": "coherent light, w = 1", "coherent-w100": "coherent light, w = 100",
          "coherent-inf": "coherent light, intensities", "thermal-inf": "thermal light, intensities"}
 PROFILE_COLUMN = {"coherent-w1": "coherent", "coherent-w100": "coherent",
@@ -40,7 +42,7 @@ def fetch():
         results.update(json.loads(gzip.decompress(base64.b64decode(blob))))
         print(f"{len(results)} files after {start + 10} pairs", flush=True)
     os.makedirs(OUT, exist_ok=True)
-    with gzip.open(f"{OUT}/raw_tick.json.gz", "wt") as f:
+    with gzip.open(f"{OUT}/raw_tick{SUFFIX}.json.gz", "wt") as f:
         json.dump(results, f)
     print(len(results), "files")
 
@@ -65,7 +67,7 @@ def exact_orders():
 
 
 def tables():
-    with gzip.open(f"{OUT}/raw_tick.json.gz", "rt") as f:
+    with gzip.open(f"{OUT}/raw_tick{SUFFIX}.json.gz", "rt") as f:
         raw = json.load(f)
     pairs = pairs_of(None)
     runs, anchors = {}, {}
@@ -198,7 +200,7 @@ def tables():
     if secs:
         lines.append(f"median {median(secs.values()):.0f}, max {max(secs.values()):.0f}, "
                      f"total {sum(secs.values()) / 3600:.2f} GPU-hours over {len(secs)} pair-cell jobs")
-    open(f"{OUT}/tables_tick.md", "w").write("\n".join(lines) + "\n")
+    open(f"{OUT}/tables_tick{SUFFIX}.md", "w").write("\n".join(lines) + "\n")
     print("\n".join(lines))
 
 

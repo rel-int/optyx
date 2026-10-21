@@ -26,6 +26,7 @@ def main():
     parser.add_argument("--sources", default=",".join(st.SOURCES))
     parser.add_argument("--budgets", default=",".join(map(str, st.BUDGETS)))
     parser.add_argument("--experiment", default=EXPERIMENT)
+    parser.add_argument("--app", default="brec-tick")
     parser.add_argument("--no-anchors", action="store_true")
     parser.add_argument("--wait", action="store_true", help="run one job and print its summary")
     args = parser.parse_args()
@@ -34,7 +35,7 @@ def main():
         print(json.dumps(status.remote(args.experiment), indent=1))
         return
     names = set(args.pairs.split(",")) if args.pairs else None
-    job = modal.Function.from_name("brec-tick", "tick_job")
+    job = modal.Function.from_name(args.app, "tick_job")
     count = 0
     for pair, (g, h) in pairs_of(names).items():
         for seed in map(int, args.seeds.split(",")):

@@ -11,7 +11,7 @@ import time
 
 import modal
 
-app = modal.App("brec-tick")
+app = modal.App(os.environ.get("TICK_APP", "brec-tick"))
 vol = modal.Volume.from_name("photonic-brec-rates")
 image = (modal.Image.debian_slim(python_version="3.12")
          .pip_install("numpy", "scipy", "torch")
