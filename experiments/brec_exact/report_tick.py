@@ -81,16 +81,23 @@ def tables():
     budgets = sorted({int(R) for r in runs.values() for R in r["decisions"]})
     lines = []
 
+    def decision(d, rule):
+        """BREC's rules as stored, and 'hotelling': the scaled statistic with
+        the factor q = 32 that BREC's code leaves out, so that 72.34 is the
+        5% point of Hotelling's T^2 it is named after."""
+        if rule != "hotelling":
+            return d[rule]
+        q = bp.NUM_RELABEL
+        t2, t2r = q * d["scaled"]["T2_pair"], q * d["scaled"]["T2_reliability"]
+        separated, reliable = bp.brec_decision(t2, t2r)
+        return {"separated": separated, "reliable": reliable}
+
     def separated(pair, source, R, rule):
-        return any(runs[(pair, s, source)]["decisions"][str(R)][rule]["separated"]
+        return any(decision(runs[(pair, s, source)]["decisions"][str(R)], rule)["separated"]
                    for s in SEEDS if (pair, s, source) in runs)
 
-    def unreliable(pair, source, R, rule):
-        return sum(not runs[(pair, s, source)]["decisions"][str(R)][rule]["reliable"]
-                   for s in SEEDS if (pair, s, source) in runs)
-
-    for rule in ("scaled", "verbatim"):
-        lines.append(f"## Pairs separated by BREC's test, regularisation {rule}, any of four cells\n")
+    for rule in ("hotelling", "scaled", "verbatim"):
+        lines.append(f"## Pairs separated by BREC's test, rule {rule}, any of four cells\n")
         lines.append("| Source | " + " | ".join(f"R = {R:.0e}" for R in budgets) + " | profiles, exact |")
         lines.append("|---|" + "---|" * (len(budgets) + 1))
         for source in st.SOURCES:
@@ -130,13 +137,13 @@ def tables():
         lines.append(f"| {LABEL[source]} | {both} | {test_only} | {prof_only} | {neither} |")
     lines.append("")
     lines.append("## Reliability failures (pair-cell cases of 196) and median T² at the largest budget\n")
-    lines.append("| Source | unreliable, scaled | unreliable, verbatim | median T² pair | median T² reliability |")
+    lines.append("| Source | unreliable, hotelling | unreliable, verbatim | median T² pair (BREC's, no factor q) | median T² reliability |")
     lines.append("|---|---|---|---|---|")
     for source in st.SOURCES:
         cases = [r["decisions"][str(R)] for (p, s, src), r in runs.items() if src == source]
         if not cases:
             continue
-        lines.append(f"| {LABEL[source]} | {sum(not c['scaled']['reliable'] for c in cases)} | "
+        lines.append(f"| {LABEL[source]} | {sum(not decision(c, 'hotelling')['reliable'] for c in cases)} | "
                      f"{sum(not c['verbatim']['reliable'] for c in cases)} | "
                      f"{median(c['scaled']['T2_pair'] for c in cases):.3g} | "
                      f"{median(c['scaled']['T2_reliability'] for c in cases):.3g} |")
