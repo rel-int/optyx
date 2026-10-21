@@ -10,5 +10,5 @@ sources coherent-w1, coherent-w100, coherent-inf and thermal-inf, budgets 1e3 to
 - [x] `single_tick.py`: the readout, the samplers, the copies, BREC's decisions, the exact anchors
 - [x] `tick_app.py`, `launch_tick.py`, `report_tick.py`: the Modal jobs, the launcher, the tables
 - [x] validation on small graphs (on a CPU container, the workspace's GPUs being taken): invariance under relabelling, sampled against exact, false positives, power, timings
-- [WIP] @session_01FqeJsXRvgZoRe2x8CLkyG8-2026-10-21 08:25 the run on the subset and its tables under `results/`
-- [ ] the wiki page `forward-pass-test.md` updated with the pilot's results
+- [x] the run on the subset and its tables under `results/`
+- [WIP] @session_01FqeJsXRvgZoRe2x8CLkyG8-2026-10-21 12:10 the wiki page `forward-pass-test.md` updated with the pilot's results
