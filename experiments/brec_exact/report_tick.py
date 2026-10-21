@@ -15,6 +15,7 @@ from statistics import median
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import brecphot as bp  # noqa: E402
 import single_tick as st  # noqa: E402
 from launch import SEEDS, pairs_of  # noqa: E402
 from report import CLASSES, SHORT  # noqa: E402
@@ -37,10 +38,12 @@ def fetch():
     pairs = list(pairs_of(None))
     names = [f"{s}.json" for s in st.SOURCES] + ["anchors.json"]
     results = {}
-    for start in range(0, len(pairs), 10):
-        blob = read_many.remote(EXPERIMENT, pairs[start:start + 10], names)
+    # one pair per call keeps the result inline: a larger one goes through
+    # Modal's blob store, which the session's proxy does not reach
+    for i, pair in enumerate(pairs):
+        blob = read_many.remote(EXPERIMENT, [pair], names)
         results.update(json.loads(gzip.decompress(base64.b64decode(blob))))
-        print(f"{len(results)} files after {start + 10} pairs", flush=True)
+        print(f"{len(results)} files after {i + 1} pairs", flush=True)
     os.makedirs(OUT, exist_ok=True)
     with gzip.open(f"{OUT}/raw_tick{SUFFIX}.json.gz", "wt") as f:
         json.dump(results, f)
