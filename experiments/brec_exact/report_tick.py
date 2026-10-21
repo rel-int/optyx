@@ -54,6 +54,29 @@ def category_of(pair):
     return pair.rsplit("_", 1)[0]
 
 
+CELLS = 4
+
+
+def permutation_pvalue(X, Y, splits=999, seed=0):
+    """The studentised distance sum_j (mean X_j - mean Y_j)^2 / s_j^2 between
+    the two groups of copies, s_j^2 the pooled within-group variance, against
+    its values over random reassignments of the 2q copies."""
+    rng = np.random.default_rng(seed)
+    allc = np.concatenate([X, Y])
+    q = X.shape[0]
+    masks = np.zeros((splits + 1, 2 * q))
+    masks[0, :q] = 1
+    for r in range(1, splits + 1):
+        masks[r, rng.choice(2 * q, q, replace=False)] = 1
+    a, b = masks / q, (1 - masks) / q
+    mean_a, mean_b = a @ allc, b @ allc
+    sq = allc * allc
+    within = (np.maximum(a @ sq - mean_a ** 2, 0) + np.maximum(b @ sq - mean_b ** 2, 0)) / 2
+    scale = np.mean(allc ** 2, axis=0, keepdims=True)
+    d = np.sum((mean_a - mean_b) ** 2 / (within + 1e-12 * scale + 1e-300), axis=1)
+    return float((1 + np.sum(d[1:] >= d[0])) / (splits + 1))
+
+
 def exact_orders():
     """The exact separation order of every pair and source of the pilot's
     sorted profiles, read off results/tables_pilot.md."""
@@ -86,10 +109,15 @@ def tables():
     budgets = sorted({int(R) for r in runs.values() for R in r["decisions"]})
     lines = []
 
-    def decision(d, rule):
-        """BREC's rules as stored, and 'hotelling': the scaled statistic with
-        the factor q = 32 that BREC's code leaves out, so that 72.34 is the
-        5% point of Hotelling's T^2 it is named after."""
+    def decision(d, rule, key=None):
+        """BREC's rules as stored; 'hotelling': the scaled statistic with the
+        factor q = 32 that BREC's code leaves out, so that 72.34 is the 5%
+        point of Hotelling's T^2 it is named after; 'permutation': the
+        studentised distance between the copy means of G and H against its
+        distribution over 999 reassignments of the 64 copies, at level
+        0.05 / 4 over the four cells, from the stored embeddings."""
+        if rule == "permutation":
+            return permutation_rules.setdefault(key, permutation_decision(*key))
         if rule != "hotelling":
             return d[rule]
         q = bp.NUM_RELABEL
@@ -97,11 +125,21 @@ def tables():
         separated, reliable = bp.brec_decision(t2, t2r)
         return {"separated": separated, "reliable": reliable}
 
+    permutation_rules = {}
+
+    def permutation_decision(pair, seed, source, R):
+        r = runs[(pair, seed, source)]
+        q = bp.NUM_RELABEL
+        E = lambda tags: np.array([r["embeddings"][t][str(R)] for t in tags])  # noqa: E731
+        X, Y, Z = E([f"G{k}" for k in range(q)]), E([f"H{k}" for k in range(q)]), E([f"G{k}" for k in range(q, 2 * q)])
+        return {"separated": permutation_pvalue(X, Y) <= 0.05 / CELLS,
+                "reliable": permutation_pvalue(X, Z) > 0.05 / CELLS}
+
     def separated(pair, source, R, rule):
-        return any(decision(runs[(pair, s, source)]["decisions"][str(R)], rule)["separated"]
+        return any(decision(runs[(pair, s, source)]["decisions"][str(R)], rule, (pair, s, source, R))["separated"]
                    for s in SEEDS if (pair, s, source) in runs)
 
-    for rule in ("hotelling", "scaled", "verbatim"):
+    for rule in ("permutation", "hotelling", "scaled", "verbatim"):
         lines.append(f"## Pairs separated by BREC's test, rule {rule}, any of four cells\n")
         lines.append("| Source | " + " | ".join(f"R = {R:.0e}" for R in budgets) + " | profiles, exact |")
         lines.append("|---|" + "---|" * (len(budgets) + 1))
@@ -114,11 +152,11 @@ def tables():
             for _ in budgets) + f" | {len(pairs)} |")
         lines.append("")
     R = budgets[-1]
-    lines.append(f"## Pairs separated per class at R = {R:.0e}, scaled rule, any cell\n")
+    lines.append(f"## Pairs separated per class at R = {R:.0e}, permutation rule, any cell\n")
     lines.append("| Source | " + " | ".join(SHORT[c] for c in CLASSES) + " | Total |")
     lines.append("|---|" + "---|" * (len(CLASSES) + 1))
     for source in st.SOURCES:
-        row = [sum(separated(p, source, R, "scaled") for p in pairs if category_of(p) == c) for c in CLASSES]
+        row = [sum(separated(p, source, R, "permutation") for p in pairs if category_of(p) == c) for c in CLASSES]
         lines.append(f"| {LABEL[source]} | " + " | ".join(map(str, row)) + f" | {sum(row)} |")
     for column, name in (("coherent", "profiles, coherent, exact"), ("thermal", "profiles, thermal, exact")):
         row = [sum(orders.get((p, column), (None,))[0] is not None for p in pairs if category_of(p) == c)
@@ -127,13 +165,13 @@ def tables():
     lines.append("| pairs | " + " | ".join(str(sum(category_of(p) == c for p in pairs)) for c in CLASSES)
                  + f" | {len(pairs)} |")
     lines.append("")
-    lines.append(f"## Agreement with the exact profiles at R = {R:.0e}, scaled rule\n")
+    lines.append(f"## Agreement with the exact profiles at R = {R:.0e}, permutation rule\n")
     lines.append("| Source | both | test only | profiles only | neither |")
     lines.append("|---|---|---|---|---|")
     for source in st.SOURCES:
         both = test_only = prof_only = neither = 0
         for p in pairs:
-            t = separated(p, source, R, "scaled")
+            t = separated(p, source, R, "permutation")
             e = orders.get((p, PROFILE_COLUMN[source]), (None,))[0] is not None
             both += t and e
             test_only += t and not e
@@ -142,13 +180,14 @@ def tables():
         lines.append(f"| {LABEL[source]} | {both} | {test_only} | {prof_only} | {neither} |")
     lines.append("")
     lines.append("## Reliability failures (pair-cell cases of 196) and median T² at the largest budget\n")
-    lines.append("| Source | unreliable, hotelling | unreliable, verbatim | median T² pair (BREC's, no factor q) | median T² reliability |")
-    lines.append("|---|---|---|---|---|")
+    lines.append("| Source | unreliable, hotelling | unreliable, permutation | unreliable, verbatim | median T² pair (BREC's, no factor q) | median T² reliability |")
+    lines.append("|---|---|---|---|---|---|")
     for source in st.SOURCES:
         cases = [r["decisions"][str(R)] for (p, s, src), r in runs.items() if src == source]
         if not cases:
             continue
         lines.append(f"| {LABEL[source]} | {sum(not decision(c, 'hotelling')['reliable'] for c in cases)} | "
+                     f"{sum(not permutation_decision(p, s, src, R)['reliable'] for (p, s, src) in runs if src == source)} | "
                      f"{sum(not c['verbatim']['reliable'] for c in cases)} | "
                      f"{median(c['scaled']['T2_pair'] for c in cases):.3g} | "
                      f"{median(c['scaled']['T2_reliability'] for c in cases):.3g} |")
@@ -159,7 +198,7 @@ def tables():
     for source in st.SOURCES:
         counts = np.zeros(len(st.feature_names()), dtype=int)
         for p in pairs:
-            if not separated(p, source, R, "scaled"):
+            if not separated(p, source, R, "permutation"):
                 continue
             best = max((np.array(runs[(p, s, source)]["decisions"][str(R)]["gap_over_noise"])
                         for s in SEEDS if (p, s, source) in runs), key=np.max)
@@ -181,14 +220,14 @@ def tables():
             oc, ot = orders.get((p, "coherent"), (None,))[0], orders.get((p, "thermal"), (None,))[0]
             lines.append(f"| {p} | {n} | " + " | ".join(cells) + f" | {oc} / {ot} |")
         lines.append("")
-    lines.append("## Per pair: smallest budget that separates, scaled rule, best cell\n")
+    lines.append("## Per pair: smallest budget that separates, permutation rule, any cell\n")
     lines.append("| Pair | n | slots | " + " | ".join(LABEL[s] for s in st.SOURCES) + " | profile order coherent / thermal |")
     lines.append("|---|---|---|" + "---|" * (len(st.SOURCES) + 1))
     for p in pairs:
         n = slots = ""
         cells = []
         for source in st.SOURCES:
-            first = next((R for R in budgets if separated(p, source, R, "scaled")), None)
+            first = next((R for R in budgets if separated(p, source, R, "permutation")), None)
             cells.append("-" if first is None else f"{first:.0e}")
             r = next((runs[(p, s, source)] for s in SEEDS if (p, s, source) in runs), None)
             if r:
