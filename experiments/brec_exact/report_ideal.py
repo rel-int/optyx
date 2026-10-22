@@ -107,6 +107,20 @@ def main():
     for model, label in (("coherent", "coherent light, w = 100"), *NETWORKS.items()):
         cells = [sum(1 for _, p in pairs if (model, p) in counts and counts[(model, p)] <= b) for b in budgets]
         lines.append(f"| {label} | " + " | ".join(map(str, cells)) + " |")
+    hot_path = f"{OUT}/raw_gnn_hotelling.json"
+    if os.path.exists(hot_path):
+        hot = json.load(open(hot_path))
+        lines.append("\n## BREC's test on the exact profiles of the linear networks (seed 100), verbatim / scaled to the rounding noise\n")
+        lines.append("| Network | " + " | ".join(SHORT[c] for c in CLASSES) + " | Total |")
+        lines.append("|---|" + "---|" * (len(CLASSES) + 1))
+        for model, label in NETWORKS.items():
+            verb = {p for (c, p) in pairs if isinstance(hot.get(f"gnn-compare-v4/{p}/s100/{model}-hotelling-exact.json"), dict)
+                    and any(v["separated_verbatim"] for v in hot[f"gnn-compare-v4/{p}/s100/{model}-hotelling-exact.json"]["orders"].values())}
+            scal = {p for (c, p) in pairs if isinstance(hot.get(f"gnn-compare-v4/{p}/s100/{model}-hotelling-exact.json"), dict)
+                    and any(v["separated_scaled"] for v in hot[f"gnn-compare-v4/{p}/s100/{model}-hotelling-exact.json"]["orders"].values())}
+            have = sum(1 for (c, p) in pairs if isinstance(hot.get(f"gnn-compare-v4/{p}/s100/{model}-hotelling-exact.json"), dict))
+            cells = [f"{sum(1 for c, p in pairs if c == cl and p in verb)} / {sum(1 for c, p in pairs if c == cl and p in scal)}" for cl in CLASSES]
+            lines.append(f"| {label} ({have} pairs) | " + " | ".join(cells) + f" | {len(verb)} / {len(scal)} |")
     if missing:
         lines.append(f"\nMissing ideal files: {len(missing)} pair-models: {sorted(set(missing))[:20]}")
     open(f"{OUT}/tables_ideal.md", "w").write("\n".join(lines) + "\n")

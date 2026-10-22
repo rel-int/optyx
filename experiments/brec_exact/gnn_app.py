@@ -406,3 +406,48 @@ def validate_entry():
     import brecphot as bp
     data = bp.load_brec(BREC_RAW)
     print(validate.remote(data["4-vertex_condition"][0][0]))
+
+
+@app.function(image=image, cpu=4, memory=32768, volumes={"/vol": vol},
+              timeout=3600, max_containers=50, retries=1)
+def gnn_hotelling_job(spec):
+    """BREC's test on the exact profiles of a linear network, as `full_test`
+    does for the photonic sources: the profiles of orders 1..N, each divided
+    by the N-th power of the mean order-1 rate of G (the unit that w^N is
+    for photons), concatenated, projected by the pair's random matrix, and
+    the projected gap squared over the regularisation, verbatim and scaled
+    to the pilot's rounding noise."""
+    import numpy as np
+    import brecphot as bp
+    import gnn_bench as gb
+    folder = f"/vol/{spec.get('experiment', 'gnn-compare')}/{spec['pair']}/s{spec['seed']}"
+    stem = f"{folder}/{spec['model']}{spec.get('suffix', '')}"
+    path = f"{stem}-hotelling-exact.json"
+    if os.path.exists(path):
+        return json.load(open(path))
+    adj = {"G": bp.adjacency(spec["G"]), "H": bp.adjacency(spec["H"])}
+    nmax = spec["nmax"]
+    exact = {side: gb.exact_linear_profiles(spec["model"], adj[side], spec["seed"], nmax)
+             for side in ("G", "H")}
+    unit = float(exact["G"][1].mean())
+    rng = np.random.default_rng(sum(map(ord, spec["pair"])))
+    result = {"pair": spec["pair"], "seed": spec["seed"], "model": spec["model"], "nmax": nmax,
+              "n": adj["G"].shape[0], "unit": unit, "orders": {}}
+    for N in range(1, nmax + 1):
+        dim = sum(exact["G"][M].shape[0] for M in range(1, N + 1))
+        projection = rng.normal(size=(bp.OUTPUT_DIM, dim)) / np.sqrt(dim)
+        d_mean = bp.features({M: exact["G"][M] for M in range(1, N + 1)}, unit, projection) \
+            - bp.features({M: exact["H"][M] for M in range(1, N + 1)}, unit, projection)
+        norm2 = float(d_mean @ d_mean)
+        scale = max(exact["G"][N].max(), exact["H"][N].max())
+        result["orders"][str(N)] = {
+            "T2_verbatim": norm2 / bp.EPSILON_MATRIX,
+            "T2_scaled": norm2 / spec["noise"][str(N)],
+            "separated_verbatim": bool(norm2 / bp.EPSILON_MATRIX > bp.THRESHOLD),
+            "separated_scaled": bool(norm2 / spec["noise"][str(N)] > bp.THRESHOLD),
+            "projected_gap": float(np.sqrt(norm2)),
+            "max_rel_diff": float(np.max(np.abs(exact["G"][N] - exact["H"][N])) / scale)}
+    os.makedirs(folder, exist_ok=True)
+    json.dump(result, open(path, "w"))
+    vol.commit()
+    return result

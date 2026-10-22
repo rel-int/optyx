@@ -59,3 +59,10 @@ A network only: []
 | coherent light, w = 100 | 242 | 254 | 284 | 324 |
 | GNN, noise every step, linear | 248 | 273 | 292 | 295 |
 | GNN, noise at init, linear | 247 | 267 | 285 | 288 |
+
+## BREC's test on the exact profiles of the linear networks (seed 100), verbatim / scaled to the rounding noise
+
+| Network | Basic | Regular | Str. regular | Extension | CFI | 4-vertex | Dist. regular | Total |
+|---|---|---|---|---|---|---|---|---|
+| GNN, noise every step, linear (400 pairs) | 60 / 60 | 50 / 50 | 33 / 50 | 100 / 100 | 3 / 100 | 0 / 20 | 1 / 20 | 247 / 400 |
+| GNN, noise at init, linear (400 pairs) | 60 / 60 | 50 / 50 | 33 / 50 | 100 / 100 | 3 / 62 | 0 / 20 | 1 / 20 | 247 / 362 |

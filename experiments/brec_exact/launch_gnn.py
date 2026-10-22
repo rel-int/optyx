@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import brecphot as bp  # noqa: E402
 from gnn_app import BREC_RAW, BUDGETS, HOTELLING_BUDGET, SYNTHETIC_BUDGETS  # noqa: E402
 from launch import pairs_of  # noqa: E402
+from launch_full_test import pilot_noise  # noqa: E402
 
 MODELS = ("step-lin", "step-tanh", "init-lin", "init-tanh", "coherent-100")
 FP_PAIRS = ("Basic_0", "Extension_0", "Strongly_regular_0", "CFI_12",
@@ -71,6 +72,8 @@ def main():
     synthetic = modal.Function.from_name("brec-gnn-v5", "synthetic_job")
     retest = modal.Function.from_name("brec-gnn-v5", "retest_job")
     fp = modal.Function.from_name("brec-gnn-v5", "false_positive_job")
+    hotelling_exact = modal.Function.from_name("brec-gnn-v5", "gnn_hotelling_job")
+    noise = pilot_noise() if args.command == "hotelling-exact" else None
     count = 0
     for pair, (g, h) in pairs.items():
         for seed in seeds:
@@ -87,6 +90,12 @@ def main():
                         spec["runs"] = args.runs
                         spec["budgets"] = list(SYNTHETIC_BUDGETS)
                         synthetic.spawn(spec)
+                    else:
+                        continue
+                elif args.command == "hotelling-exact":
+                    if spec["model"] in ("step-lin", "init-lin"):
+                        spec["noise"] = noise
+                        hotelling_exact.spawn(spec)
                     else:
                         continue
                 elif args.command == "ideal":
