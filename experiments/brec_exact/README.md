@@ -29,6 +29,17 @@ copies, and the exact rule of the draft.
   sampler at any brightness; exact moments of the linear models by Wick's
   theorem; the paper's batch-permutation protocol with profile and type
   features; BREC's test on sampled copies; and the GPU jobs and tables.
+- `photon_noise.py`, `test_photon_noise.py`, `noise_app.py`, `launch_noise.py`,
+  `report_noise.py`: the exact noise of every source at any brightness. The
+  variance of an order-N coincidence is a sum of normally ordered moments of
+  up to 2N photons on the multiset of detectors, each a sum over set
+  partitions and permutations of products of Gram sums over the slots; the
+  enumeration is done once per multiplicity pattern (4140 partitions times
+  40320 permutations for eight photons, 118,053 distinct products) and
+  cached in `noise_tables/`, which the GPU job combines with the source's
+  coefficients: single photons, Fock states, coherent and thermal light
+  share the tables. Checked against brute-force sums of permanents up to
+  eight photons and against the coherent Monte Carlo.
 - `write_page.py`: fills the wiki page from the aggregated results.
 
 `results/` holds the per-pair result files of each run, gzipped, and the
