@@ -50,7 +50,10 @@ BREC's test from the profiles, `tables_full.md`), `raw_gnn_v4_subset_partial.jso
 subset pairs, stopped before the six Distance_regular pairs,
 `tables_gnn_v4_subset_partial.md`) and `raw_ideal_full.json.gz` (the exact
 Wick profiles and ideal sample counts of the two linear networks on all 400
-pairs, `tables_ideal.md`). `report.py tables`, `report_full.py tables`,
+pairs, `tables_ideal.md`), `raw_gnn_hotelling.json.gz` (BREC's test on those
+profiles) and `raw_noise.json.gz` (the exact noise of every source at eleven
+brightnesses and three Fock states on all 400 pairs, four cells, order 4 up
+to 63 vertices, 3 up to 110 and 2 above, `tables_noise.md`; 60 GPU-hours). `report.py tables`, `report_full.py tables`,
 `report_gnn.py tables` and `report_ideal.py` regenerate the tables from
 decompressed copies without Modal. The profiles and noise moments behind
 them, tens of gigabytes, stay on the volume. `diag_protocol.py` and

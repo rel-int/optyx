@@ -29,7 +29,8 @@ def fetch():
     pairs = [f"{c}_{i}" for c in data for i in range(len(data[c]))]
     chunks = [pairs[i:i + 10] for i in range(0, len(pairs), 10)]
     out = {}
-    for blob in read_many.starmap([(EXPERIMENT, ch, ["g0.9.json"]) for ch in chunks]):
+    names = ["g0.9-N4.json", "g0.9-N3.json", "g0.9-N2.json"]
+    for blob in read_many.starmap([(EXPERIMENT, ch, names) for ch in chunks]):
         out.update(json.loads(gzip.decompress(base64.b64decode(blob))))
     json.dump(out, open(f"{OUT}/raw_noise.json", "w"))
     print(len(out), "files")
@@ -39,10 +40,15 @@ def best_counts(raw):
     """(pair) -> source -> w -> ideal count at the top order, best cell."""
     counts, nmax = {}, {}
     for key, r in raw.items():
+        if isinstance(r, dict):
+            pair = key.split("/")[1]
+            nmax[pair] = max(nmax.get(pair, 0), r["nmax"])
+    for key, r in raw.items():
         if not isinstance(r, dict):
             continue
         pair = key.split("/")[1]
-        nmax[pair] = r["nmax"]
+        if r["nmax"] != nmax[pair]:
+            continue
         for source, by_w in r["ideal"].items():
             for w, by_order in by_w.items():
                 c = by_order[str(r["nmax"])]
@@ -89,6 +95,38 @@ def tables(figdir=None):
                  if np.isfinite(counts[p]["photons p=1"].get(w, np.inf)) and np.isfinite(counts[p]["coherent"].get(w, np.inf))]
             cells.append(f"{median(r):.2f} ({len(r)})" if r else "-")
         lines.append(f"| {SHORT[c]} | " + " | ".join(cells) + " |")
+    # sanity: the exact counts at w = 0.05 against the Poisson ones of the full run, and against its coherent Monte Carlo
+    full_path = f"{OUT}/raw_full.json"
+    if os.path.exists(full_path):
+        full = json.load(open(full_path))
+        lines.append("\n## Exact noise against the full run at w = 0.05: ratio of counts, median (10th-90th percentile) over pairs, best cells\n")
+        lines.append("| Comparison | ratio |")
+        lines.append("|---|---|")
+        order1 = {}
+        for key, r in raw.items():
+            if isinstance(r, dict) and r["nmax"] == nmax[key.split("/")[1]]:
+                for source in ("photons p=1", "photons p=0", "thermal"):
+                    d = order1.setdefault(key.split("/")[1], {})
+                    d[source] = min(d.get(source, np.inf), r["ideal"][source]["0.05"]["1"])
+        for source, label in (("photons p=1", "photons p=1, exact / Poisson, order 1"), ("photons p=0", "photons p=0, exact / Poisson, order 1"),
+                              ("thermal", "thermal, exact / Poisson, order 1"), ("coherent", "coherent, exact / Monte Carlo, all orders")):
+            ratios = []
+            for p in pairs:
+                runs = [full.get(f"brec-full-coherent/{p}/s{s}/g0.9.json") for s in SEEDS]
+                runs = [r for r in runs if isinstance(r, dict) and r["nmax"] == nmax[p]]
+                if not runs:
+                    continue
+                if source == "coherent":
+                    if not np.isfinite(counts[p][source].get(0.05, np.inf)):
+                        continue
+                    ref = min(r["coherent_samples_by_brightness"]["0.05"][str(r["nmax"])] for r in runs)
+                    ratios.append(counts[p][source][0.05] / ref)
+                else:
+                    ref = min(r["orders"]["1"][source]["ideal_samples_poisson"] for r in runs)
+                    if np.isfinite(ref) and np.isfinite(order1.get(p, {}).get(source, np.inf)) and ref < 1e25:
+                        ratios.append(order1[p][source] / ref)
+            if ratios:
+                lines.append(f"| {label} | {median(ratios):.3f} ({np.percentile(ratios, 10):.3f}-{np.percentile(ratios, 90):.3f}), {len(ratios)} pairs |")
     seconds = [r["seconds"] for r in raw.values() if isinstance(r, dict)]
     lines.append(f"\nGPU seconds per pair and cell: median {median(seconds):.0f}, max {max(seconds):.0f}, total hours {sum(seconds) / 3600:.1f}")
     open(f"{OUT}/tables_noise.md", "w").write("\n".join(lines) + "\n")
@@ -119,11 +157,13 @@ def figure(counts, pairs, figdir):
         for source, (label, color, ls, marker) in styles.items():
             ws = sorted(BRIGHTNESSES + (CLASSICAL_BRIGHTNESSES if source in ("coherent", "thermal") else ()))
             ys = [med(ps, source, w)[0] for w in ws]
-            ax.plot(ws, ys, ls, color=color, marker=marker, ms=3, lw=1.1, label=label)
+            if not np.all(np.isnan(ys)):
+                ax.plot(ws, ys, ls, color=color, marker=marker, ms=3, lw=1.1, label=label)
         fock_w = [float(K) for K in FOCK]
-        ys = [med(ps, f"fock {K}", float(K))[0] for K in FOCK]
-        ax.plot([1.0] + fock_w, [med(ps, "photons p=1", 1.0)[0]] + ys, "-", color="C0", lw=1.1,
-                marker="o", ms=3.5, markerfacecolor="white", label="Fock $|w\\rangle$")
+        ys = [med(ps, "photons p=1", 1.0)[0]] + [med(ps, f"fock {K}", float(K))[0] for K in FOCK]
+        if not np.all(np.isnan(ys)):
+            ax.plot([1.0] + fock_w, ys, "-", color="C0", lw=1.1,
+                    marker="o", ms=3.5, markerfacecolor="white", label="Fock $|w\\rangle$")
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_title(f"{title} ({len(ps)})", fontsize=7.5)
@@ -140,6 +180,8 @@ def figure(counts, pairs, figdir):
             r = [counts[p]["coherent"][w] / counts[p]["photons p=1"][w] for p in ps
                  if np.isfinite(counts[p]["photons p=1"].get(w, np.inf)) and np.isfinite(counts[p]["coherent"].get(w, np.inf))]
             ratio.append(median(r) if r else np.nan)
+        if np.all(np.isnan(ratio)):
+            continue
         ax.plot(ws, ratio, marker="o", ms=3, lw=1.1, label=title.split(" (")[0])
         fr = []
         for K in FOCK:

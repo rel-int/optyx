@@ -92,7 +92,15 @@ def main():
     assert np.allclose(m["fock 1"], m["photons p=1"], rtol=1e-9)
     assert np.allclose(m["fock 200"], m["coherent"], rtol=0.05)
     print("Fock weights: |1> = photons, |200> = coherent to 5%: ok")
-    # 6. variances are nonnegative and the rates match on a real network
+    # 6. moments_all agrees with moments on every pattern
+    for N in range(1, 5):
+        allm = pn.moments_all(Wt, N, lam, device, chunk=3)
+        for d, by_source in allm.items():
+            ref = pn.moments(Wt, N, d, lam, device)
+            for s in ref:
+                assert np.allclose(by_source[s], ref[s], rtol=1e-9, atol=1e-14), (N, d, s)
+    print("moments_all = moments on every pattern up to N = 4: ok")
+    # 7. variances are nonnegative and the rates match on a real network
     adj = bp.adjacency(bp.load_brec("/home/user/graphpku/brec/customize/Data/raw")["Basic"][0][0]) \
         if False else None
     print("all checks passed")

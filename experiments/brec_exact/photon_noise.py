@@ -242,3 +242,74 @@ def ideal_counts(rv_g, rv_h, nmax, beta=0.05):
             d2 += float(np.sum(diff[mask] ** 2 / noise[mask]))
             out[s][N] = 4 * np.log(1 / beta) / d2 if d2 > 0 else float("inf")
     return out
+
+
+def moments_all(W, N, lam_by_source, device, chunk=4000, key_batch=1024):
+    """All multiplicity patterns of order N at once: dict doubled -> source
+    -> array (M_N,).  The Gram sums of every pattern of every table are
+    computed once per chunk of sets, from the gathered rows of W and their
+    conjugates, and the products over the keys of every table follow."""
+    import torch
+    n = W.shape[0]
+    doubles = [d for size in range(0, N + 1) for d in combinations(range(N), size)]
+    loaded = {d: tables(N, d) for d in doubles}
+    union = {}
+    for d, (patterns, keys, weights) in loaded.items():
+        for pat in patterns:
+            union.setdefault(pat, len(union))
+    remapped = {}
+    for d, (patterns, keys, weights) in loaded.items():
+        local = np.array([union[pat] for pat in patterns] + [len(union)])
+        ids = np.where(keys >= 0, keys, len(patterns))
+        remapped[d] = (torch.as_tensor(local[ids], device=device, dtype=torch.long),
+                       {s: torch.as_tensor(c, device=device, dtype=torch.complex128)
+                        for s, c in coefficients(weights, lam_by_source, N + len(d)).items()})
+    patterns = sorted(union, key=union.get)
+    Wc = W.conj()
+    index = torch.as_tensor(np.array(list(combinations(range(n), N))).T, device=device)
+    M = index.shape[1]
+    out = {d: {s: np.zeros(M) for s in remapped[d][1]} for d in doubles}
+    for start in range(0, M, chunk):
+        idx = index[:, start:start + chunk]
+        size = idx.shape[1]
+        rows = [W[idx[j]] for j in range(N)]
+        rowsc = [Wc[idx[j]] for j in range(N)]
+        powered = {}
+
+        def power(j, p, q):
+            key = (j, p, q)
+            if key not in powered:
+                f = None
+                for _ in range(p):
+                    f = rows[j] if f is None else f * rows[j]
+                for _ in range(q):
+                    f = rowsc[j] if f is None else f * rowsc[j]
+                powered[key] = f
+            return powered[key]
+
+        values = torch.empty((len(patterns) + 1, size), dtype=torch.complex128, device=device)
+        for i, (p, q) in enumerate(patterns):
+            total = None
+            for j in range(N):
+                if p[j] == 0 and q[j] == 0:
+                    continue
+                f = power(j, p[j], q[j])
+                total = f if total is None else total * f
+            values[i] = total.sum(dim=1)
+            if len(powered) > 24:
+                powered.clear()
+        values[len(patterns)] = 1.0
+        for d in doubles:
+            ids, coef = remapped[d]
+            acc = {s: torch.zeros(size, dtype=torch.complex128, device=device) for s in coef}
+            for kstart in range(0, ids.shape[0], key_batch):
+                batch = ids[kstart:kstart + key_batch]
+                prod = values[batch[:, 0]]
+                for col in range(1, batch.shape[1]):
+                    prod = prod * values[batch[:, col]]
+                for s in coef:
+                    acc[s] += coef[s][kstart:kstart + key_batch] @ prod
+            for s in coef:
+                out[d][s][start:start + size] = acc[s].real.cpu().numpy()
+        del rows, rowsc, powered, values
+    return out

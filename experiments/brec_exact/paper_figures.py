@@ -56,13 +56,33 @@ def cell_counts():
 
 
 counts = cell_counts()
+# the photonic curves from the exact-noise run (all sources, any brightness, order 4 up to 63 vertices)
+noise = json.load(open(f"{OUT}/raw_noise.json"))
+noise_nmax = {}
+for key, r in noise.items():
+    if isinstance(r, dict):
+        noise_nmax[r["pair"]] = max(noise_nmax.get(r["pair"], 0), r["nmax"])
+for key, r in noise.items():
+    if not isinstance(r, dict) or r["nmax"] != noise_nmax[r["pair"]]:
+        continue
+    for source, by_w in r["ideal"].items():
+        for w, by_order in by_w.items():
+            k = (f"{source}@{float(w):g}", r["pair"])
+            counts[k] = min(counts.get(k, np.inf), by_order[str(r["nmax"])])
+BASE = {"coherent": "coherent-100.0", "photons p=1": "photons p=1", "photons p=0": "photons p=0", "thermal": "thermal"}
+for (model, pair), v in list(counts.items()):
+    if "@" in model:
+        source = model.split("@")[0]
+        base = BASE.get(source, "photons p=1")
+        if not np.isfinite(counts.get((base, pair), np.inf)):
+            counts[(model, pair)] = np.inf   # the exact rule decides what is separated
 grid = np.logspace(2, 22, 401)
-STYLE = {"coherent-100.0": ("coherent light, $w=100$", "C2", "-"),
-         "coherent-1.0": ("coherent light, $w=1$", "C2", "--"),
-         "coherent-0.05": ("coherent light, $w=0.05$", "C2", ":"),
-         "photons p=1": ("photons $p=1$, $w=0.05$", "C0", "-"),
-         "photons p=0": ("photons $p=0$, $w=0.05$", "C1", "-"),
-         "thermal": ("thermal light, $w=0.05$", "C3", "-"),
+STYLE = {"coherent@100": ("coherent light, $w=100$", "C2", "-"),
+         "coherent@1": ("coherent light, $w=1$", "C2", "--"),
+         "photons p=1@1": ("photons $p=1$, $w=1$", "C0", "-"),
+         "photons p=1@0.05": ("photons $p=1$, $w=0.05$", "C0", ":"),
+         "photons p=0@1": ("photons $p=0$, $w=1$", "C1", "-"),
+         "thermal@100": ("thermal light, $w=100$", "C3", "-"),
          "step-lin": ("GNN, noise every step", "C5", "-"),
          "init-lin": ("GNN, noise at init", "C4", "-")}
 
@@ -117,6 +137,11 @@ for model in MODELS:
     color, ls = COL[model]
     ax.plot(BUDGETS, ys, ls, color=color, marker="o", ms=3, lw=1.2, label=LABEL[model])
 exact_sub = {m: sum(1 for p in subset if np.isfinite(counts[(m, p)])) for m in ("coherent-100.0", "step-lin", "init-lin", "photons p=1")}
+for model in list(STYLE) + ["coherent@0.05", "photons p=0@0.05", "thermal@0.05", "fock 10@10"]:
+    vals = np.array([counts.get((model, p), np.inf) for _, p in pairs])
+    print(f"  {model:18s}", {f"{b:.0e}": int((vals <= b).sum()) for b in (1e6, 1e9, 3.6e12, 8.64e13, 3.16e16)},
+          "median per class:", {SHORT[c]: f"{median([counts[(model, p)] for cc, p in pairs if cc == c and np.isfinite(counts.get((model, p), np.inf))]):.1e}"
+                                for c in CLASSES if any(cc == c and np.isfinite(counts.get((model, p), np.inf)) for cc, p in pairs)})
 print("exact rule on the subset:", exact_sub)
 ax.axhline(exact_sub["coherent-100.0"], color="C2", lw=0.6, ls=(0, (1, 2)))
 ax.axhline(exact_sub["step-lin"], color="C5", lw=0.6, ls=(0, (1, 2)))

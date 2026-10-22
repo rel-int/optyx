@@ -12,7 +12,7 @@ import time
 
 import modal
 
-app = modal.App("brec-photon-noise")
+app = modal.App("brec-photon-noise-v2")
 vol = modal.Volume.from_name("photonic-brec-rates")
 HERE = os.path.dirname(os.path.abspath(__file__))
 image = (modal.Image.debian_slim(python_version="3.12")
@@ -42,9 +42,8 @@ def all_moments(W, nmax, lam, device):
     from itertools import combinations
     out = {}
     for N in range(1, nmax + 1):
-        for size in range(0, N + 1):
-            for doubled in combinations(range(N), size):
-                out[(N, doubled)] = pn.moments(W, N, doubled, lam, device)
+        for doubled, by_source in pn.moments_all(W, N, lam, device).items():
+            out[(N, doubled)] = by_source
     return out
 
 
@@ -80,7 +79,11 @@ def noise_job(spec):
     import coherent_gpu as cg
     import photon_noise as pn
     folder = f"/vol/{EXPERIMENT}/{spec['pair']}/s{spec['seed']}"
-    path = f"{folder}/g{spec['gamma']}.json"
+    path = f"{folder}/g{spec['gamma']}-N{spec['nmax']}.json"
+    try:
+        vol.reload()
+    except RuntimeError:
+        pass
     if os.path.exists(path):
         return json.load(open(path))
     device = "cuda"
