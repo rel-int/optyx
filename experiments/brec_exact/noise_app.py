@@ -36,13 +36,12 @@ def validate():
     return out.stdout + out.stderr
 
 
-def all_moments(W, nmax, lam, device):
+def all_moments(W, nmax, lam, device, chunk=4000, key_batch=1024):
     """moments[(N, doubled)] -> source -> array, for every pattern."""
     import photon_noise as pn
-    from itertools import combinations
     out = {}
     for N in range(1, nmax + 1):
-        for doubled, by_source in pn.moments_all(W, N, lam, device).items():
+        for doubled, by_source in pn.moments_all(W, N, lam, device, chunk, key_batch).items():
             out[(N, doubled)] = by_source
     return out
 
@@ -146,7 +145,8 @@ def kmode_job(spec):
     (K units per vertex and tick); `symmetric`, one unit in the symmetric
     combination of the K source modes; `single`, one unit in source mode 0.
     For every placement, every unit at every brightness of its grid, with
-    the ideal counts cumulated over the orders."""
+    the ideal counts cumulated over the orders.  `chunk` and `key_batch`
+    bound the GPU memory, which grows with the number of slots."""
     import numpy as np
     import torch
     import brecphot as bp
@@ -178,7 +178,7 @@ def kmode_job(spec):
         for name, Wp in placements.items():
             slots[name] = Wp.shape[1]
             Wt = cg.to_torch(Wp, device)
-            mom[(side, name)] = all_moments(Wt, nmax, lam, device)
+            mom[(side, name)] = all_moments(Wt, nmax, lam, device, spec.get("chunk", 4000), spec.get("key_batch", 1024))
             del Wt
             torch.cuda.empty_cache()
     result = {"pair": spec["pair"], "seed": spec["seed"], "gamma": spec["gamma"], "nmax": nmax, "local_modes": K,
