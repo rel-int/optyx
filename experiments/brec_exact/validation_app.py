@@ -31,6 +31,7 @@ RUNS = {"coherent": (0.05, 1.0, 100.0), "thermal": (0.05, 1.0, 100.0),
 SEED, GAMMA = 100, 0.9
 CHAINS, TICKS, BATCHES, BLOCK = 65536, 2048, 64, 64
 LAGS_SAMPLED, LAGS_EXACT, TRACKED = 32, 120, 6
+EXACT_TAU_ORDER = 3  # the two-time moments of order 4 need the tables of 8 distinct detectors
 
 
 def tracked_sets(F, count=TRACKED):
@@ -55,7 +56,7 @@ def level1_job(spec):
     exact = rc.rates_variances(device.W, nmax, source, w, "cuda")
     tracked = {N: tracked_sets(F) for N, (F, _) in exact.items()}
     covariances = {}
-    for N in exact:
+    for N in range(1, min(nmax, EXACT_TAU_ORDER) + 1):
         sets = [tuple(int(a) for a in rc.set_index(n, N)[:, i]) for i in tracked[N]]
         covariances[N] = rc.autocovariances(device.W, n, sets, spec["lags_exact"], source, w, "cuda")
     exact_time = time.time() - start
@@ -69,8 +70,9 @@ def level1_job(spec):
                   seconds=time.time() - start, orders={})
     for N, (F, var) in exact.items():
         s = rc.summary(F, var, sums[N], spec["block"])
-        s.update(tracked=tracked[N], autocov=covariances[N],
-                 tau_exact=rc.tau_exact(covariances[N], var[tracked[N]]))
+        s["tracked"] = tracked[N]
+        if N in covariances:
+            s.update(autocov=covariances[N], tau_exact=rc.tau_exact(covariances[N], var[tracked[N]]))
         record["orders"][str(N)] = {k: np.asarray(v).tolist() if not np.isscalar(v) else v
                                     for k, v in s.items()}
     name = f"{spec['pair']}_{spec['side']}_{source.replace(' ', '').replace('=', '')}_{w}"
