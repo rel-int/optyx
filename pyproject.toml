@@ -39,8 +39,12 @@ dependencies = [
   "pylatexenc >= 2.10",
 ]
 [project.optional-dependencies]
+jax = [
+    "jax",
+]
 test = [
     "black",
+    "jax",
     "coverage",
     "pyproject-flake8",
     "pylint",
