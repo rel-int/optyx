@@ -41,6 +41,13 @@ copies, and the exact rule of the draft.
   share the tables. Checked against brute-force sums of permanents up to
   eight photons and against the coherent Monte Carlo.
 - `write_page.py`: fills the wiki page from the aggregated results.
+- `recurrent.py`, `test_recurrent.py`, `validation_app.py`, `report_validation.py`:
+  Level 1 of the sampler validation. The device run tick by tick by its
+  recurrence (coherent and thermal light as Poisson counts of the fields,
+  distinguishable photons as particles), the exact autocovariance of
+  consecutive ticks as an order-2N rate on the rows of both ticks, and the
+  sampled means, variances and autocorrelation times of every N-set product
+  against `photon_noise`, with error bars from independent batches of chains.
 
 `results/` holds the per-pair result files of each run, gzipped, and the
 tables built from them: `raw.json.gz` (the pilot's relabelled copies and loss
@@ -51,7 +58,7 @@ subset pairs, stopped before the six Distance_regular pairs,
 `tables_gnn_v4_subset_partial.md`) and `raw_ideal_full.json.gz` (the exact
 Wick profiles and ideal sample counts of the two linear networks on all 400
 pairs, `tables_ideal.md`), `raw_gnn_hotelling.json.gz` (BREC's test on those
-profiles) and `raw_noise.json.gz` (the exact noise of every source at eleven
+profiles) and `raw_validation.json.gz` (Level 1 of the sampler validation: six small pairs, both graphs, coherent and thermal light at w = 0.05, 1, 100 and distinguishable photons at 0.05 and 1, 2.7e8 ticks each, `tables_validation.md`), `raw_noise.json.gz` (the exact noise of every source at eleven
 brightnesses and three Fock states on all 400 pairs, four cells, order 4 up
 to 63 vertices, 3 up to 110 and 2 above, `tables_noise.md`; 60 GPU-hours). `report.py tables`, `report_full.py tables`,
 `report_gnn.py tables` and `report_ideal.py` regenerate the tables from

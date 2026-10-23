@@ -67,6 +67,34 @@ def tables(records):
     return "\n".join(lines)
 
 
+def aggregate(records):
+    """Per source, brightness and order, over every counted set of every
+    pair and graph: the spread of the pulls and of the variance z-scores,
+    the median ratio, the fraction of |z| > 3 and the range of tau."""
+    cells = {}
+    for r in records.values():
+        for N, o in r["orders"].items():
+            F, var, mean, sample_var, var_se, tau = (np.array(o[k]) for k in (
+                "rate", "var", "mean", "sample_var", "var_se", "tau_blocks"))
+            counted = (F * o["T"] >= MIN_COUNTS) | (r["w"] >= 1) & (r["source"] != "photons p=0")
+            cell = cells.setdefault((r["source"], r["w"], int(N)), {k: [] for k in (
+                "pull", "z", "ratio", "tau", "tau_exact")})
+            cell["pull"] += list(((mean - F) / np.sqrt(var / o["T"]))[counted])
+            cell["z"] += list(((sample_var - var) / var_se)[counted])
+            cell["ratio"] += list((sample_var / var)[counted])
+            cell["tau"] += list(tau)
+            cell["tau_exact"] += o.get("tau_exact", [])
+    lines = ["| source | w | N | sets | pull sd | var ratio median | z sd | abs z > 3 | tau exact | tau sampled |",
+             "|---|---|---|---|---|---|---|---|---|---|"]
+    for (source, w, N), c in sorted(cells.items()):
+        pull, z, ratio = (np.array(c[k]) for k in ("pull", "z", "ratio"))
+        exact = f"{min(c['tau_exact']):.3f}-{max(c['tau_exact']):.3f}" if c["tau_exact"] else ""
+        lines.append(f"| {source} | {w:g} | {N} | {len(z)} | {pull.std():.2f} | {np.median(ratio):.4f} | "
+                     f"{z.std():.2f} | {np.mean(np.abs(z) > 3):.3f} | {exact} | "
+                     f"{min(c['tau']):.3f}-{max(c['tau']):.3f} |")
+    return "\n".join(lines)
+
+
 def worst(records):
     """Per source, the largest |z| of a variance and the ratio behind it."""
     out = {}
@@ -87,6 +115,8 @@ def worst(records):
 def main():
     path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "results", "raw_validation.json.gz")
     records = json.load(gzip.open(path, "rt"))
+    print(aggregate(records))
+    print()
     print(tables(records))
     print()
     for source, (z, ratio, pair, side, w, N) in worst(records).items():
