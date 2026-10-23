@@ -18,7 +18,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 image = (modal.Image.debian_slim(python_version="3.12")
          .pip_install("numpy", "scipy", "torch")
          .env({"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"})
-         .add_local_python_source("brecphot", "coherent_gpu", "photon_noise")
+         .add_local_python_source("brecphot", "coherent_gpu", "photon_noise", "real_noise")
          .add_local_dir(f"{HERE}/noise_tables", remote_path="/root/noise_tables")
          .add_local_file(f"{HERE}/test_photon_noise.py", remote_path="/root/test_photon_noise.py"))
 
@@ -212,3 +212,74 @@ def kmode_job(spec):
     json.dump(result, open(path, "w"))
     vol.commit()
     return result
+
+
+REAL_EXPERIMENT = "brec-real-noise"
+REAL_BRIGHTNESSES = BRIGHTNESSES + CLASSICAL_BRIGHTNESSES
+
+
+@app.function(image=image, gpu="H100", cpu=8, memory=65536, volumes={"/vol": vol},
+              timeout=7200, max_containers=10, retries=1)
+def real_job(spec):
+    """Phase-locked classical sources through the chip's path matrix, i.e.
+    the linear network driven by real noise: exact rates of every source,
+    variances of the uniform one from Monte Carlo samples of its
+    intensities, ideal counts at every brightness."""
+    import numpy as np
+    import torch
+    import brecphot as bp
+    import coherent_gpu as cg
+    import photon_noise as pn
+    import real_noise as rn
+    folder = f"/vol/{REAL_EXPERIMENT}/{spec['pair']}/s{spec['seed']}"
+    path = f"{folder}/g{spec['gamma']}-N{spec['nmax']}.json"
+    try:
+        vol.reload()
+    except RuntimeError:
+        pass
+    if os.path.exists(path):
+        return json.load(open(path))
+    device = "cuda"
+    t0 = time.time()
+    nmax, samples = spec["nmax"], spec["samples"]
+    rates, mc, pulls = {}, {}, {}
+    for side in ("G", "H"):
+        adj = bp.adjacency(spec[side])
+        W = bp.path_matrix(bp.network(adj, bp.cell(spec["seed"]), spec["gamma"]))
+        Wt = cg.to_torch(W, device)
+        rates[side] = {N: rn.exact_rates(Wt, N, rn.CUMULANTS, device) for N in range(1, nmax + 1)}
+        del Wt
+        mc[side], err = rn.mc_moments(W, nmax, "uniform", samples, device)
+        pulls[side] = {str(N): float(np.max(np.abs(mc[side][(N, ())] - rates[side][N]["uniform"]) / np.maximum(err[N], 1e-300)))
+                       for N in range(1, nmax + 1)}
+        torch.cuda.empty_cache()
+    result = {"pair": spec["pair"], "seed": spec["seed"], "gamma": spec["gamma"], "nmax": nmax, "samples": samples,
+              "n": bp.adjacency(spec["G"]).shape[0], "ideal": {"uniform": {}}, "gaps": {}, "max_pull": pulls}
+    for w in REAL_BRIGHTNESSES:
+        rv = {}
+        for side in ("G", "H"):
+            r = {N: rates[side][N]["uniform"] for N in range(1, nmax + 1)}
+            rv[side] = {N: ({"uniform": a}, {"uniform": v}) for N, (a, v) in rn.combine_real(r, mc[side], nmax, w).items()}
+        result["ideal"]["uniform"][str(w)] = {str(N): c for N, c in pn.ideal_counts(rv["G"], rv["H"], nmax)["uniform"].items()}
+    for source in rn.CUMULANTS:
+        result["gaps"][source] = {}
+        for N in range(1, nmax + 1):
+            fg, fh = np.sort(rates["G"][N][source]), np.sort(rates["H"][N][source])
+            result["gaps"][source][str(N)] = float(np.max(np.abs(fg - fh)) / max(fg.max(), fh.max()))
+    result["seconds"] = time.time() - t0
+    os.makedirs(folder, exist_ok=True)
+    json.dump(result, open(path, "w"))
+    vol.commit()
+    return result
+
+
+@app.local_entrypoint()
+def bench_real(cat: str = "Strongly_regular", i: int = 0, nmax: int = 4, seed: int = 100, samples: int = 1000000):
+    import sys
+    sys.path.insert(0, HERE)
+    import brecphot as bp
+    data = bp.load_brec("/home/user/graphpku/brec/customize/Data/raw")
+    g, h = data[cat][i]
+    r = real_job.remote({"pair": f"{cat}_{i}-bench", "seed": seed, "gamma": 0.9, "nmax": nmax, "samples": samples, "G": g, "H": h})
+    print(json.dumps({k: v for k, v in r.items() if k != "ideal"}, indent=1))
+    print("uniform", {w: f"{c[str(nmax)]:.2e}" for w, c in r["ideal"]["uniform"].items()})

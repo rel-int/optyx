@@ -244,15 +244,21 @@ def ideal_counts(rv_g, rv_h, nmax, beta=0.05):
     return out
 
 
-def moments_all(W, N, lam_by_source, device, chunk=4000, key_batch=1024):
+def moments_all(W, N, lam_by_source, device, chunk=4000, key_batch=1024,
+                tables_fn=None, coef_fn=None, doubles=None):
     """All multiplicity patterns of order N at once: dict doubled -> source
     -> array (M_N,).  The Gram sums of every pattern of every table are
     computed once per chunk of sets, from the gathered rows of W and their
-    conjugates, and the products over the keys of every table follow."""
+    conjugates, and the products over the keys of every table follow.
+    `tables_fn` and `coef_fn` default to the tables and coefficients of the
+    circular sources; `doubles` restricts the multiplicity patterns."""
     import torch
+    tables_fn = tables if tables_fn is None else tables_fn
+    coef_fn = coefficients if coef_fn is None else coef_fn
     n = W.shape[0]
-    doubles = [d for size in range(0, N + 1) for d in combinations(range(N), size)]
-    loaded = {d: tables(N, d) for d in doubles}
+    if doubles is None:
+        doubles = [d for size in range(0, N + 1) for d in combinations(range(N), size)]
+    loaded = {d: tables_fn(N, d) for d in doubles}
     union = {}
     for d, (patterns, keys, weights) in loaded.items():
         for pat in patterns:
@@ -263,7 +269,7 @@ def moments_all(W, N, lam_by_source, device, chunk=4000, key_batch=1024):
         ids = np.where(keys >= 0, keys, len(patterns))
         remapped[d] = (torch.as_tensor(local[ids], device=device, dtype=torch.long),
                        {s: torch.as_tensor(c, device=device, dtype=torch.complex128)
-                        for s, c in coefficients(weights, lam_by_source, N + len(d)).items()})
+                        for s, c in coef_fn(weights, lam_by_source, N + len(d)).items()})
     patterns = sorted(union, key=union.get)
     Wc = W.conj()
     index = torch.as_tensor(np.array(list(combinations(range(n), N))).T, device=device)
