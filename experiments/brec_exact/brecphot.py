@@ -363,3 +363,91 @@ def brec_decision(t2_pair, t2_reliability, threshold=THRESHOLD):
                  and abs(t2_pair - t2_reliability) > EPSILON_CMP)
     return bool(separated and reliable), bool(reliable)
 VERSION = 2
+
+
+# ------------------------------------------------- chips with K source modes
+
+def cell_k(seed, local_modes):
+    """Haar-random cells for a chip with `local_modes` source modes per
+    vertex: a U(K + 2) on (uniform port mode, memory, local_1..K) and a
+    U(K + 1) on (memory, local_1..K) for isolated vertices, each rotated on
+    its inputs so that the detected output, local_1, has no amplitude from
+    any of the K source inputs.  For K = 1 this is `cell`."""
+    if local_modes == 1:
+        return cell(seed)
+    rng = np.random.default_rng(seed)
+    out = []
+    K = local_modes
+    for d in (K + 2, K + 1):
+        u = haar_unitary(rng, d)
+        det = d - K                                   # row of the detected local output
+        mixed = [0] + list(range(d - K, d))           # inputs rotated: first mode and the K locals
+        r = u[det, mixed]
+        port = np.conj(r) / np.linalg.norm(r)         # new first direction, as in `cell`
+        # complete to an orthonormal basis of the span: the K source directions
+        basis = np.linalg.qr(np.concatenate([port[:, None], rng.normal(size=(K + 1, K)) + 0j], axis=1))[0]
+        basis[:, 0] = port
+        basis[:, 1:] -= port[:, None] * (np.conj(port) @ basis[:, 1:])
+        basis[:, 1:] = np.linalg.qr(basis[:, 1:])[0]
+        v = np.eye(d, dtype=complex)
+        v[np.ix_(mixed, mixed)] = basis
+        u = u @ v
+        assert np.all(np.abs(u[det, d - K:]) < 1e-12)
+        out.append(u)
+    return out
+
+
+def network_k(adj, cells, gamma, local_modes):
+    """The blocks (A, B, C, D) of one tick for a chip with K source modes per
+    vertex and one detector per vertex, on the detected local output; the
+    other K - 1 local outputs are lost.  External inputs are ordered
+    (vertex, source mode).  For K = 1 this is `network`."""
+    K = local_modes
+    if K == 1:
+        return network(adj, cells, gamma)
+    n = adj.shape[0]
+    arcs = [(v, u) for v in range(n) for u in range(n) if adj[v, u]]
+    arc_index = {arc: i for i, arc in enumerate(arcs)}
+    L, M = len(arcs) + n, K * n
+    u_hat = np.zeros((L + M, L + M), dtype=complex)
+    uc_big, uc_small = cells
+    for v in range(n):
+        ports = [arc_index[(v, u)] for u in range(n) if adj[v, u]]
+        d = len(ports)
+        locals_ = [L + K * v + j for j in range(K)]
+        modes = ports + [len(arcs) + v] + locals_
+        if d == 0:
+            u_hat[np.ix_(modes, modes)] = uc_small
+            continue
+        fourier = np.exp(2j * np.pi * np.outer(range(d), range(d)) / d) / np.sqrt(d)
+        middle = -np.eye(d + 1 + K, dtype=complex)
+        sym = [0] + list(range(d, d + 1 + K))
+        middle[np.ix_(sym, sym)] = uc_big
+        basis = np.eye(d + 1 + K, dtype=complex)
+        basis[:d, :d] = fourier
+        u_hat[np.ix_(modes, modes)] = basis.conj().T @ middle @ basis
+    pi = np.zeros((L, L))
+    for (v, u), i in arc_index.items():
+        pi[arc_index[(u, v)], i] = 1
+    pi[len(arcs):, len(arcs):] = np.eye(n)
+    detected = [L + K * v for v in range(n)]
+    A = np.sqrt(gamma) * pi @ u_hat[:L, :L]
+    B = np.sqrt(gamma) * pi @ u_hat[:L, L:]
+    C = u_hat[detected, :L]
+    D = u_hat[np.ix_(detected, range(L, L + M))]
+    return A, B, C, D
+
+
+def symmetric_columns(W, n, local_modes):
+    """The path matrix of the one-mode placement: the K source columns of
+    every vertex and delay averaged into the symmetric mode."""
+    K = local_modes
+    delays = W.shape[1] // (K * n)
+    return W.reshape(n, delays, n, K).sum(axis=3).reshape(n, delays * n) / np.sqrt(K)
+
+
+def single_columns(W, n, local_modes, j=0):
+    """The path matrix seen by a source in local mode j alone."""
+    K = local_modes
+    delays = W.shape[1] // (K * n)
+    return np.ascontiguousarray(W.reshape(n, delays, n, K)[:, :, :, j].reshape(n, delays * n))
