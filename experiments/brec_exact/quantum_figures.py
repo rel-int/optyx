@@ -104,7 +104,7 @@ labels, best_cl, p0, lock, las = [], [], [], [], []
 for c in CLASSES:
     ps = [p for p in pairs if p.rsplit("_", 1)[0] == c and separated(p, "photons p=1") and np.isfinite(circ[p]["photons p=1"].get(1.0, np.inf))]
     q = {p: circ[p]["photons p=1"][1.0] for p in ps}
-    labels.append(f"{SHORT[c]}\n({len(ps)})")
+    labels.append({"Basic": "Basic", "Regular": "Regular", "Extension": "Ext.", "CFI": "CFI", "Strongly_regular": "SR", "4-vertex_condition": "4-vertex", "Distance_regular": "DR"}[c] + f"\n({len(ps)})")
     las.append(median([floor(p, "coherent") / q[p] for p in ps]))
     lock.append(median([floor(p, "uniform") / q[p] for p in ps]))
     p0.append(median([floor(p, "photons p=0") / q[p] for p in ps]))
@@ -115,7 +115,7 @@ bx.bar(xs + 0.27, p0, 0.27, color="C1", label="distinguishable photons, best $w$
 bx.axhline(1, color="k", lw=0.7, ls="--")
 bx.set_yscale("log")
 bx.set_xticks(xs)
-bx.set_xticklabels(labels, fontsize=6)
+bx.set_xticklabels(labels, fontsize=6.5)
 bx.set_ylabel("samples / single photons at $w=1$")
 bx.set_title("(b) best brightness of each source, median per class", fontsize=8, loc="left")
 bx.legend(frameon=False, loc="upper left")

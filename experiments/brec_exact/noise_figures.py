@@ -87,7 +87,7 @@ ax.set_ylabel("BREC pairs separated")
 top = ax.secondary_xaxis("top", functions=(lambda t: t * 1e-9, lambda s: s * 1e9))
 top.set_xlabel("device time at one tick per nanosecond (s)", fontsize=7)
 top.tick_params(labelsize=6)
-ax.legend(frameon=False, loc="lower right", fontsize=5.8)
+ax.legend(frameon=False, loc="lower right", fontsize=5.8, bbox_to_anchor=(1.0, 0.02))
 ax.grid(alpha=0.3, lw=0.5)
 fig.tight_layout()
 fig.savefig(f"{FIG}/brec_ideal_classical.pdf")
@@ -100,7 +100,8 @@ wq = [0.02, 0.05, 0.1, 0.2, 0.5, 1.0]
 wc = wq + [2.0, 5.0, 10.0, 20.0, 100.0]
 styles = {"coherent": ("laser", "C2", "-.", "^", wc), "uniform": ("phase-locked laser", "C4", "-", "v", wc),
           "photons p=0": ("distinguishable photons", "C1", "--", "s", wq), "thermal": ("thermal", "C3", ":", "o", wc)}
-fig, axes = plt.subplots(1, 6, figsize=(10.5, 2.4))
+fig, axes = plt.subplots(2, 3, figsize=(7.0, 4.6))
+axes = axes.ravel()
 for ax, (title, pred) in zip(axes, groups):
     ps = [p for p in pairs if pred(p.rsplit("_", 1)[0])]
     for s, (label, colour, ls, marker, ws) in styles.items():
@@ -117,6 +118,7 @@ for ax, (title, pred) in zip(axes, groups):
     ax.set_xlabel("mean photons per pulse $w$")
     ax.grid(alpha=0.3, lw=0.5)
 axes[0].set_ylabel("ideal samples per network, median")
+axes[3].set_ylabel("ideal samples per network, median")
 axes[0].legend(frameon=False, loc="upper right")
 ax = axes[5]
 for title, pred in groups:
@@ -131,7 +133,8 @@ ax.set_xscale("log")
 ax.set_yscale("log")
 ax.set_title("phase-locked / random-phase laser", fontsize=7.5)
 ax.set_xlabel("mean photons per pulse $w$")
-ax.legend(frameon=False, fontsize=5.5)
+ax.set_ylim(0.008, 6)
+ax.legend(frameon=False, fontsize=5.5, loc="lower center", ncol=2)
 ax.grid(alpha=0.3, lw=0.5)
 fig.tight_layout()
 fig.savefig(f"{FIG}/sources_classical.pdf")
