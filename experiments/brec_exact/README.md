@@ -58,8 +58,14 @@ and `raw_kmode.json.gz` (chips with K = 1, 2, 4, 8 source modes per vertex
 on the sixteen-pair subset of `launch_kmode.py`, four cells each, every
 source in the separate, symmetric and single-mode placements at three
 fluxes, `tables_kmode.md`; 2 GPU-hours, the K = 8 jobs on the two largest
-CFI pairs with chunk 500 and key batch 256). `report.py tables`, `report_full.py tables`,
-`report_gnn.py tables`, `report_ideal.py` and `report_kmode.py tables` regenerate the tables from
+CFI pairs with chunk 500 and key batch 256) and `raw_real.json.gz` (the
+phase-locked uniform source, i.e. the linear network with uniform noise read
+through the chip, on all 400 pairs and four cells at the orders of the
+exact-noise run: exact rates of the uniform, +-1 and real Gaussian amplitudes,
+Monte Carlo variances of the uniform one, ideal counts at eleven brightnesses,
+`tables_real.md`; 7 GPU-hours). `report.py tables`, `report_full.py tables`,
+`report_gnn.py tables`, `report_ideal.py`, `report_kmode.py tables` and
+`report_real.py tables` regenerate the tables from
 decompressed copies without Modal, and `antibunching_figure.py` draws the
 paper's figure of the cost law from `raw_noise.json` and `raw_kmode.json`. The profiles and noise moments behind
 them, tens of gigabytes, stay on the volume. `diag_protocol.py` and
