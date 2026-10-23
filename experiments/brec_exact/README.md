@@ -53,9 +53,15 @@ Wick profiles and ideal sample counts of the two linear networks on all 400
 pairs, `tables_ideal.md`), `raw_gnn_hotelling.json.gz` (BREC's test on those
 profiles) and `raw_noise.json.gz` (the exact noise of every source at eleven
 brightnesses and three Fock states on all 400 pairs, four cells, order 4 up
-to 63 vertices, 3 up to 110 and 2 above, `tables_noise.md`; 60 GPU-hours). `report.py tables`, `report_full.py tables`,
-`report_gnn.py tables` and `report_ideal.py` regenerate the tables from
-decompressed copies without Modal. The profiles and noise moments behind
+to 63 vertices, 3 up to 110 and 2 above, `tables_noise.md`; 60 GPU-hours)
+and `raw_kmode.json.gz` (chips with K = 1, 2, 4, 8 source modes per vertex
+on the sixteen-pair subset of `launch_kmode.py`, four cells each, every
+source in the separate, symmetric and single-mode placements at three
+fluxes, `tables_kmode.md`; 2 GPU-hours, the K = 8 jobs on the two largest
+CFI pairs with chunk 500 and key batch 256). `report.py tables`, `report_full.py tables`,
+`report_gnn.py tables`, `report_ideal.py` and `report_kmode.py tables` regenerate the tables from
+decompressed copies without Modal, and `antibunching_figure.py` draws the
+paper's figure of the cost law from `raw_noise.json` and `raw_kmode.json`. The profiles and noise moments behind
 them, tens of gigabytes, stay on the volume. `diag_protocol.py` and
 `diag_sorting.py` are the local diagnoses of the protocol's sample
 efficiency against the ideal count on synthetic batches: the loss is the
