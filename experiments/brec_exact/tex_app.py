@@ -1,10 +1,11 @@
-import modal, subprocess, os
+import modal, subprocess, os, sys
+PAPER = os.environ.get("PAPER_DIR", "paper")
 app = modal.App("paper-build")
 image = (modal.Image.debian_slim()
          .apt_install("texlive-latex-base", "texlive-latex-recommended", "texlive-latex-extra",
                       "texlive-publishers", "texlive-science", "texlive-pictures", "texlive-fonts-recommended",
                       "texlive-bibtex-extra", "ghostscript")
-         .add_local_dir("paper", remote_path="/root/paper"))
+         .add_local_dir(PAPER, remote_path="/root/paper"))
 
 @app.function(image=image, timeout=1200)
 def build():
@@ -20,7 +21,7 @@ def build():
 @app.local_entrypoint()
 def main():
     pdf, log, full = build.remote()
-    open("main.pdf", "wb").write(pdf)
-    open("build.log", "w").write(full)
+    open(f"{PAPER}/main.pdf", "wb").write(pdf)
+    open(f"{PAPER}/build.log", "w").write(full)
     print(log[-6000:])
     print("pdf bytes", len(pdf))
