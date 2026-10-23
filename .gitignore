@@ -24,3 +24,7 @@ build/*
 dist/*
 todo.md
 optyx/_version.py
+docs/_static/notebooks/
+docs/notebooks/what_is_a_channel.rst
+docs/notebooks/fixpoints.rst
+docs/notebooks/__marimo__/

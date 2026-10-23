@@ -113,3 +113,37 @@ def test_from_bosonic_op():
     sum_2 = np.sign(hamiltonian.eval().tensor.array) # bug in discopy.tensor.Tensor.eval() for Sums (?)
 
     assert np.allclose(sum_2, sum_1)
+
+def test_observables_agree_with_their_samples():
+    from optyx.channel import Observable, Discard, Diagram, qmode, qubit
+    from optyx import photonic, qubits
+    hom = photonic.Create(1, 1) >> photonic.BS
+    number = Observable(Diagram.from_bosonic_operator(
+        2, ((0, False), (0, True))))
+    counted = Observable(function=lambda n: n[0], dom=qmode @ qmode)
+    assert np.isclose(number.expectation(hom), counted.expectation(hom))
+    assert np.isclose(number.expectation(hom), 1)
+    samples = (hom >> photonic.NumberResolvingMeasurement(2)).sample(
+        burn_in=0, shots=500, seed=0)
+    assert abs(np.mean([counted.function(list(sample[0]))
+                        for sample in samples]) - 1) < .15
+    trace = Observable(function=lambda n: 1, dom=qmode @ qmode)
+    assert np.isclose(trace.expectation(hom), (hom >> Discard(
+        qmode @ qmode)).double().to_tensor().eval().array)
+    rotated = qubits.Ket("+") >> qubits.Z(1, 1, .1)
+    pauli_x = Observable(qubits.X(1, 1, .5))
+    assert np.isclose(pauli_x.expectation(rotated), np.cos(.2 * np.pi))
+
+
+def test_observable_errors():
+    from optyx.channel import Observable, Diagram, qmode, bit
+    from optyx import photonic
+    with pytest.raises(ValueError):
+        Observable()
+    with pytest.raises(ValueError):
+        Observable(photonic.Create(1))
+    with pytest.raises(ValueError):
+        Observable(Diagram.id(bit))
+    with pytest.raises(ValueError):
+        Observable(function=lambda n: n[0], dom=qmode).expectation(
+            photonic.Create(1, 1))
