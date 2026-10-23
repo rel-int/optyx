@@ -25,3 +25,4 @@ dist/*
 todo.md
 optyx/_version.py
 !experiments/brec_exact/results/*.gz
+experiments/brec_exact/noise_tables/
