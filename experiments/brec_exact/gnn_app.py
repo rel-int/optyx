@@ -122,8 +122,10 @@ def compare_job(spec):
     adj = {"G": bp.adjacency(spec["G"]), "H": bp.adjacency(spec["H"])}
     n = adj["G"].shape[0]
     nmax = spec["nmax"]
-    kw = {"brightness": spec["brightness"]} if spec["model"] == "coherent" else {}
-    stationary = spec["model"].startswith("step")
+    kw = {"brightness": spec["brightness"]} if spec["model"] in ("coherent", "loop-coherent", "loop-thermal") else {}
+    if spec["model"].startswith("loop"):
+        kw.update(kappa=spec.get("kappa", 0.0), delay=spec.get("delay", 1))
+    stationary = spec["model"].startswith(("step", "loop"))
     budgets = sorted(spec["budgets"])
     todo = [T for T in budgets if not os.path.exists(f"{stem}-T{T}.json")]
     summary = {"pair": spec["pair"], "seed": spec["seed"], "model": spec["model"],
@@ -160,7 +162,8 @@ def compare_job(spec):
                 np.sqrt(np.sort(stats["G"][0][N][0].mean(0))) - np.sqrt(np.sort(stats["H"][0][N][0].mean(0)))))
                 for N in range(1, nmax + 1)}
             result = {"pair": spec["pair"], "seed": spec["seed"], "model": spec["model"],
-                      "brightness": spec.get("brightness"), "n": n, "nmax": nmax, "T": T,
+                      "brightness": spec.get("brightness"), "kappa": spec.get("kappa"),
+                      "delay": spec.get("delay"), "n": n, "nmax": nmax, "T": T,
                       "test": test, "sampled_gap": gaps, "seconds": time.time() - t1}
             json.dump(result, open(f"{stem}-T{T}.json", "w"))
             summary["done"].append(T)
