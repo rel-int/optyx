@@ -70,7 +70,7 @@ def enumerate_terms(positions):
         sizes = tuple(sorted(len(b) for b in tau))
         ids = np.empty((perms.shape[0], len(tau)), dtype=np.int32)
         for j, b in enumerate(tau):
-            p = tuple(np.bincount(pos[b], minlength=N))
+            p = tuple(int(x) for x in np.bincount(pos[b], minlength=N))
             q_pos = pos[inverse[:, b]]                                  # (perms, |b|)
             # multiplicity vector of the positions of rho^-1(b), per permutation
             q = np.zeros((perms.shape[0], N), dtype=np.int8)
