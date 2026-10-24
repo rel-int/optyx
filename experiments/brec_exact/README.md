@@ -54,6 +54,10 @@ copies, and the exact rule of the draft.
   subset, four cells, order 4; `raw_squeezed_full.json.gz`,
   `tables_squeezed_full.md`: all 400 pairs, four cells, at the orders of the
   exact-noise run (4 up to 63 vertices, 3 up to 110, 2 above), 31 GPU-minutes.
+  `raw_squeezed_reach.json.gz`, `tables_squeezed_reach.md`: the same at the
+  orders of the reach run `raw_full` (4 up to 96 vertices, 3 above), with
+  its photon, coherent and thermal columns; the ideal counts of the other
+  sources are those of the exact-noise run, compared where the orders agree.
 - `write_page.py`: fills the wiki page from the aggregated results.
 
 `results/` holds the per-pair result files of each run, gzipped, and the

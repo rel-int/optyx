@@ -10,4 +10,4 @@
 
 > Great, then run also the higher orders on squeezed
 
-- [WIP] @session_017fWFyGbNF3W2wpXaknNsMu-2026-10-24 08:10 Squeezed light at the orders of the reach run of the other sources (4 up to 96 vertices, 3 above)
+- [x] Squeezed light at the orders of the reach run of the other sources (4 up to 96 vertices, 3 above)

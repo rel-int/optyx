@@ -1,8 +1,10 @@
 """Tables of the squeezed-light run against the stored exact-noise run.
 
-    python report_squeezed.py RAW_SQUEEZED RAW_NOISE [RAW_REAL]
+    python report_squeezed.py RAW_SQUEEZED RAW_NOISE [RAW_REAL] [RAW_FULL]
 
-RAW_* are decompressed result files (results/raw_*.json.gz).  A pair is
+RAW_* are decompressed result files (results/raw_*.json.gz); RAW_FULL, the
+reach run of the other sources (order 4 up to 96 vertices, 3 above), adds
+their separation orders as the columns marked "(reach run)".  A pair is
 separated by a source when its largest relative gap between sorted rates
 exceeds 1e-12 at some order, in at least one cell; squeezed light counts at
 any brightness of the grid.  Ideal counts are cumulative over the orders,
@@ -29,7 +31,7 @@ def best(orders):
     return min(orders) if orders else None
 
 
-def collect(sq_raw, noise_raw, real_raw):
+def collect(sq_raw, noise_raw, real_raw, full_raw=None):
     pairs = {}
     for r in sq_raw.values():
         p = pairs.setdefault(r["pair"], {"n": r["n"], "nmax": r["nmax"], "order": {}, "count": {}})
@@ -56,6 +58,11 @@ def collect(sq_raw, noise_raw, real_raw):
     for r in (real_raw or {}).values():
         if isinstance(r, dict) and r["pair"] in pairs and r["nmax"] == pairs[r["pair"]]["nmax"]:
             pairs[r["pair"]]["order"].setdefault("gaussian real (stored)", []).append(order_of(r["gaps"]["gaussian real"]))
+    for r in (full_raw or {}).values():
+        if isinstance(r, dict) and "orders" in r and r["pair"] in pairs:
+            for s in ("photons p=1", "coherent", "thermal"):
+                gaps = {N: by_source[s]["max_rel_diff"] for N, by_source in r["orders"].items()}
+                pairs[r["pair"]]["order"].setdefault(f"{s} (reach run)", []).append(order_of(gaps))
     for p in pairs.values():
         p["order"] = {s: best(v) for s, v in p["order"].items()}
         for s, d in p["count"].items():
@@ -125,14 +132,18 @@ def summary(pairs):
     budgets at one tick per nanosecond."""
     cols = ["photons p=1", "coherent", "thermal", "thermal (this run)", "gaussian real (stored)",
             "gaussian real (this run)", "squeezed"]
+    if any("thermal (reach run)" in p["order"] for p in pairs.values()):
+        cols = ["photons p=1 (reach run)", "coherent (reach run)", "thermal (reach run)", "thermal (this run)",
+                "gaussian real (this run)", "squeezed"]
     out = ["## Pairs separated per class (best of four cells, exact rule)\n",
            "| class | pairs | " + " | ".join(cols) + " |", "|---|---|" + "---|" * len(cols)]
     for c in CLASSES + ("Total",):
         ps = [p for p in pairs if c == "Total" or class_of(p) == c]
         out.append(f"| {c} | {len(ps)} | " + " | ".join(
             str(sum(pairs[p]["order"].get(k) is not None for p in ps)) for k in cols) + " |")
-    agree = sum(pairs[p]["order"].get("squeezed") == pairs[p]["order"].get("thermal") for p in pairs)
-    out.append(f"\nSqueezed light separates a pair at the same order as the stored thermal run on {agree} of {len(pairs)} pairs.")
+    ref = "thermal (reach run)" if "thermal (reach run)" in cols else "thermal"
+    agree = sum(pairs[p]["order"].get("squeezed") == pairs[p]["order"].get(ref) for p in pairs)
+    out.append(f"\nSqueezed light separates a pair at the same order as the stored {ref} on {agree} of {len(pairs)} pairs.")
 
     grid = (0.02, 0.05, 0.2, 1.0, 5.0, 100.0)
     sources = ("squeezed", "thermal", "gaussian real", "coherent", "photons p=1")
@@ -181,5 +192,6 @@ if __name__ == "__main__":
     sq_raw = json.load(open(sys.argv[1]))
     noise_raw = json.load(open(sys.argv[2]))
     real_raw = json.load(open(sys.argv[3])) if len(sys.argv) > 3 else None
-    pairs = collect(sq_raw, noise_raw, real_raw)
+    full_raw = json.load(open(sys.argv[4])) if len(sys.argv) > 4 else None
+    pairs = collect(sq_raw, noise_raw, real_raw, full_raw)
     print(summary(pairs) if len(pairs) > 50 else tables(pairs))
