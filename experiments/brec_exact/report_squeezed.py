@@ -119,8 +119,67 @@ def tables(pairs):
     return "\n".join(out)
 
 
+def summary(pairs):
+    """Per class: pairs separated, median ideal counts against brightness,
+    squeezed light relative to each source, and pairs within device-time
+    budgets at one tick per nanosecond."""
+    cols = ["photons p=1", "coherent", "thermal", "thermal (this run)", "gaussian real (stored)",
+            "gaussian real (this run)", "squeezed"]
+    out = ["## Pairs separated per class (best of four cells, exact rule)\n",
+           "| class | pairs | " + " | ".join(cols) + " |", "|---|---|" + "---|" * len(cols)]
+    for c in CLASSES + ("Total",):
+        ps = [p for p in pairs if c == "Total" or class_of(p) == c]
+        out.append(f"| {c} | {len(ps)} | " + " | ".join(
+            str(sum(pairs[p]["order"].get(k) is not None for p in ps)) for k in cols) + " |")
+    agree = sum(pairs[p]["order"].get("squeezed") == pairs[p]["order"].get("thermal") for p in pairs)
+    out.append(f"\nSqueezed light separates a pair at the same order as the stored thermal run on {agree} of {len(pairs)} pairs.")
+
+    grid = (0.02, 0.05, 0.2, 1.0, 5.0, 100.0)
+    sources = ("squeezed", "thermal", "gaussian real", "coherent", "photons p=1")
+    out.append("\n## Median ideal samples per class over the pairs each source separates\n")
+    out.append("| class | source | " + " | ".join(f"w = {w:g}" for w in grid) + " |")
+    out.append("|---|---|" + "---|" * len(grid))
+    for c in CLASSES:
+        ps = [p for p in pairs if class_of(p) == c]
+        for src in sources:
+            cells = []
+            for w in grid:
+                v = [pairs[p]["count"][src][w] for p in ps if w in pairs[p]["count"].get(src, {})
+                     and np.isfinite(pairs[p]["count"][src][w])]
+                cells.append(f"{median(v):.2g} ({len(v)})" if v else "-")
+            out.append(f"| {c} | {src} | " + " | ".join(cells) + " |")
+
+    out.append("\n## Squeezed light over each source at equal brightness, median per class over the pairs both separate\n")
+    for other in ("thermal", "coherent", "photons p=1"):
+        out.append(f"\n**against {other}**\n")
+        out.append("| class | " + " | ".join(f"w = {w:g}" for w in grid) + " |")
+        out.append("|---|" + "---|" * len(grid))
+        for c in CLASSES + ("Total",):
+            ps = [p for p in pairs if c == "Total" or class_of(p) == c]
+            cells = []
+            for w in grid:
+                v = [pairs[p]["count"]["squeezed"][w] / pairs[p]["count"][other][w] for p in ps
+                     if w in pairs[p]["count"].get(other, {}) and np.isfinite(pairs[p]["count"][other][w])
+                     and np.isfinite(pairs[p]["count"]["squeezed"].get(w, np.inf))]
+                cells.append(f"{median(v):.2g} ({len(v)})" if v else "-")
+            out.append(f"| {c} | " + " | ".join(cells) + " |")
+
+    out.append("\n## Pairs within a device-time budget at one tick per nanosecond\n")
+    out.append("| source | w | 1e6 samples | 1e9 | an hour | a day |")
+    out.append("|---|---|---|---|---|---|")
+    for src in sources:
+        for w in grid:
+            vals = [pairs[p]["count"].get(src, {}).get(w) for p in pairs]
+            if all(v is None for v in vals):
+                continue
+            vals = [np.inf if v is None else v for v in vals]
+            out.append(f"| {src} | {w:g} | " + " | ".join(str(sum(v <= b for v in vals)) for b in (1e6, 1e9, 3.6e12, 8.64e13)) + " |")
+    return "\n".join(out)
+
+
 if __name__ == "__main__":
     sq_raw = json.load(open(sys.argv[1]))
     noise_raw = json.load(open(sys.argv[2]))
     real_raw = json.load(open(sys.argv[3])) if len(sys.argv) > 3 else None
-    print(tables(collect(sq_raw, noise_raw, real_raw)))
+    pairs = collect(sq_raw, noise_raw, real_raw)
+    print(summary(pairs) if len(pairs) > 50 else tables(pairs))

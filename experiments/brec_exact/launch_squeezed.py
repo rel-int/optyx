@@ -1,5 +1,6 @@
 """Spawn the squeezed-light jobs: the 16-pair subset by default, or every
-pair with --all, at order 4 up to `--order4` vertices and 3 above.
+pair with --all, at the orders of the photons' exact-noise run: 4 up to
+`--order4` vertices, 3 up to `--order3` and 2 above.
 
     python launch_squeezed.py [--all] [--pairs A,B] [--seeds 100,101,102,103]
 """
@@ -22,7 +23,8 @@ def main():
     parser.add_argument("--pairs", default=None)
     parser.add_argument("--seeds", default="100,101,102,103")
     parser.add_argument("--gamma", type=float, default=0.9)
-    parser.add_argument("--order4", type=int, default=63, help="largest graph run at order 4, order 3 above")
+    parser.add_argument("--order4", type=int, default=63, help="largest graph run at order 4")
+    parser.add_argument("--order3", type=int, default=110, help="largest graph run at order 3, order 2 above")
     parser.add_argument("--out", default=None, help="write the results here as JSON")
     args = parser.parse_args()
     data = bp.load_brec(BREC_RAW)
@@ -37,7 +39,8 @@ def main():
     for pair in names:
         category, i = pair.rsplit("_", 1)
         g, h = data[category][int(i)]
-        nmax = 4 if bp.adjacency(g).shape[0] <= args.order4 else 3
+        n = bp.adjacency(g).shape[0]
+        nmax = 4 if n <= args.order4 else 3 if n <= args.order3 else 2
         for seed in map(int, args.seeds.split(",")):
             calls.append(job.spawn({"pair": pair, "seed": seed, "gamma": args.gamma, "nmax": nmax, "G": g, "H": h}))
     print("spawned", len(calls), flush=True)
