@@ -6,4 +6,4 @@
 - [x] Checks: matching counts, The Walrus up to order 4 with variances, thermal light against `photon_noise`, the real Gaussian amplitude against `real_noise`, relabelling (`test_squeezed.py`)
 - [x] Efficiency: meet-in-the-middle products over the monomials, one multiply-add per monomial and set; GPU against CPU to 1e-11
 - [x] Modal app and the 16-pair subset of `launch_kmode.py`, four cells, order 4 (`squeezed_app.py`, `launch_squeezed.py`, `report_squeezed.py`, `results/tables_squeezed.md`)
-- [ ] Full BREC, order 4 up to 63 vertices and 3 above, once the human decides
+- [WIP] @session_017fWFyGbNF3W2wpXaknNsMu-2026-10-24 06:55 Full BREC at the orders of the photons' exact-noise run (4 up to 63 vertices, 3 up to 110, 2 above)
