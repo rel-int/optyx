@@ -14,4 +14,4 @@
 
 > Alright, run the experiments with non linearity on the 16 pairs with the classical architectures
 
-- [WIP] @session_017fWFyGbNF3W2wpXaknNsMu-2026-10-24 12:30 Measurement feedforward in the classical chip: the counts of each detector set a phase on its chip's memory mode a few ticks later; laser and thermal light, tick-by-tick sampler, the paper's protocol on the 16-pair subset
+- [x] Measurement feedforward in the classical chip: the counts of each detector set a phase on its chip's memory mode a few ticks later; laser and thermal light, tick-by-tick sampler, the paper's protocol: a check on one cell and the ten pairs of at most 25 vertices (plus CFI_5), kappa 0 and 2, delay 1 (`results/tables_ff.md`); the four-cell run of the full grid was stopped at 74 of 640 jobs to save GPU time
