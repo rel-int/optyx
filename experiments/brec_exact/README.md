@@ -51,7 +51,9 @@ copies, and the exact rule of the draft.
   matrices, and one multiply-add per monomial and set (42,054 monomials for
   all the patterns of order 4): a 63-vertex pair at order 4 in 10 s on an
   H100. `results/raw_squeezed.json.gz`, `tables_squeezed.md`: the 16-pair
-  subset, four cells, order 4.
+  subset, four cells, order 4; `raw_squeezed_full.json.gz`,
+  `tables_squeezed_full.md`: all 400 pairs, four cells, at the orders of the
+  exact-noise run (4 up to 63 vertices, 3 up to 110, 2 above), 31 GPU-minutes.
 - `write_page.py`: fills the wiki page from the aggregated results.
 
 `results/` holds the per-pair result files of each run, gzipped, and the
