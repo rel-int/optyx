@@ -7,3 +7,7 @@
 - [x] Efficiency: meet-in-the-middle products over the monomials, one multiply-add per monomial and set; GPU against CPU to 1e-11
 - [x] Modal app and the 16-pair subset of `launch_kmode.py`, four cells, order 4 (`squeezed_app.py`, `launch_squeezed.py`, `report_squeezed.py`, `results/tables_squeezed.md`)
 - [x] Full BREC at the orders of the photons' exact-noise run (4 up to 63 vertices, 3 up to 110, 2 above)
+
+> Great, then run also the higher orders on squeezed
+
+- [WIP] @session_017fWFyGbNF3W2wpXaknNsMu-2026-10-24 07:55 Squeezed light at order 4 on every pair, and at order 5 where the cost allows
