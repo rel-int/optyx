@@ -1,8 +1,10 @@
 """Spawn the squeezed-light jobs: the 16-pair subset by default, or every
 pair with --all, at the orders of the photons' exact-noise run: 4 up to
-`--order4` vertices, 3 up to `--order3` and 2 above.
+`--order4` vertices, 3 up to `--order3` and 2 above.  With --higher every
+pair runs at order 4 with variances, and at order 5 with rates (so gaps)
+up to `--rates5` vertices and variances up to `--var5`.
 
-    python launch_squeezed.py [--all] [--pairs A,B] [--seeds 100,101,102,103]
+    python launch_squeezed.py [--all] [--higher] [--pairs A,B] [--seeds 100,101,102,103]
 """
 import argparse
 import json
@@ -25,6 +27,9 @@ def main():
     parser.add_argument("--gamma", type=float, default=0.9)
     parser.add_argument("--order4", type=int, default=63, help="largest graph run at order 4")
     parser.add_argument("--order3", type=int, default=110, help="largest graph run at order 3, order 2 above")
+    parser.add_argument("--higher", action="store_true")
+    parser.add_argument("--rates5", type=int, default=110, help="largest graph whose order-5 rates are computed")
+    parser.add_argument("--var5", type=int, default=40, help="largest graph whose order-5 variances are computed")
     parser.add_argument("--out", default=None, help="write the results here as JSON")
     args = parser.parse_args()
     data = bp.load_brec(BREC_RAW)
@@ -41,8 +46,13 @@ def main():
         g, h = data[category][int(i)]
         n = bp.adjacency(g).shape[0]
         nmax = 4 if n <= args.order4 else 3 if n <= args.order3 else 2
+        vmax = nmax
+        if args.higher:
+            nmax = 5 if n <= args.rates5 else 4
+            vmax = 5 if n <= args.var5 else 4
         for seed in map(int, args.seeds.split(",")):
-            calls.append(job.spawn({"pair": pair, "seed": seed, "gamma": args.gamma, "nmax": nmax, "G": g, "H": h}))
+            calls.append(job.spawn({"pair": pair, "seed": seed, "gamma": args.gamma, "nmax": nmax, "vmax": vmax,
+                                    "G": g, "H": h, "chunk": 16384 if n > 63 else 4096}))
     print("spawned", len(calls), flush=True)
     results = {}
     for call in calls:

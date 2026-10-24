@@ -30,10 +30,13 @@ and of T* on an N-set.  Evaluating a set then needs only those entries:
 no sum over the slots of the path matrix, which is done once, in the two
 n x n Gram matrices.
 """
+import os
 from functools import lru_cache
 from itertools import combinations
 
 import numpy as np
+
+CACHE = os.environ.get("SQUEEZED_TABLES")
 
 
 def factor_ids(N):
@@ -52,6 +55,10 @@ def tables(N, doubled):
     in `doubled` carry two photons.  Returns keys (n_keys, K) of factor ids
     padded with -1, counts (n_keys,) and j (n_keys,), the number of T
     factors of each key."""
+    path = f"{CACHE}/N{N}_{''.join(map(str, doubled))}.npz" if CACHE else None
+    if path and os.path.exists(path):
+        with np.load(path) as z:
+            return z["keys"], z["counts"], z["j"]
     m = tuple(2 if i in doubled else 1 for i in range(N))
     K = sum(m)
     tri, t0, tc0, _ = factor_ids(N)
@@ -98,6 +105,9 @@ def tables(N, doubled):
     keys = np.array(sorted(monos), dtype=np.int32).reshape(-1, K)
     counts = np.array([monos[tuple(k)] for k in keys], dtype=float)
     j = np.sum((keys >= t0) & (keys < tc0), axis=1)
+    if path:
+        os.makedirs(CACHE, exist_ok=True)
+        np.savez(path, keys=keys, counts=counts, j=j)
     return keys, counts, j
 
 
@@ -118,13 +128,33 @@ def set_values(G, T, idx):
     return torch.stack(rows)
 
 
+def plan(N, doubles, by_size=False):
+    """`build_plan`, cached on disk next to the tables when SQUEEZED_TABLES is set."""
+    tag = "all" if len(doubles) == 2 ** N else "_".join("".join(map(str, d)) or "e" for d in doubles)
+    path = f"{CACHE}/plan_N{N}_{tag}_{int(by_size)}.npz" if CACHE else None
+    if path and os.path.exists(path):
+        with np.load(path) as z:
+            levels = int(z["levels"])
+            prefixes = [z[f"p{i}"] for i in range(levels)]
+            suffixes = [z[f"s{i}"] for i in range(levels)]
+            return prefixes, suffixes, z["pre"], z["suf"], z["rows"], z["counts"], int(z["n_rows"])
+    result = build_plan(N, doubles, by_size)
+    if path:
+        prefixes, suffixes, pre, suf, rows, counts, n_rows = result
+        os.makedirs(CACHE, exist_ok=True)
+        np.savez(path, levels=len(prefixes), pre=pre, suf=suf, rows=rows, counts=counts, n_rows=n_rows,
+                 **{f"p{i}": x for i, x in enumerate(prefixes)}, **{f"s{i}": x for i, x in enumerate(suffixes)})
+    return result
+
+
 @lru_cache(maxsize=None)
-def plan(N, doubles):
+def build_plan(N, doubles, by_size=False):
     """All the monomials of order N in one list, split in a prefix and a
     suffix of N factors each (padded with the ones row): the unique
     prefixes and suffixes as tries, level by level (parent, factor), every
     key as (prefix, suffix, output row, count), the output row being
-    |doubled| (N + 1) + j and the doubled patterns listed in `doubles`."""
+    r (N + 1) + j for the r-th doubled pattern of `doubles`, or for the
+    number r of doubled positions when `by_size`."""
     nf = factor_ids(N)[3]
     K = 2 * N
     keys, rows, counts = [], [], []
@@ -133,7 +163,7 @@ def plan(N, doubles):
         padded = np.full((len(k), K), nf, dtype=np.int32)
         padded[:, :k.shape[1]] = k
         keys.append(padded)
-        rows.append(r * (N + 1) + j)
+        rows.append((len(d) if by_size else r) * (N + 1) + j)
         counts.append(c)
     keys, rows, counts = np.concatenate(keys), np.concatenate(rows), np.concatenate(counts)
 
@@ -148,7 +178,8 @@ def plan(N, doubles):
 
     prefixes, pre = trie(keys[:, :N])
     suffixes, suf = trie(keys[:, N:])
-    return prefixes, suffixes, pre, suf, rows, counts, len(doubles) * (N + 1)
+    n_rows = (N + 1) * ((N + 1) if by_size else len(doubles))
+    return prefixes, suffixes, pre, suf, rows, counts, n_rows
 
 
 def products(values, levels):
@@ -159,18 +190,21 @@ def products(values, levels):
     return prod
 
 
-def moments(G, T, N, doubles=None, chunk=4096, key_batch=1 << 16):
+def moments(G, T, N, doubles=None, chunk=4096, key_batch=1 << 16, by_size=False, to_numpy=True):
     """dict doubled -> array (N + 1, M_N) of the components m_j of
     E[prod_{a in doubled} n_a (n_a - 1) prod_{others} n_a] / w^K on every
     N-set, from numpy or torch arrays G, T (n x n).  The work per set is
-    about one multiply-add per monomial, whatever its degree."""
+    about one multiply-add per monomial, whatever its degree.  With
+    `by_size` the patterns with r doubled positions are summed, which is
+    all the variances need, and keyed by tuple(range(r)); without
+    `to_numpy` the arrays stay torch tensors on the device of G."""
     import torch
     G, T = (torch.as_tensor(x) for x in (G, T))
     n, device = G.shape[0], G.device
     if doubles is None:
         doubles = [d for size in range(N + 1) for d in combinations(range(N), size)]
     doubles = tuple(tuple(d) for d in doubles)
-    prefixes, suffixes, pre, suf, rows, counts, n_rows = plan(N, doubles)
+    prefixes, suffixes, pre, suf, rows, counts, n_rows = plan(N, doubles, by_size)
     as_t = lambda a, dtype=torch.long: torch.as_tensor(a, device=device, dtype=dtype)
     prefixes = [as_t(x) for x in prefixes]
     suffixes = [as_t(x) for x in suffixes]
@@ -188,7 +222,10 @@ def moments(G, T, N, doubles=None, chunk=4096, key_batch=1 << 16):
             sl = slice(k, k + key_batch)
             acc.index_add_(0, rows[sl], counts[sl, None] * P[pre[sl]] * S[suf[sl]])
         out[:, start:start + idx.shape[1]] = acc.real
-    out = out.cpu().numpy()
+    if to_numpy:
+        out = out.cpu().numpy()
+    if by_size:
+        return {tuple(range(r)): out[r * (N + 1):(r + 1) * (N + 1)] for r in range(N + 1)}
     return {d: out[r * (N + 1):(r + 1) * (N + 1)] for r, d in enumerate(doubles)}
 
 
@@ -216,16 +253,31 @@ def weight(w, J, kind="squeezed"):
     raise ValueError(kind)
 
 
+def weighted(m, w, kind):
+    """sum_j (mu / w)^(2j) m_j, for numpy or torch components m (J, M)."""
+    v = weight(w, m.shape[0], kind)
+    if not isinstance(m, np.ndarray):
+        import torch
+        v = torch.as_tensor(v, dtype=m.dtype, device=m.device)
+    return v @ m
+
+
+def ascending(x):
+    if isinstance(x, np.ndarray):
+        return np.sort(x)
+    return x.sort().values
+
+
 def combine(mom, nmax, w, kind="squeezed"):
     """Rates and variances at brightness w, per order: dict N -> (F, Var)."""
     out = {}
     for N in range(1, nmax + 1):
-        rates = w ** N * (weight(w, N + 1, kind) @ mom[(N, ())])
-        second = np.zeros_like(rates)
+        rates = w ** N * weighted(mom[(N, ())], w, kind)
+        second = 0 * rates
         for (M, d), m in mom.items():
             if M == N:
-                second += w ** (N + len(d)) * (weight(w, N + 1, kind) @ m)
-        out[N] = (rates, np.maximum(second - rates ** 2, 0.0))
+                second += w ** (N + len(d)) * weighted(m, w, kind)
+        out[N] = (rates, (second - rates ** 2).clip(min=0.0))
     return out
 
 
@@ -235,20 +287,23 @@ def ideal_counts(mom_g, mom_h, nmax, w, kind="squeezed", beta=0.05):
     out, d2 = {}, 0.0
     for N in range(1, nmax + 1):
         (fg, vg), (fh, vh) = rg[N], rh[N]
-        og, oh = np.argsort(fg), np.argsort(fh)
+        og, oh = fg.argsort(), fh.argsort()
         noise = vg[og] + vh[oh]
         diff = fg[og] - fh[oh]
         mask = noise > 0
-        d2 += float(np.sum(diff[mask] ** 2 / noise[mask]))
+        d2 += float((diff[mask] ** 2 / noise[mask]).sum())
         out[N] = 4 * np.log(1 / beta) / d2 if d2 > 0 else float("inf")
     return out
 
 
+def relative_gap(fg, fh):
+    """Largest difference of two sorted profiles over their largest entry."""
+    fg, fh = ascending(fg), ascending(fh)
+    scale = max(float(abs(fg).max()), float(abs(fh).max()))
+    return float(abs(fg - fh).max()) / scale if scale > 0 else 0.0
+
+
 def gaps(mom_g, mom_h, nmax, w, kind="squeezed"):
     """Largest difference of the sorted rates over the largest rate, per order."""
-    out = {}
-    for N in range(1, nmax + 1):
-        fg = np.sort(w ** N * (weight(w, N + 1, kind) @ mom_g[(N, ())]))
-        fh = np.sort(w ** N * (weight(w, N + 1, kind) @ mom_h[(N, ())]))
-        out[N] = float(np.max(np.abs(fg - fh)) / max(fg.max(), fh.max()))
-    return out
+    return {N: relative_gap(w ** N * weighted(mom_g[(N, ())], w, kind), w ** N * weighted(mom_h[(N, ())], w, kind))
+            for N in range(1, nmax + 1)}

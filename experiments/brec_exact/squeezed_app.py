@@ -17,7 +17,7 @@ vol = modal.Volume.from_name("photonic-brec-rates")
 HERE = os.path.dirname(os.path.abspath(__file__))
 image = (modal.Image.debian_slim(python_version="3.12")
          .pip_install("numpy", "torch")
-         .env({"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"})
+         .env({"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True", "SQUEEZED_TABLES": "/vol/squeezed_tables"})
          .add_local_python_source("brecphot", "squeezed"))
 
 BRIGHTNESSES = (0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 100.0)
@@ -31,6 +31,7 @@ def run(spec, device):
     import brecphot as bp
     import squeezed as sq
     nmax = spec["nmax"]
+    vmax = spec.get("vmax", nmax)        # orders above vmax: rates only, so gaps but no variances
     t0 = time.time()
     timing = {}
     mom = {}
@@ -43,18 +44,20 @@ def run(spec, device):
         mom[side] = {}
         for N in range(1, nmax + 1):
             t = time.time()
-            for d, m in sq.moments(G, T, N, chunk=spec.get("chunk", 4096), key_batch=spec.get("key_batch", 1 << 16)).items():
+            full = N <= vmax
+            for d, m in sq.moments(G, T, N, doubles=None if full else [()], chunk=spec.get("chunk", 4096),
+                                   key_batch=spec.get("key_batch", 1 << 16), by_size=full, to_numpy=False).items():
                 mom[side][(N, d)] = m
             if device == "cuda":
                 torch.cuda.synchronize()
             timing[f"N{N} {side}"] = time.time() - t
         del Wt, G, T
-    result = {"pair": spec["pair"], "seed": spec["seed"], "gamma": spec["gamma"], "nmax": nmax,
+    result = {"pair": spec["pair"], "seed": spec["seed"], "gamma": spec["gamma"], "nmax": nmax, "vmax": vmax,
               "n": bp.adjacency(spec["G"]).shape[0], "ideal": {}, "gaps": {}}
     for kind in KINDS:
         result["ideal"][kind], result["gaps"][kind] = {}, {}
         for w in BRIGHTNESSES:
-            counts = sq.ideal_counts(mom["G"], mom["H"], nmax, w, kind)
+            counts = sq.ideal_counts(mom["G"], mom["H"], vmax, w, kind)
             result["ideal"][kind][str(w)] = {str(N): c for N, c in counts.items()}
             # the rates of squeezed light mix powers of w; the others are w^N times a constant
             if kind == "squeezed" or w == 1.0:
@@ -63,22 +66,19 @@ def run(spec, device):
     # the j-components separately: each one is a graph invariant on its own
     result["component_gaps"] = {}
     for N in range(1, nmax + 1):
-        rows = []
-        for j in range(N + 1):
-            fg, fh = np.sort(mom["G"][(N, ())][j]), np.sort(mom["H"][(N, ())][j])
-            scale = max(np.abs(fg).max(), np.abs(fh).max())
-            rows.append(float(np.max(np.abs(fg - fh)) / scale) if scale > 0 else 0.0)
+        rows = [sq.relative_gap(mom["G"][(N, ())][j], mom["H"][(N, ())][j]) for j in range(N + 1)]
         result["component_gaps"][str(N)] = rows
+    del mom
     result["timing"] = timing
     result["seconds"] = time.time() - t0
     return result
 
 
 @app.function(image=image, gpu="H100", cpu=8, memory=65536, volumes={"/vol": vol},
-              timeout=7200, max_containers=10, retries=1)
+              timeout=86400, max_containers=10, retries=1)
 def squeezed_job(spec):
     folder = f"/vol/{EXPERIMENT}/{spec['pair']}/s{spec['seed']}"
-    path = f"{folder}/g{spec['gamma']}-N{spec['nmax']}.json"
+    path = f"{folder}/g{spec['gamma']}-N{spec['nmax']}" + (f"-V{spec['vmax']}" if spec.get("vmax", spec["nmax"]) != spec["nmax"] else "") + ".json"
     try:
         vol.reload()
     except RuntimeError:
@@ -94,7 +94,8 @@ def squeezed_job(spec):
 
 
 @app.local_entrypoint()
-def bench(pairs: str = "Strongly_regular_2", nmax: int = 4, seed: int = 100, chunk: int = 4096, key_batch: int = 65536):
+def bench(pairs: str = "Strongly_regular_2", nmax: int = 4, vmax: int = 0, seed: int = 100, chunk: int = 4096,
+          key_batch: int = 65536):
     import sys
     sys.path.insert(0, HERE)
     import brecphot as bp
@@ -105,7 +106,8 @@ def bench(pairs: str = "Strongly_regular_2", nmax: int = 4, seed: int = 100, chu
         category, i = pair.rsplit("_", 1)
         g, h = data[category][int(i)]
         calls.append(squeezed_job.spawn({"pair": pair, "seed": seed, "gamma": 0.9, "nmax": nmax, "G": g, "H": h,
-                                         "chunk": chunk, "key_batch": key_batch, "dry": True, "force": True}))
+                                         "vmax": vmax or nmax, "chunk": chunk, "key_batch": key_batch,
+                                         "dry": True, "force": True}))
     for call in calls:
         r = call.get()
         print(r["pair"], r["n"], f"{r['seconds']:.1f}s", {k: round(v, 2) for k, v in r["timing"].items()})
