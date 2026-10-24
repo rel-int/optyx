@@ -3,7 +3,7 @@ thermal light in the chip run tick by tick, the count of every detector
 setting the phase of its chip's memory mode `delay` ticks later, against
 the same chip without feedforward (kappa = 0).
 
-    python launch_ff.py [--pairs A,B] [--seeds 100,101,102,103] [--top 100000000]
+    python launch_ff.py [--pairs A,B] [--seeds 100,101,102,103] [--top 100000000] [--kappas 0,2] [--delays 1]
 """
 import argparse
 import os
@@ -23,13 +23,14 @@ KAPPAS = (0.0, 0.5, 2.0)
 DELAYS = (1, 5)
 
 
-def configs():
+def configs(kappas=KAPPAS, delays=DELAYS):
     """(model, kappa, delay): kappa = 0 once per model, the others at every delay."""
     for model in MODELS:
         yield model, 0.0, 1
-        for kappa in KAPPAS[1:]:
-            for delay in DELAYS:
-                yield model, kappa, delay
+        for kappa in kappas:
+            if kappa:
+                for delay in delays:
+                    yield model, kappa, delay
 
 
 def suffix(kappa, delay, brightness=BRIGHTNESS):
@@ -41,6 +42,8 @@ def main():
     parser.add_argument("--pairs", default=None)
     parser.add_argument("--seeds", default="100,101,102,103")
     parser.add_argument("--top", type=int, default=10 ** 8, help="largest budget, samples per graph")
+    parser.add_argument("--kappas", default=",".join(map(str, KAPPAS)))
+    parser.add_argument("--delays", default=",".join(map(str, DELAYS)))
     args = parser.parse_args()
     budgets = [10 ** k for k in range(3, 20) if 10 ** k <= args.top]
     data = bp.load_brec(BREC_RAW)
@@ -51,7 +54,8 @@ def main():
         category, i = pair.rsplit("_", 1)
         g, h = data[category][int(i)]
         for seed in map(int, args.seeds.split(",")):
-            for model, kappa, delay in configs():
+            for model, kappa, delay in configs(tuple(map(float, args.kappas.split(","))),
+                                               tuple(map(int, args.delays.split(",")))):
                 calls.append(job.spawn({"pair": pair, "seed": seed, "model": model, "brightness": BRIGHTNESS,
                                         "kappa": kappa, "delay": delay, "G": g, "H": h, "nmax": KMODE_PAIRS[pair],
                                         "budgets": budgets, "experiment": EXPERIMENT,
