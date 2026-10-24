@@ -30,13 +30,10 @@ and of T* on an N-set.  Evaluating a set then needs only those entries:
 no sum over the slots of the path matrix, which is done once, in the two
 n x n Gram matrices.
 """
-import os
 from functools import lru_cache
 from itertools import combinations
 
 import numpy as np
-
-CACHE = os.environ.get("SQUEEZED_TABLES")
 
 
 def factor_ids(N):
@@ -55,10 +52,6 @@ def tables(N, doubled):
     in `doubled` carry two photons.  Returns keys (n_keys, K) of factor ids
     padded with -1, counts (n_keys,) and j (n_keys,), the number of T
     factors of each key."""
-    path = f"{CACHE}/N{N}_{''.join(map(str, doubled))}.npz" if CACHE else None
-    if path and os.path.exists(path):
-        with np.load(path) as z:
-            return z["keys"], z["counts"], z["j"]
     m = tuple(2 if i in doubled else 1 for i in range(N))
     K = sum(m)
     tri, t0, tc0, _ = factor_ids(N)
@@ -105,9 +98,6 @@ def tables(N, doubled):
     keys = np.array(sorted(monos), dtype=np.int32).reshape(-1, K)
     counts = np.array([monos[tuple(k)] for k in keys], dtype=float)
     j = np.sum((keys >= t0) & (keys < tc0), axis=1)
-    if path:
-        os.makedirs(CACHE, exist_ok=True)
-        np.savez(path, keys=keys, counts=counts, j=j)
     return keys, counts, j
 
 
@@ -128,27 +118,8 @@ def set_values(G, T, idx):
     return torch.stack(rows)
 
 
-def plan(N, doubles, by_size=False):
-    """`build_plan`, cached on disk next to the tables when SQUEEZED_TABLES is set."""
-    tag = "all" if len(doubles) == 2 ** N else "_".join("".join(map(str, d)) or "e" for d in doubles)
-    path = f"{CACHE}/plan_N{N}_{tag}_{int(by_size)}.npz" if CACHE else None
-    if path and os.path.exists(path):
-        with np.load(path) as z:
-            levels = int(z["levels"])
-            prefixes = [z[f"p{i}"] for i in range(levels)]
-            suffixes = [z[f"s{i}"] for i in range(levels)]
-            return prefixes, suffixes, z["pre"], z["suf"], z["rows"], z["counts"], int(z["n_rows"])
-    result = build_plan(N, doubles, by_size)
-    if path:
-        prefixes, suffixes, pre, suf, rows, counts, n_rows = result
-        os.makedirs(CACHE, exist_ok=True)
-        np.savez(path, levels=len(prefixes), pre=pre, suf=suf, rows=rows, counts=counts, n_rows=n_rows,
-                 **{f"p{i}": x for i, x in enumerate(prefixes)}, **{f"s{i}": x for i, x in enumerate(suffixes)})
-    return result
-
-
 @lru_cache(maxsize=None)
-def build_plan(N, doubles, by_size=False):
+def plan(N, doubles, by_size=False):
     """All the monomials of order N in one list, split in a prefix and a
     suffix of N factors each (padded with the ones row): the unique
     prefixes and suffixes as tries, level by level (parent, factor), every
