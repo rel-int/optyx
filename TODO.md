@@ -11,3 +11,7 @@
 > Great, then run also the higher orders on squeezed
 
 - [x] Squeezed light at the orders of the reach run of the other sources (4 up to 96 vertices, 3 above)
+
+> Alright, run the experiments with non linearity on the 16 pairs with the classical architectures
+
+- [WIP] @session_017fWFyGbNF3W2wpXaknNsMu-2026-10-24 12:30 Measurement feedforward in the classical chip: the counts of each detector set a phase on its chip's memory mode a few ticks later; laser and thermal light, tick-by-tick sampler, the paper's protocol on the 16-pair subset
