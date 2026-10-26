@@ -9,6 +9,7 @@ API
     optyx.core
     optyx.classical
     optyx.contextuality
+    optyx.interaction
     optyx.photonic
     optyx.qubits
     optyx.compiler

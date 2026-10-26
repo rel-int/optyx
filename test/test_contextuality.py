@@ -1,12 +1,15 @@
 import numpy as np
 import pytest
 
-from optyx import bit, mode, qubit, Diagram, Encode
+from optyx import bit, mode, qmode, qubit, Diagram, Discard, Encode
+from optyx.channel import Ty
 from optyx.classical import BitControlledGate
 from optyx.contextuality import (
-    BellInequality, EmpiricalModel, Scenario, maximise_contextual_fraction)
-from optyx.photonic import NumberResolvingMeasurement
-from optyx.qubits import H, Measure, Scalar, Z
+    BellInequality, EmpiricalModel, MessagePassingScenario, Scenario,
+    local_measurement, maximise_contextual_fraction)
+from optyx.interaction import Box, CMap
+from optyx.photonic import Create, NumberResolvingMeasurement
+from optyx.qubits import H, Ket, Measure, Scalar, Z
 
 
 chsh = Scenario(("a0", "a1", "b0", "b1"), (
@@ -122,3 +125,61 @@ def test_maximise_contextual_fraction():
     assert np.isclose(params[1] - params[0], .25, atol=.05)
     assert (best.vector() == EmpiricalModel.from_diagram(
         bell_test(params)).vector()).all()
+
+
+def test_local_measurement():
+    plus = Ket(0) >> H()
+    measured = EmpiricalModel.conditionals(
+        bit @ plus >> local_measurement([0, 0, .25, .25]), (2, ))
+    assert np.allclose(list(measured[(0, )].values()), [.5, .5])
+    assert len(measured[(1, )]) == 1
+
+
+def bell_pair_map():
+    source = Box("source", Ty(), qubit,
+                 Discard(qubit) @ qubit >> Scalar(.5 ** .5) @ Z(0, 2) @ qubit,
+                 memory=qubit, prediction=qubit)
+    sink = Box("sink", qubit, Ty(), Ket(0) @ qubit, prediction=qubit)
+    return CMap([source, sink], [((0, 0), (1, 0))])
+
+
+def test_MessagePassingScenario():
+    scenario = MessagePassingScenario(bell_pair_map(), Ket(0) ** 3, n_steps=1)
+    angles = [0, 0, .25, .25, .25, .125, 0, .25]
+    assert scenario.diagram(angles).dom == scenario.diagram(angles).cod\
+        == bit ** 2
+    assert np.isclose(
+        scenario.model(angles).contextual_fraction(), 2 ** .5 - 1)
+    first_tick = MessagePassingScenario(bell_pair_map(), Ket(0) ** 3)
+    assert not first_tick.model(angles).is_contextual()
+    with pytest.raises(ValueError):
+        MessagePassingScenario(CMap([Box(
+            "f", qubit, Ty(), Z(1, 3), prediction=qubit ** 2)], []), Ket(0))
+    with pytest.raises(ValueError):
+        MessagePassingScenario(
+            CMap([Box("f", qubit, Ty(), Diagram.id(qubit))], []),
+            Diagram.id())
+    with pytest.raises(ValueError):
+        MessagePassingScenario.default_measurement(mode)
+
+
+def test_learn():
+    scenario = MessagePassingScenario(bell_pair_map(), Ket(0) ** 3, n_steps=1)
+    angles, model = scenario.learn(restarts=2, steps=1)
+    assert angles.shape == (8, )
+    assert model == scenario.model(angles)
+
+
+def test_dual_rail_scenario():
+    pair = qmode ** 2
+    bell = (Scalar(.5 ** .5) @ Z(0, 2)).to_dual_rail()
+    source = Box("source", Ty(), pair, Discard(pair) @ pair >> bell @ pair,
+                 memory=pair, prediction=pair)
+    sink = Box("sink", pair, Ty(), Create(0, 0) @ pair, prediction=pair)
+    photonic = MessagePassingScenario(
+        CMap([source, sink], [((0, 0), (1, 0)), ((0, 1), (1, 1))]),
+        Create(0, 0, 0, 0, 0, 0), n_steps=1)
+    counts = photonic.model([0, 0, .25, 0, .125, 0, .25, 0])
+    assert counts.scenario.outcomes[(1, 1)] == ((0, 1), (1, 0))
+    assert counts.is_no_signalling()
+    assert np.isclose(counts.contextual_fraction(), 2 ** .5 - 1)
