@@ -3,7 +3,8 @@ import pytest
 
 from optyx import bit, mode, qubit, Diagram, Encode
 from optyx.classical import BitControlledGate
-from optyx.contextuality import BellInequality, EmpiricalModel, Scenario
+from optyx.contextuality import (
+    BellInequality, EmpiricalModel, Scenario, maximise_contextual_fraction)
 from optyx.photonic import NumberResolvingMeasurement
 from optyx.qubits import H, Measure, Scalar, Z
 
@@ -99,3 +100,25 @@ def test_from_diagram():
         EmpiricalModel.from_diagram(Measure(1))
     with pytest.raises(ValueError):
         EmpiricalModel.from_diagram(detector @ Encode(mode))
+
+
+def test_maximise_contextual_fraction():
+    def bell_test(params):
+        a0, a1, b0, b1 = params
+        alice = bit @ Z(1, 1, a0) >> BitControlledGate(Z(1, 1, a1 - a0))\
+            >> H() >> Measure(1)
+        bob = Diagram.swap(qubit, bit) >> bit @ Z(1, 1, b0)\
+            >> BitControlledGate(Z(1, 1, b1 - b0)) >> H() >> Measure(1)
+        return bit @ Scalar(.5 ** .5) @ Z(0, 2) @ bit >> alice @ bob
+    start = EmpiricalModel.from_diagram(bell_test([0., .35, -.125, .125]))
+    gradient = start.contextual_fraction_gradient()
+    assert np.isclose(
+        gradient @ start.vector(), start.contextual_fraction() - 1)
+    assert gradient @ start.scenario.deterministic((0, 0, 0, 0)).vector()\
+        <= -1 + 1e-9
+    params, best = maximise_contextual_fraction(
+        bell_test, [0., .35, -.125, .125], steps=3)
+    assert best.contextual_fraction() > start.contextual_fraction()
+    assert np.isclose(params[1] - params[0], .25, atol=.05)
+    assert (best.vector() == EmpiricalModel.from_diagram(
+        bell_test(params)).vector()).all()

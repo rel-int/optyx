@@ -60,6 +60,16 @@ Classes
     EmpiricalModel
     BellInequality
 
+Functions
+---------
+
+.. autosummary::
+    :template: function.rst
+    :nosignatures:
+    :toctree:
+
+    maximise_contextual_fraction
+
 Examples
 --------
 
@@ -108,6 +118,29 @@ Bell test on the singlet at the Tsirelson bound:
 >>> assert tsirelson.is_no_signalling()
 >>> round(tsirelson.contextual_fraction(), 6)  # sqrt(2) - 1
 0.414214
+
+The contextual fraction is differentiable through the dual program, so
+gradient ascent finds the measurement angles maximising it: here the
+settings of each party are two free phases in the X-Y plane, and from
+a contextual starting point the ascent reaches the Tsirelson bound, with
+each party's settings a quarter turn apart.
+
+>>> def bell_test(params):
+...     a0, a1, b0, b1 = params
+...     alice = bit @ Z(1, 1, a0) >> BitControlledGate(Z(1, 1, a1 - a0))\\
+...         >> H() >> Measure(1)
+...     bob = Diagram.swap(qubit, bit) >> bit @ Z(1, 1, b0)\\
+...         >> BitControlledGate(Z(1, 1, b1 - b0)) >> H() >> Measure(1)
+...     return bit @ Scalar(.5 ** .5) @ Z(0, 2) @ bit >> alice @ bob
+>>> start = EmpiricalModel.from_diagram(bell_test([.3, .05, .17, .42]))
+>>> round(start.contextual_fraction(), 3)
+0.17
+>>> params, best = maximise_contextual_fraction(
+...     bell_test, [.3, .05, .17, .42])
+>>> round(best.contextual_fraction(), 3)
+0.414
+>>> params.round(2)
+array([0.25, 0.  , 0.12, 0.37])
 """
 
 from __future__ import annotations
@@ -358,6 +391,19 @@ class EmpiricalModel:
         """ Whether the contextual fraction is one. """
         return self.contextual_fraction() > 1 - tol
 
+    def contextual_fraction_gradient(self) -> np.ndarray:
+        """
+        The gradient :math:`-y` of the contextual fraction with respect to
+        the probabilities :math:`v_e`, in the order of the rows, for the
+        solution :math:`y` of the dual program: the value of a linear
+        program is piecewise linear in its right-hand side and its gradient
+        is the dual solution, which the solver returns as the marginals of
+        the inequality constraints. It is a subgradient where the dual is
+        not unique, e.g. on the boundary of the noncontextual polytope, and
+        constant on each context inside it, where the fraction is zero.
+        """
+        return np.array(self.linear_program().ineqlin.marginals)
+
     def bell_inequality(self) -> BellInequality:
         """
         The inequality :math:`\\langle \\mathbf{1} - y, e \\rangle \\leq
@@ -423,6 +469,53 @@ class EmpiricalModel:
             outcomes={(party, x): tuple(outcomes[party])
                       for party, n in enumerate(settings) for x in range(n)})
         return cls(scenario, distributions)
+
+
+def maximise_contextual_fraction(
+        setup: Callable[[np.ndarray], channel.Diagram],
+        params: Sequence[float], steps: int = 10, learning_rate: float = .02,
+        difference: float = 1e-3, **kwargs
+        ) -> tuple[np.ndarray, EmpiricalModel]:
+    """
+    Gradient ascent on the contextual fraction of the empirical model of a
+    parametrised setup, from a starting point.
+
+    Parameters:
+        setup : A function from an array of parameters to a diagram that
+            :meth:`EmpiricalModel.from_diagram` accepts.
+        params : The starting parameters.
+        steps : The number of steps of gradient ascent.
+        learning_rate : The step size.
+        difference : The step of the forward differences approximating the
+            derivatives of the probabilities with respect to the parameters.
+        kwargs : Passed to :meth:`EmpiricalModel.from_diagram`, with the
+            outcomes of the starting point fixed throughout.
+
+    The gradient of the fraction with respect to the probabilities is
+    :meth:`EmpiricalModel.contextual_fraction_gradient`, exact from the
+    dual program, and the chain rule contracts it with the derivatives of
+    the probabilities with respect to the parameters, which are the only
+    approximation. The fraction is zero on the noncontextual polytope, so
+    the ascent only moves from a contextual starting point. The best
+    parameters seen are returned with their model.
+    """
+    params = np.array(params, dtype=float)
+    model = EmpiricalModel.from_diagram(setup(params), **kwargs)
+    kwargs["outcomes"] = [
+        model.scenario.outcomes[(party, 0)]
+        for party in range(len(model.scenario.contexts[0]))]
+    best = params, model
+    for _ in range(steps):
+        gradient = model.contextual_fraction_gradient()
+        jacobian = np.array([(EmpiricalModel.from_diagram(
+            setup(params + difference * direction), **kwargs).vector()
+            - model.vector()) / difference
+            for direction in np.eye(len(params))])
+        params = params + learning_rate * jacobian @ gradient
+        model = EmpiricalModel.from_diagram(setup(params), **kwargs)
+        if model.contextual_fraction() > best[1].contextual_fraction():
+            best = params, model
+    return best
 
 
 class BellInequality:
