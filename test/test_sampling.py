@@ -592,3 +592,123 @@ def test_stationary_distribution_matches_fix(name):
         tol=1e-3, max_chi=None).prob_dist()
     for outcome in set(exact) | set(fixed):
         assert np.isclose(exact.get(outcome, 0), fixed.get(outcome, 0))
+
+
+def switch_loop(copies=1):
+    """
+    A loop whose detector feeds the parity of its count forward to the
+    setting of the next tick's switch, every optical wire in `copies`
+    copies, the switch acting alike on each and the detector adding them
+    up: with one photon per copy, the copies are photons in orthogonal
+    internal states.
+    """
+    from optyx.channel import qmode, mode, bit, Diagram
+    from optyx.photonic import MZI, PhotonLoss, NumberResolvingMeasurement
+    from optyx import classical
+    order = [k // 2 + copies * (k % 2) for k in range(2 * copies)]
+    pairs = Diagram.permutation(order, qmode ** (2 * copies))
+    switch = classical.BitControlledGate(*(
+        pairs >> Diagram.tensor(*[gate] * copies) >> pairs.dagger()
+        for gate in (MZI(.3, .2), MZI(.1, .4))))
+    parity = classical.ClassicalFunction(lambda n: [n[0] % 2], mode, bit)
+    return Diagram.permutation(
+        [2 * copies] + list(range(2 * copies)), qmode ** (2 * copies) @ bit
+    ) >> switch >> NumberResolvingMeasurement(copies) @ qmode ** copies \
+        >> classical.Add(copies) @ qmode ** copies \
+        >> classical.CopyN(2) @ qmode ** copies >> mode @ Diagram.permutation(
+            list(range(1, copies + 1)) + [0], mode @ qmode ** copies) \
+        >> mode @ Diagram.tensor(*[PhotonLoss(.8)] * copies) @ parity
+
+
+def test_colouring_matches_distinguishable_copies():
+    from optyx.channel import qmode, mode, bit, Diagram, Discard
+    from optyx.photonic import Create
+    from optyx import classical
+    ticks = 2
+    step = switch_loop(ticks)
+    photon = [Create(*[int(i == time) for i in range(ticks)])
+              for time in range(ticks)]
+    state = photon[0] @ Create(*[0] * ticks) @ classical.Bit(0) >> step
+    for time in range(1, ticks):
+        state = state >> Diagram.id(mode ** time) @ (
+            photon[time] @ qmode ** ticks @ bit >> step)
+    exact = (state >> Diagram.id(mode ** ticks) @ Discard(
+        qmode ** ticks @ bit)).eval().prob_dist()
+    loop = switch_loop().feedback(
+        mem=qmode @ bit, state=Create(0) @ classical.Bit(0))
+    for p, close in ((0., True), (1., False)):
+        unravelling = Unravelling(loop, source=Fock((1, )),
+                                  indistinguishability=p)
+        counts = Counter(tuple(n for (n, ) in unravelling.sample(
+            ticks, seed=seed)) for seed in range(2000))
+        assert close == all(abs(counts[history] / 2000 - probability) < .04
+                            for history, probability in exact.items())
+
+
+def test_colouring_agrees_with_the_interferometer():
+    from optyx.channel import qmode
+    from optyx.photonic import Create, MZI, PhotonLoss
+    loop = (MZI(.3, .1) >> qmode @ PhotonLoss(.7)).feedback(
+        mem=qmode, state=Create(0))
+    network = Interferometer.from_diagram(
+        loop, indistinguishability=.5, source=Fock((2, )))
+    unravelling = Unravelling(
+        loop, source=Fock((2, )), indistinguishability=.5, cap=8)
+    assert "indistinguishability=0.5" in repr(unravelling)
+    counts = [Counter(sampler.sample(1, burn_in=8, seed=seed)[0]
+                      for seed in range(2000))
+              for sampler in (network, unravelling)]
+    for outcome in set(counts[0]) | set(counts[1]):
+        assert abs(counts[0][outcome] - counts[1][outcome]) / 2000 < .04
+
+
+def test_colouring_refusals():
+    from optyx.channel import qmode, mode, Diagram, Measure
+    from optyx.photonic import Create, BS
+    from optyx import classical
+    with pytest.raises(NotImplementedError):
+        adder().sample(ticks=2, burn_in=1, indistinguishability=.5)
+    with pytest.raises(NotImplementedError):
+        Unravelling(qubit_loop(), indistinguishability=.5)
+    unpooled = (classical.Digit(0) @ BS >> Diagram.swap(mode, qmode) @ qmode
+                >> Measure(qmode @ mode) @ qmode).feedback(
+                    mem=qmode, state=Create(0))
+    with pytest.raises(NotImplementedError):
+        Unravelling(unpooled, source=Fock((1, )),
+                    indistinguishability=0.).sample(1, seed=0)
+
+
+def test_shifted_sources():
+    from optyx.sampling import Shifted
+    assert Thermal((1., )).shift((.5, )) == Thermal((1.5, ))
+    assert Fock((1, )).shift((-.5, )) == Shifted(Fock((1, )), (-.5, ))
+    assert repr(Fock((1, )).shift((.5, ))) == "Shifted(Fock((1,)), (0.5,))"
+    with pytest.raises(ValueError):
+        Coherent((1., )).shift((-2., ))
+    with pytest.raises(ValueError):
+        Fock((1, )).shift((-2., ))
+    rng = np.random.default_rng(0)
+    draws = [Fock((2, 1)).shift((.5, -.5)).draw(rng) for _ in range(4000)]
+    assert np.allclose(np.mean(draws, axis=0), (2.5, .5), atol=.05)
+
+
+def test_dephased_correlations_match_the_unravelling():
+    from optyx.channel import qmode
+    from optyx.photonic import Create, MZI, PhotonLoss, Dephasing
+    from optyx.sampling import CQState
+    step = qmode @ Dephasing() @ qmode >> MZI(.2, .3) @ qmode \
+        >> qmode @ MZI(.35, .1) >> qmode @ PhotonLoss(.6) @ PhotonLoss(.8)
+    loop = step.feedback(mem=qmode @ qmode, state=Create(0, 0))
+    network = Interferometer.from_step(
+        Create(0, 0), step[1:], 1, Coherent((.3, )))
+    exact = np.real(np.diag(network.correlations(dephased=(0, ))))
+    assert not np.allclose(exact, np.diag(network.correlations()))
+    unravelling = Unravelling(loop, cap=8, source=Coherent((.3, )))
+    rng = np.random.default_rng(0)
+    colours, means = [CQState.empty()], []
+    colours = unravelling.run(unravelling.initial, colours, rng)
+    for time in range(2500):
+        _, colours = unravelling.tick(colours, rng)
+        if time > 20:
+            means.append(unravelling.occupations(colours))
+    assert np.allclose(np.mean(means, axis=0), exact, atol=.03)
