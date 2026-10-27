@@ -86,6 +86,7 @@ Classes
     Fock
     Coherent
     Thermal
+    Shifted
     FockState
     Sweep
     Unravelling
@@ -99,6 +100,7 @@ Functions
     :nosignatures:
     :toctree:
 
+    colouring
     complete
     observe
     levels
