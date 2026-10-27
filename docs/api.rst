@@ -11,5 +11,6 @@ API
     optyx.photonic
     optyx.qubits
     optyx.sampling
+    optyx.equilibrium
     optyx.compiler
 

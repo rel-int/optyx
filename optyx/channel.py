@@ -467,8 +467,9 @@ class Diagram(frobenius.Diagram):
             ticks : The number of ticks recorded.
             tol : The total variation distance to the stationary regime
                 that the certified burn-in of a passive diagram reaches.
-            indistinguishability : For a passive diagram, the probability
-                that a photon is in the internal state shared by all.
+            indistinguishability : The probability that a photon of the
+                source, or of a passive diagram, is in the internal state
+                shared by all.
             seed : The seed of the random number generator.
             burn_in : The number of ticks discarded first, certified from
                 `tol` for a passive diagram when not given.
@@ -521,8 +522,11 @@ class Diagram(frobenius.Diagram):
         - a mode holding more than `cap` photons raises rather than
           truncate the state;
         - the burn-in is not certified and must be given;
-        - `indistinguishability` is refused, give internal states instead,
-          and so is a source feeding photons with internal states;
+        - `indistinguishability` colours the photons of the source and a
+          detector adds up the counts of the colours before any
+          feed-forward sees them; it is refused with qubits, internal
+          states or boxes creating photons, and a source feeding photons
+          with internal states is refused;
         - a tick is exponential in the number of quantum wires alive at
           once.
 
@@ -578,12 +582,12 @@ class Diagram(frobenius.Diagram):
             network = Interferometer.from_diagram(
                 self, indistinguishability, source)
         except NotImplementedError as error:
-            if indistinguishability != 1 or burn_in is None:
+            if burn_in is None:
                 raise NotImplementedError(
                     f"{error} Other diagrams are sampled by their "
-                    "Unravelling, with an explicit burn_in and internal "
-                    "states for distinguishable photons.") from error
-            return Unravelling(self, cap, source), burn_in
+                    "Unravelling, with an explicit burn_in.") from error
+            return Unravelling(self, cap, source, indistinguishability), \
+                burn_in
         return network, network.burn_in(tol) if burn_in is None \
             else burn_in
 
@@ -1931,8 +1935,12 @@ class Measure(Channel):
     >>> print(dom.single())
     bit @ bit @ mode @ mode
     >>> assert Measure(dom).double().cod == dom.single()
+
+    A detector sees the photons of all internal states, so the counts of
+    photons of different colours add up: its :attr:`pool` is the sum.
     """
     draw_as_measures = True
+    pool = staticmethod(sum)
 
     def __init__(self, dom):
         cod = Ty(*[Ob._classical[ob.name] for ob in dom.inside])
