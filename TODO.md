@@ -9,7 +9,7 @@ The second half, equilibrium propagation, stacked on #94, the samplers.
 - [x] `optyx/equilibrium.py`: the stationary means of a family of diagrams `family(theta)` (loop occupations at the cut and output counts), the reference gradient by central differences, and the equilibrium propagation estimate: the response of the means to a nudge of the sources, `q -> q + beta c`, contracted with the one-tick derivative of the means
 - [x] exact one-body version for passive diagrams, independent of the source and of `p`
 - [x] tests: exact for a reciprocal loop dephased at the cut, whatever the source and `p`, biased without the dephasing or the reciprocity; the sampled path runs, with feed-forward
-- [WIP] @session_01XmqyhQuUzn8CQGX7CBCMw5-2026-10-27 14:30 notebook in `docs/notebooks`: equilibrium propagation against the gradient, exact for passive loops, and the sampled feed-forward grid for every source and `p`
+- [x] notebook in `docs/notebooks`: equilibrium propagation against the gradient, exact for passive loops, and the sampled feed-forward grid for every source and `p`
 - [ ] thermal sources in the grid, at a mean that stays under the cap
 - [ ] phase-locked coherent light (fields adding up coherently over the ticks), proposed in the session, awaiting a decision
 - [ ] API docs, `pflake8 optyx`, `coverage run -m pytest`, CI green
