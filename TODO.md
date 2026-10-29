@@ -11,8 +11,8 @@ The second half, equilibrium propagation, stacked on #94, the samplers.
 - [x] tests: exact for a reciprocal loop dephased at the cut, whatever the source and `p`, biased without the dephasing or the reciprocity; the sampled path runs, with feed-forward
 - [x] notebook in `docs/notebooks`: equilibrium propagation against the gradient, exact for passive loops, and the sampled feed-forward grid for every source and `p`
 - [ ] thermal sources in the grid, at a mean that stays under the cap
-- [ ] phase-locked coherent light (fields adding up coherently over the ticks), proposed in the session, awaiting a decision
-- [ ] API docs, `pflake8 optyx`, `coverage run -m pytest`, CI green
+- [x] phase-locked coherent light (fields adding up coherently over the ticks): `PhaseLocked` in #94, `propagate_fields` here
+- [x] API docs, `pflake8 optyx`, `coverage run -m pytest`, CI green
 
 ---
 
@@ -22,4 +22,4 @@ The map and the new sources are in #94, merged here.
 
 - [x] `Equilibrium(fields=True)`: equilibrium propagation sampled by the `Fields` of classical light, phase-locked lasers included; the exact means with the field of a phase-locked source
 - [x] `Equilibrium.propagate_fields`: equilibrium propagation on the fields of phase-locked light, exact for a symmetric mode matrix where the intensities are biased
-- [WIP] @session_01XmqyhQuUzn8CQGX7CBCMw5-2026-10-29 12:00 the wiki page on the feed-forward that settles into equilibrium and can be trained, run against this branch
+- [x] the wiki page on the feed-forward that settles into equilibrium and can be trained, run against this branch: [feedforward-equilibrium](https://github.com/rel-int/wiki/pull/64)
