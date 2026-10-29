@@ -1651,7 +1651,26 @@ transmissivity=1.0, efficiency=1.0, visible=(0,), indistinguishability=1.0)
             raise ValueError(
                 f"{source} has more modes than the {len(self.source)} "
                 "external inputs.")
+        if any(self.source.means[len(source):]):
+            raise NotImplementedError(
+                f"{self.source} feeds the inputs past those of {source}: "
+                "they are not the vacuum.")
         return source.pad(len(self.source) - len(source))
+
+    def fed(self, source: Source) -> Interferometer:
+        """
+        The same network fed by `source` on its first external inputs,
+        :meth:`padded` with the vacuum.
+
+        >>> delay = Interferometer([[0, 1], [1, 0]], loop=1, inputs=(1, ))
+        >>> delay.fed(Coherent((2., ))).occupation()
+        2.0
+        """
+        return Interferometer(
+            self.unitary, self.loop, source=self.padded(source),
+            transmissivity=self.transmissivity, efficiency=self.efficiency,
+            visible=self.visible,
+            indistinguishability=self.indistinguishability)
 
     def colour(self, rng: np.random.Generator, source: Source = None):
         """
@@ -2584,6 +2603,9 @@ class Gaussian:
 
     def __repr__(self):
         return f"Gaussian({self.network!r})"
+
+    def __eq__(self, other):
+        return isinstance(other, Gaussian) and self.network == other.network
 
     def start(self) -> tuple:
         """ The vacuum loop: its means and its covariance. """

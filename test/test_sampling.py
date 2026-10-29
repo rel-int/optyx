@@ -851,6 +851,12 @@ def test_gaussian_matches_the_exact_means():
     assert np.allclose(np.mean(samples, axis=0), exact, atol=.04)
     with pytest.raises(ValueError, match="more modes"):
         network.padded(Fock((0, 0)))
+    assert Gaussian(network) == eval(repr(Gaussian(network)))
+    from optyx.channel import qmode
+    from optyx.photonic import BS, Create
+    lit = (Create(1) @ qmode >> BS).feedback(mem=qmode, state=Create(0))
+    with pytest.raises(NotImplementedError, match="not the vacuum"):
+        Interferometer.from_diagram(lit, source=Fock(())).padded(Fock(()))
 
 
 def test_displaced_classical_light_through_the_fields():

@@ -33,19 +33,27 @@ The units are written on the light in one of two ways:
   :class:`optyx.sampling.Fields`, and single photons,
   :class:`optyx.sampling.Fock`, partially distinguishable or not, thinned
   by the modulators and sampled by the
-  :class:`optyx.sampling.Interferometer`.
+  :class:`optyx.sampling.Interferometer`. Every rail has the same mean
+  :math:`q`.
 
 Once the chip has settled with the modulators held, the mean readout is
 linear in the activations, :math:`\\langle m \\rangle = W r`, with the
-couplings :math:`W` of :meth:`Hopfield.transfer`: the real part of the
-stationary mode matrix :math:`T` of :meth:`optyx.sampling.Interferometer.\
-transfer` for fields, the difference of the rails of the stationary
-intensities for intensities. These are one-particle means, so the same
-whatever the statistics of the light. A photonic loop changes :math:`W`
-only, since :math:`T` sums over every number of round trips, and keeps it
-symmetric for a reciprocal chip, :math:`U = U^\\top`. The fixed points of
-the mean dynamics, :math:`z = g W r + b`, are then the critical points of
-the Hopfield energy
+couplings :math:`W` of :meth:`Hopfield.transfer`:
+
+- for fields, the real part of the stationary mode matrix :math:`T` of
+  :meth:`optyx.sampling.Interferometer.transfer`, the light having no
+  field of its own;
+- for intensities, the difference of the rails of the stationary
+  intensities, when the chip is symmetric under exchanging the two rails
+  of every unit; otherwise the readout is not linear and
+  :meth:`Hopfield.transfer` raises.
+
+These are one-particle means, so the same whatever the statistics of the
+light. A photonic loop changes :math:`W` only, since :math:`T` sums over
+every number of round trips, and keeps it symmetric for a reciprocal chip,
+:math:`U = U^\\top`. The fixed points of the mean dynamics,
+:math:`z = g W r + b`, are then the critical points of the Hopfield
+energy
 
 .. math::
 
@@ -53,7 +61,14 @@ the Hopfield energy
     + \\tfrac12 \\ln (1 - r_i^2)\\right) - \\tfrac12 g\\, r^\\top W r
     - b^\\top r,
 
-and the dynamics settle into a unique one when :math:`g \\|W\\| < 1`.
+Without a photonic loop, the mean dynamics contract and settle into a
+unique fixed point when :math:`g \\|W\\| < 1`. A photonic loop keeps the
+fixed points but adds memory, so their stability also depends on how the
+loop responds to modulators that change from tick to tick, not only to
+held ones: a loop with :math:`W = 0` can make the electronics oscillate.
+More optical ticks per electronic tick bring the readout back to
+:math:`W r`, and :meth:`Hopfield.settle` raises when the dynamics do not
+settle.
 
 The cost is :math:`C = \\tfrac12 (r_o - y)^2` on the activation of the
 `output` unit, :math:`J(\\theta)` its stationary mean. Equilibrium
@@ -112,7 +127,8 @@ from itertools import islice
 import numpy as np
 
 from optyx.sampling import (
-    Coherent, Displaced, FockState, Fields, Gaussian, Interferometer, Source)
+    Coherent, Displaced, FockState, Fields, Gaussian, Interferometer, Source,
+    Thermal)
 
 
 class Hopfield:
@@ -151,10 +167,15 @@ class Hopfield:
         self.gain, self.leak, self.ratio = float(gain), float(leak), ratio
         self.output, self.target = output, float(target)
         self.indistinguishability = float(indistinguishability)
-        if amplitude is None and (len(light) % 2 or light.superposed):
+        if amplitude is None and (len(light) % 2 or light.superposed
+                                  or len(set(light.means)) > 1):
             raise ValueError(
                 f"Intensities on two rails need an even number of modes of "
-                f"light with no phase reference, got {light}.")
+                f"light with no phase reference and the same mean, got "
+                f"{light}.")
+        if amplitude is not None and np.any(light.field):
+            raise ValueError(
+                f"{light} has a field of its own: the modulators set it.")
         if amplitude is not None:
             light.quadratures()
         units = len(light) if amplitude is not None else len(light) // 2
@@ -180,6 +201,15 @@ class Hopfield:
         The light the modulators set for the `activations`: displaced by
         :math:`\\alpha r` for fields, each rail attenuated to its part of
         :math:`r` for intensities.
+
+        >>> from optyx.photonic import BS
+        >>> rails = Hopfield(lambda theta: BS @ BS, Coherent((10., ) * 4))
+        >>> rails.modulate((.5, -.2))
+        Coherent((5.0, 0.0, 0.0, 2.0))
+        >>> from optyx.sampling import PhaseLocked
+        >>> Hopfield(lambda theta: BS, PhaseLocked((0, 0)), amplitude=2
+        ...          ).modulate((.5, -.2)).field.tolist()
+        [(1+0j), (-0.4+0j)]
         """
         activations = np.asarray(activations, dtype=float)
         if self.amplitude is not None:
@@ -197,31 +227,36 @@ class Hopfield:
         outcome = np.asarray(outcome, dtype=float)
         if self.amplitude is not None:
             return outcome / self.amplitude
-        return (outcome[0::2] - outcome[1::2]) / np.array(
-            self.light.means[0::2])
+        return (outcome[0::2] - outcome[1::2]) / self.light.means[0]
 
     def transfer(self, theta) -> np.ndarray:
         """
         The couplings :math:`W` of the chip at `theta`, the mean readout of
         settled light being :math:`W r`. For intensities, the readout is
-        :math:`W_+ [r]_+ + W_- [r]_-`, so :math:`W = (W_+ - W_-) / 2`, and
-        the readout is :math:`W r` when the chip is symmetric under the
-        exchange of the rails, :math:`W_+ = -W_-`.
+        :math:`W_+ [r]_+ - W_- [r]_-`, linear when the chip is symmetric
+        under exchanging the rails, :math:`W_+ = W_-`; it raises otherwise.
+
+        A beam splitter on the rails of each unit reads both rails alike,
+        so it couples nothing:
+
+        >>> from optyx.photonic import BS
+        >>> Hopfield(lambda theta: BS @ BS, Coherent((10., ) * 4)
+        ...          ).transfer(()).round(12).tolist()
+        [[0.0, 0.0], [0.0, 0.0]]
         """
         network = self.network(theta)
         if self.amplitude is not None:
             return np.real(network.transfer()[:, :self.units])
-        means = np.array(self.light.means)
-        columns = []
-        for unit in np.eye(len(network.source))[:len(self.light)]:
-            probe = Interferometer(
-                network.unitary, network.loop, source=Coherent(unit),
-                transmissivity=network.transmissivity,
-                efficiency=network.efficiency, visible=network.visible)
-            columns.append(probe.advance(probe.correlations())[1])
-        rails = (np.array(columns).T[0::2] - np.array(columns).T[1::2]) \
-            * means / means[0::2, None]
-        return (rails[:, 0::2] - rails[:, 1::2]) / 2
+        intensities = np.transpose([
+            probe.advance(probe.correlations())[1]
+            for probe in map(network.fed, map(Coherent, np.eye(len(
+                self.light))))])
+        rails = intensities[0::2] - intensities[1::2]
+        if not np.allclose(rails[:, 0::2], -rails[:, 1::2]):
+            raise ValueError(
+                "The chip is not symmetric under exchanging the rails: its "
+                "readout is not linear in the activations.")
+        return rails[:, 0::2]
 
     def optics(self, theta, exact: bool = False) -> tuple:
         """
@@ -235,28 +270,21 @@ class Hopfield:
         network = self.network(theta)
         if self.amplitude is not None:
             gaussian = Gaussian(network)
-            return lambda rng: gaussian.start(), \
+            return lambda _: gaussian.start(), \
                 lambda memory, rng, light: gaussian.tick(
                     memory, None if exact else rng, light)
         if exact:
-            def tick(memory, rng, light):
-                probe = Interferometer(
-                    network.unitary, network.loop,
-                    source=Coherent(network.padded(light).means),
-                    transmissivity=network.transmissivity,
-                    efficiency=network.efficiency, visible=network.visible)
-                after, counts = probe.advance(memory)
+            def tick(memory, _, light):
+                after, counts = network.fed(Coherent(light.means)).advance(
+                    memory)
                 return counts, after
-            return lambda rng: np.zeros((network.loop, network.loop)), tick
-        try:
-            self.light.amplitudes(np.random.default_rng(0))
-        except NotImplementedError:
-            return lambda rng: [FockState.vacuum(network.loop)], \
-                network.tick
-        fields = Fields(self.family(theta), self.light)
-        return fields.start, fields.tick
+            return lambda _: np.zeros((network.loop, network.loop)), tick
+        if isinstance(self.light, (Coherent, Thermal)) \
+                and self.indistinguishability == 1:
+            fields = Fields(self.family(theta), self.light)
+            return fields.start, fields.tick
+        return lambda _: [FockState.vacuum(network.loop)], network.tick
 
-    # pylint: disable=too-many-arguments,too-many-positional-arguments
     def run(self, theta, beta: float = 0., rng=None, start=None,
             exact: bool = False):
         """
@@ -281,7 +309,6 @@ class Hopfield:
             state = (1 - self.leak) * state + self.leak * drive
             yield state
 
-    # pylint: disable=too-many-arguments,too-many-positional-arguments
     def trajectory(self, theta, beta: float = 0., ticks: int = 100,
                    seed=None, start=None, exact: bool = False) -> np.ndarray:
         """
@@ -307,7 +334,6 @@ class Hopfield:
             f"The mean dynamics have not settled within {tol} after {ticks} "
             "ticks.")
 
-    # pylint: disable=too-many-arguments,too-many-positional-arguments
     def moments(self, theta, beta: float = 0., exact: bool = False,
                 ticks: int = 1000, burn_in: int = 100, seed=None,
                 shots: int = 1) -> tuple:
@@ -349,7 +375,6 @@ class Hopfield:
              - self.value(theta - step * unit, exact, **sampling)) / (2 * step)
             for unit in np.eye(len(theta))])
 
-    # pylint: disable=too-many-arguments,too-many-positional-arguments
     def propagate(self, theta, beta: float = .1, step: float = 1e-6,
                   exact: bool = False, **sampling) -> np.ndarray:
         """

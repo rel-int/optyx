@@ -34,6 +34,6 @@ A chip in an electronic loop of tanh units: the electronics hold `z`, modulate t
 
 - [x] `Gaussian` sampler in `optyx.sampling`: Gaussian light (phase-locked, thermal, squeezed) through a passive diagram with feedback, its outputs read by homodyne detection; `Diagram.sample(homodyne=True)`
 - [x] a source drawn afresh at each tick: `source=` on the ticks of the `Interferometer`, `Unravelling` and `Fields`
-- [WIP] @session_01XmqyhQuUzn8CQGX7CBCMw5-2026-10-29 13:00 `optyx.hopfield`: the electronic loop of tanh units around a chip, with field encoding (displacement, homodyne) or dual-rail intensity encoding (attenuation, counting), a ratio of optical ticks per electronic tick, the exact mean couplings `W`, the deterministic and sampled dynamics, the gradient and its equilibrium propagation estimate
-- [ ] tests and API docs, `pflake8 optyx`, `coverage run -m pytest`
-- [ ] the wiki page: from the electronic loop to the photonic and electronic loop, convergence and equilibrium propagation, then every light from deterministic to quantum
+- [x] `optyx.hopfield`: the electronic loop of tanh units around a chip, with field encoding (displacement, homodyne) or dual-rail intensity encoding (attenuation, counting), a ratio of optical ticks per electronic tick, the exact mean couplings `W`, the deterministic and sampled dynamics, the gradient and its equilibrium propagation estimate
+- [x] tests and API docs, `pflake8 optyx`, `coverage run -m pytest`
+- [WIP] @session_01XmqyhQuUzn8CQGX7CBCMw5-2026-10-29 15:00 the wiki page: from the electronic loop to the photonic and electronic loop, convergence and equilibrium propagation, then every light from deterministic to quantum

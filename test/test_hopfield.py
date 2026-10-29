@@ -3,7 +3,8 @@ import pytest
 
 from optyx.channel import Diagram, qmode
 from optyx.photonic import BS, MZI, Phase, PhotonLoss, Create
-from optyx.sampling import Coherent, Fock, PhaseLocked, Squeezed, Thermal
+from optyx.sampling import (
+    Coherent, Fock, Interferometer, PhaseLocked, Squeezed, Thermal)
 from optyx.hopfield import Hopfield
 
 THETA = np.array([.2, .35, .15, .1, .3])
@@ -125,10 +126,45 @@ def test_settle_raises_when_the_dynamics_oscillate():
         chip.settle((0, ), ticks=100)
 
 
+def test_a_photonic_loop_can_make_the_electronics_oscillate():
+    """
+    One unit and a loop that cancels the field of held modulators, W = 0,
+    but returns it with its sign flipped one tick later.
+    """
+    transmission = .9
+    reflection = np.sqrt(1 - transmission ** 2)
+    loop = (BS >> BS.dagger()).feedback(mem=qmode, state=Create(0))
+    chip = Hopfield(lambda theta: loop, PhaseLocked((0, )), amplitude=10,
+                    gain=5, bias=(.1, ))
+    chip.network = lambda theta, light=None: Interferometer(
+        [[transmission, reflection], [reflection, -transmission]], 1,
+        source=PhaseLocked((0, )), transmissivity=transmission ** 2)
+    assert np.allclose(chip.transfer(()), 0)
+    with pytest.raises(ValueError, match="not settled"):
+        chip.settle((), ticks=1000)
+
+
+def test_light_that_is_not_a_field_or_a_photon_number():
+    mixed = Hopfield(railed, Coherent((50., 50.)) @ Thermal((50., 50.)),
+                     **electronics(ratio=1))
+    coloured = Hopfield(railed, Coherent((50., ) * 4), **electronics(
+        indistinguishability=.5))
+    for chip in (mixed, coloured):
+        assert chip.trajectory(THETA[:4], ticks=3, seed=0).shape == (3, 2)
+
+
 def test_refusals():
     with pytest.raises(ValueError, match="two rails"):
         Hopfield(railed, Coherent((1., ) * 3))
     with pytest.raises(ValueError, match="two rails"):
         Hopfield(railed, PhaseLocked((1., ) * 4))
+    with pytest.raises(ValueError, match="two rails"):
+        Hopfield(railed, Coherent((1., 1., 2., 2.)))
+    with pytest.raises(ValueError, match="field of its own"):
+        Hopfield(looped(), PhaseLocked((1., 0)), amplitude=1)
     with pytest.raises(NotImplementedError, match="not Gaussian"):
         Hopfield(railed, Fock((1, ) * 4), amplitude=1)
+    unbalanced = Hopfield(lambda theta: qmode @ BS @ qmode,
+                          Coherent((1., ) * 4))
+    with pytest.raises(ValueError, match="exchanging the rails"):
+        unbalanced.transfer(())
