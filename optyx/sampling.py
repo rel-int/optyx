@@ -73,6 +73,73 @@ interferometers; here the cut is the loop itself, whatever the
 interferometer, and within a tick each external output is measured as soon
 as the held modes reach it.
 
+Light
+-----
+
+A :class:`Source` feeds the inputs of a diagram at every tick. Light is
+sorted by two independent properties: the state of a tick, Gaussian or
+not and classical (a mixture of coherent states) or not, and whether a
+phase reference is kept from tick to tick. Light with no phase reference
+injects photon numbers; light with one injects superpositions of them,
+whose fields from successive ticks interfere.
+
+.. list-table::
+    :header-rows: 1
+
+    * - source
+      - a tick
+      - Gaussian
+      - classical
+      - phase
+      - sampled by
+    * - :class:`Fock`
+      - number state
+      - no
+      - no
+      - none
+      - :class:`Interferometer`, :class:`Unravelling`, any :math:`p`
+    * - :class:`Coherent`
+      - Poisson
+      - no
+      - yes
+      - random
+      - :class:`Interferometer`, :class:`Unravelling`, :class:`Fields`
+    * - :class:`Thermal`
+      - geometric
+      - yes
+      - yes
+      - random
+      - :class:`Interferometer`, :class:`Unravelling`, :class:`Fields`
+    * - :class:`PhaseLocked`
+      - coherent state
+      - yes
+      - yes
+      - locked
+      - :class:`Unravelling` (kets), :class:`Fields`
+    * - :class:`Squeezed`
+      - squeezed vacuum
+      - yes
+      - no
+      - locked
+      - :class:`Unravelling` (kets)
+
+Every source has exact one-particle means through passive diagrams.
+
+- The exact means are the one-particle means of a passive diagram,
+  :meth:`Interferometer.advance`, :meth:`Interferometer.correlations` and
+  :meth:`Interferometer.field`. They see only the means of the source and
+  the field of a :class:`PhaseLocked` laser, not its photon statistics nor
+  the indistinguishability :math:`p`.
+- The :class:`Interferometer` samples photon numbers through passive
+  diagrams, the cheapest in the loop's photons, with a certified burn-in.
+- The :class:`Unravelling` samples any diagram, feed-forward included, at a
+  cost exponential in its wires; superpositions enter as kets cut at its
+  cap, which raises when the cut loses norm. Squeezed light with number
+  resolving detectors is Gaussian boson sampling: exact but exponential.
+- The :class:`Fields` sample classical light through linear optics,
+  detectors and feed-forward, by drawing the amplitudes of coherent states
+  from the P function of the source: no cap, a cost linear in the wires.
+
 Classes
 -------
 
@@ -86,10 +153,13 @@ Classes
     Fock
     Coherent
     Thermal
+    PhaseLocked
+    Squeezed
     Shifted
     FockState
     Sweep
     Unravelling
+    Fields
     CQState
 
 Functions
@@ -101,6 +171,7 @@ Functions
     :toctree:
 
     colouring
+    ket
     complete
     observe
     levels
@@ -627,6 +698,39 @@ class Source:
         """ The photon numbers injected at one tick. """
         raise NotImplementedError
 
+    def inject(self, rng: np.random.Generator, levels: int) -> tuple:
+        """
+        The state injected into each input at one tick: a photon number,
+        or the ket of a superposition of photon numbers, cut to `levels`,
+        for a source with a phase reference.
+        """
+        return self.draw(rng)
+
+    @property
+    def superposed(self) -> bool:
+        """
+        Whether a tick injects superpositions of photon numbers, whose
+        phase is kept from tick to tick, rather than photon numbers.
+        """
+        return False
+
+    def amplitudes(self, rng: np.random.Generator) -> np.ndarray:
+        """
+        The amplitudes of a coherent state drawn from the Glauber P
+        function of the source, for classical light: a mixture of coherent
+        states. Light that is not raises.
+        """
+        raise NotImplementedError(
+            f"{self} is not a mixture of coherent states.")
+
+    @property
+    def field(self) -> np.ndarray:
+        """
+        The mean field :math:`\\langle a \\rangle` of each input, kept
+        from tick to tick: zero for light with no phase reference.
+        """
+        return np.zeros(len(self), dtype=complex)
+
     def pad(self, modes: int) -> Source:
         """ The same source with `modes` more inputs in the vacuum. """
         return type(self)(self.means + (0, ) * modes)
@@ -693,6 +797,11 @@ class Fock(Source):
     def draw(self, rng: np.random.Generator) -> tuple:
         return self.photons
 
+    def amplitudes(self, rng: np.random.Generator) -> np.ndarray:
+        if any(self.photons):
+            return super().amplitudes(rng)
+        return np.zeros(len(self), dtype=complex)
+
 
 class Coherent(Source):
     """
@@ -702,6 +811,10 @@ class Coherent(Source):
     """
     def draw(self, rng: np.random.Generator) -> tuple:
         return tuple(int(number) for number in rng.poisson(self.means))
+
+    def amplitudes(self, rng: np.random.Generator) -> np.ndarray:
+        return np.sqrt(self.means) * np.exp(
+            2j * np.pi * rng.random(len(self)))
 
     def shift(self, delta) -> Source:
         means = np.add(self.means, delta)
@@ -719,7 +832,138 @@ class Thermal(Source):
         return tuple(int(number) - 1 for number in rng.geometric(
             1 / (1 + np.array(self.means))))
 
+    def amplitudes(self, rng: np.random.Generator) -> np.ndarray:
+        return np.sqrt(np.array(self.means) / 2) * (
+            rng.normal(size=len(self)) + 1j * rng.normal(size=len(self)))
+
     shift = Coherent.shift
+
+
+class PhaseLocked(Source):
+    """
+    A coherent state of amplitude `amplitudes[a]` into input :math:`a`,
+    the same at every tick: a laser with a phase reference, whose fields
+    from successive ticks interfere. Its mean is
+    :math:`|\\alpha|^2`.
+
+    >>> laser = PhaseLocked((1j, 0))
+    >>> laser.means, laser.field.tolist()
+    ((1.0, 0.0), [1j, 0j])
+    >>> np.round(laser.inject(None, 16)[0][:3], 3).tolist()
+    [(0.607+0j), 0.607j, (-0.429+0j)]
+
+    Cutting the ket to fewer levels than it needs raises:
+
+    >>> laser.inject(None, 3)
+    Traceback (most recent call last):
+    ...
+    ValueError: The source loses 0.08 of its norm above 2 photons: \
+sample with a larger cap.
+    """
+    def __init__(self, amplitudes):
+        self.coherent = tuple(complex(alpha) for alpha in amplitudes)
+        super().__init__(np.abs(self.coherent) ** 2)
+
+    def __repr__(self):
+        return f"PhaseLocked({self.coherent})"
+
+    def __eq__(self, other):
+        return isinstance(other, PhaseLocked) \
+            and self.coherent == other.coherent
+
+    def draw(self, rng: np.random.Generator) -> tuple:
+        raise NotImplementedError(
+            f"{self} injects superpositions of photon numbers with a phase "
+            "kept from tick to tick: sample it with the Unravelling or the "
+            "Fields.")
+
+    def inject(self, rng: np.random.Generator, levels: int) -> tuple:
+        numbers = np.arange(levels)
+        norms = np.exp(-np.array([lgamma(n + 1) for n in numbers]) / 2)
+        return tuple(ket(np.exp(-abs(alpha) ** 2 / 2) * alpha ** numbers
+                         * norms) for alpha in self.coherent)
+
+    @property
+    def superposed(self) -> bool:
+        return True
+
+    def amplitudes(self, rng: np.random.Generator) -> np.ndarray:
+        return np.array(self.coherent)
+
+    @property
+    def field(self) -> np.ndarray:
+        return np.array(self.coherent)
+
+    def pad(self, modes: int) -> Source:
+        return PhaseLocked(self.coherent + (0, ) * modes)
+
+    def join(self, other: Source) -> Source:
+        return PhaseLocked(self.coherent + other.coherent)
+
+    def shift(self, delta) -> Source:
+        means = np.add(self.means, delta)
+        if np.any(means < 0):
+            raise ValueError(f"A negative mean photon number: {means}.")
+        return PhaseLocked([
+            alpha * np.sqrt(mean / abs(alpha) ** 2) if alpha else np.sqrt(mean)
+            for alpha, mean in zip(self.coherent, means)])
+
+
+class Squeezed(Source):
+    """
+    A squeezed vacuum of squeezing `squeezing[a]` into input :math:`a`,
+    the same at every tick: Gaussian light that is not classical, of mean
+    :math:`\\sinh^2 r`, its photons in pairs.
+
+    >>> round(Squeezed((np.arcsinh(1.), )).means[0], 6)
+    1.0
+    >>> np.round(Squeezed((.3, )).inject(None, 24)[0][:5].real, 3).tolist()
+    [0.978, 0.0, -0.201, 0.0, 0.051]
+    """
+    def __init__(self, squeezing):
+        self.squeezing = tuple(float(r) for r in squeezing)
+        super().__init__(np.sinh(self.squeezing) ** 2)
+
+    def __repr__(self):
+        return f"Squeezed({self.squeezing})"
+
+    def __eq__(self, other):
+        return isinstance(other, Squeezed) \
+            and self.squeezing == other.squeezing
+
+    draw = PhaseLocked.draw
+    superposed = PhaseLocked.superposed
+
+    def inject(self, rng: np.random.Generator, levels: int) -> tuple:
+        pairs = np.arange(levels) // 2
+        weights = np.exp(np.array([
+            lgamma(2 * k + 1) / 2 - lgamma(k + 1) for k in pairs])) \
+            / 2 ** pairs
+        return tuple(ket(np.where(
+            np.arange(levels) % 2, 0, (-np.tanh(r)) ** pairs * weights
+            / np.sqrt(np.cosh(r)))) for r in self.squeezing)
+
+    def pad(self, modes: int) -> Source:
+        return Squeezed(self.squeezing + (0, ) * modes)
+
+    def join(self, other: Source) -> Source:
+        return Squeezed(self.squeezing + other.squeezing)
+
+
+def ket(amplitudes: np.ndarray, tol: float = 1e-9) -> np.ndarray:
+    """
+    The ket of a superposition of photon numbers, raising when cutting it
+    to its levels loses more than `tol` of its norm.
+
+    >>> ket(np.array([.6, .8])).real.tolist()
+    [0.6, 0.8]
+    """
+    weight = float(np.sum(np.abs(amplitudes) ** 2))
+    if weight < 1 - tol:
+        raise ValueError(
+            f"The source loses {1 - weight:.2g} of its norm above "
+            f"{len(amplitudes) - 1} photons: sample with a larger cap.")
+    return np.asarray(amplitudes, dtype=complex)
 
 
 class Shifted(Source):
@@ -789,6 +1033,22 @@ class Product(Source):
 
     def draw(self, rng: np.random.Generator) -> tuple:
         return sum((factor.draw(rng) for factor in self.factors), ())
+
+    def inject(self, rng: np.random.Generator, levels: int) -> tuple:
+        return sum((factor.inject(rng, levels) for factor in self.factors),
+                   ())
+
+    @property
+    def superposed(self) -> bool:
+        return any(factor.superposed for factor in self.factors)
+
+    def amplitudes(self, rng: np.random.Generator) -> np.ndarray:
+        return np.concatenate([
+            factor.amplitudes(rng) for factor in self.factors])
+
+    @property
+    def field(self) -> np.ndarray:
+        return np.concatenate([factor.field for factor in self.factors])
 
     def pad(self, modes: int) -> Source:
         return self @ Fock((0, ) * modes)
@@ -1041,53 +1301,93 @@ transmissivity=1.0, efficiency=1.0, visible=(0,), indistinguishability=1.0)
         """
         return float(np.real(np.trace(self.correlations())))
 
-    def advance(self, correlations: np.ndarray, dephased: tuple = ()):
+    def advance(self, correlations: np.ndarray, dephased: tuple = (),
+                field: np.ndarray = None):
         """
         One round trip of the one-particle correlation matrix
         :math:`C_{ij} = \\langle a_i^\\dagger a_j \\rangle` of the loop
-        at the start of a round trip: the loop modes in `dephased` lose
-        their coherence with the other modes, :math:`C \\mapsto D(C)`, then
-        :math:`C' = \\gamma (U_{\\ell\\ell} D(C) U_{\\ell\\ell}^\\dagger
-        + U_{\\ell x} Q U_{\\ell x}^\\dagger)` for :math:`Q` the diagonal of
-        the means of the source. Returns :math:`C'` and the mean counts of
-        the visible outputs. These are exact whatever the source and the
-        indistinguishability: one-particle observables do not see the
-        photon statistics.
+        at the start of a round trip, whose mean field
+        :math:`x = \\langle a \\rangle` is `field`, zero by default. The
+        loop modes in `dephased` lose their phase: their field and their
+        coherence with the other modes. The fluctuations
+        :math:`F = C - x x^\\dagger` and the means of the source with no
+        phase reference add up as intensities, the fields of the loop and
+        of a :class:`PhaseLocked` source as amplitudes. Returns the next
+        :math:`C` and the mean counts of the visible outputs. These are
+        exact whatever the photon statistics and the indistinguishability:
+        one-particle observables do not see them.
 
         >>> delay = Interferometer([[0, 1], [1, 0]], loop=1, inputs=(1, ))
         >>> loop, counts = delay.advance(np.zeros((1, 1)))
         >>> loop.real.tolist(), counts.tolist()
         ([[1.0]], [0.0])
         """
+        field = np.zeros(self.loop, dtype=complex) if field is None \
+            else np.array(field, dtype=complex)
+        fluctuations = correlations - np.outer(field.conj(), field)
         mask = np.ones((self.loop, self.loop), dtype=bool)
         mask[list(dephased), :] = mask[:, list(dephased)] = False
+        diagonal = np.eye(self.loop, dtype=bool)
+        fluctuations = np.where(mask | diagonal, fluctuations, 0) + np.diag(
+            np.where(~mask.all(1), np.abs(field) ** 2, 0))
+        field = np.where(mask.all(1), field, 0)
+        source = self.source.field
         inputs = np.zeros((self.modes, self.modes), dtype=complex)
-        inputs[:self.loop, :self.loop] = np.where(
-            mask | np.eye(self.loop, dtype=bool), correlations, 0)
-        inputs[self.loop:, self.loop:] = np.diag(self.source.means)
-        outputs = self.unitary @ inputs @ self.unitary.conj().T
+        inputs[:self.loop, :self.loop] = fluctuations
+        inputs[self.loop:, self.loop:] = np.diag(
+            np.array(self.source.means) - np.abs(source) ** 2)
+        inputs += np.outer(np.r_[field, source].conj(), np.r_[field, source])
+        outputs = self.unitary.conj() @ inputs @ self.unitary.T
         counts = self.efficiency * np.real(np.diag(outputs)[self.loop:])
         return self.transmissivity * outputs[:self.loop, :self.loop], \
             counts[list(self.visible)]
 
+    def field(self, dephased: tuple = ()) -> np.ndarray:
+        """
+        The mean field of the loop in the stationary state, the fixed point
+        of :math:`x = \\sqrt\\gamma (U_{\\ell\\ell} x + U_{\\ell x} \\alpha)`
+        for the field :math:`\\alpha` of the source, the dephased modes
+        losing theirs: zero without a :class:`PhaseLocked` source.
+
+        >>> lossy = Interferometer([[0.6, 0.8], [0.8, -0.6]], 1,
+        ...     source=PhaseLocked((1, )), transmissivity=.5)
+        >>> lossy.field().round(4).tolist()
+        [(0.9825+0j)]
+        """
+        kept = np.ones(self.loop)
+        kept[list(dephased)] = 0
+        return np.linalg.solve(
+            np.eye(self.loop) - self.block * kept,
+            np.sqrt(self.transmissivity) * self.unitary[
+                :self.loop, self.loop:] @ self.source.field)
+
     def correlations(self, dephased: tuple = ()) -> np.ndarray:
         """
         The one-particle correlation matrix of the loop in the stationary
-        state, the fixed point of :meth:`advance`, by solving its linear
-        equation: the Stein equation :math:`C = \\gamma (U_{\\ell\\ell} C
-        U_{\\ell\\ell}^\\dagger + U_{\\ell x} Q U_{\\ell x}^\\dagger)` without
-        dephasing.
+        state, the fixed point of :meth:`advance` with the stationary
+        :meth:`field`, by solving its linear equation: the Stein equation
+        :math:`C = \\gamma (U_{\\ell\\ell} C U_{\\ell\\ell}^\\dagger
+        + U_{\\ell x} Q U_{\\ell x}^\\dagger)` without dephasing or field.
 
         >>> lossy = Interferometer(
         ...     [[0.6, 0.8], [0.8, -0.6]], 1, (1, ), transmissivity=.5)
         >>> lossy.correlations().real.round(4).tolist()
         [[0.3902]]
+
+        A laser with a phase reference fills the loop with its field rather
+        than with its intensity, here more than twice as much:
+
+        >>> locked = Interferometer([[0.6, 0.8], [0.8, -0.6]], 1,
+        ...     source=PhaseLocked((1, )), transmissivity=.5)
+        >>> locked.correlations().real.round(4).tolist()
+        [[0.9654]]
         """
-        size = self.loop ** 2
-        drive, _ = self.advance(np.zeros((self.loop, self.loop)), dephased)
+        size, field = self.loop ** 2, self.field(dephased)
+        drive, _ = self.advance(
+            np.zeros((self.loop, self.loop)), dephased, field)
         columns = [self.advance(basis.reshape(self.loop, self.loop),
-                                dephased)[0].reshape(-1) - drive.reshape(-1)
-                   for basis in np.eye(size)]
+                                dephased, field)[0].reshape(-1)
+                   - drive.reshape(-1) for basis in np.eye(size)]
         return np.linalg.solve(np.eye(size) - np.array(columns).T,
                                drive.reshape(-1)).reshape(self.loop, self.loop)
 
@@ -1441,20 +1741,22 @@ class Unravelling:
 
     def feed(self, state: CQState, drawn: tuple) -> CQState:
         """
-        The `state` of the memory with the inputs of one tick in front, the
-        photon numbers `drawn` from the source: a number state on each
-        optical mode, a value on each classical one.
+        The `state` of the memory with the inputs of one tick in front, as
+        `drawn` from the source: a value on each classical mode, and on
+        each optical mode a photon number or the ket of a superposition of
+        photon numbers.
         """
         vector, values = state.vector, []
         for ob, number in reversed(list(zip(self.diagram.dom.inside, drawn))):
             if ob.name == "mode":
                 values = [number] + values
                 continue
-            if number > self.cap:
+            if np.ndim(number) == 0 and number > self.cap:
                 raise ValueError(
                     f"The source injected {number} photons into a mode of "
                     f"at most cap={self.cap}.")
-            vector = np.multiply.outer(np.eye(self.cap + 1)[number], vector)
+            vector = np.multiply.outer(np.eye(self.cap + 1)[number] if np.ndim(
+                number) == 0 else number, vector)
             values = [None] + values
         return CQState(vector, values + state.values)
 
@@ -1813,7 +2115,11 @@ class Unravelling:
         forgotten once its photons have left.
         """
         optical = tuple(ob.name == "qmode" for ob in self.diagram.dom.inside)
-        shared, alone = colouring(self.source.draw(rng),
+        if self.source.superposed and self.indistinguishability != 1:
+            raise NotImplementedError(
+                f"{self.source} injects superpositions: its photons cannot "
+                "be coloured.")
+        shared, alone = colouring(self.source.inject(rng, self.cap + 1),
                                   self.indistinguishability, rng, optical)
         empty = tuple(0 if light else n for n, light in zip(shared, optical))
         colours = self.run(self.step, [self.feed(colours[0], shared)] + [
@@ -1836,14 +2142,17 @@ class Unravelling:
                                if abs(state.vector.flat[0]) ** 2 < 1 - 1e-12]
         return tuple(int(n) for n in pooled), memory
 
+    def start(self, rng: np.random.Generator) -> list:
+        """ The colours of the memory in the state of the loops. """
+        return self.run(self.initial, [CQState.empty()], rng)
+
     def trajectory(self, ticks: int, seed=None) -> list:
         """
         The outputs measured over `ticks` ticks of one trajectory started
         from the state of the loops.
         """
         rng = np.random.default_rng(seed)
-        colours, patterns = self.run(
-            self.initial, [CQState.empty()], rng), []
+        colours, patterns = self.start(rng), []
         for _ in range(ticks):
             pattern, colours = self.tick(colours, rng)
             patterns.append(pattern)
@@ -1855,6 +2164,159 @@ class Unravelling:
         `burn_in` ticks.
         """
         return self.trajectory(burn_in + ticks, seed)[burn_in:]
+
+
+class Fields(Unravelling):
+    """
+    The trajectories of classical light, mixtures of coherent states,
+    through a :class:`optyx.channel.Diagram` with feedback loops: linear
+    optics, losses, detectors and classical feed-forward.
+
+    A product of coherent states stays one under linear optics and loss,
+    and detecting some of its modes leaves the others coherent, so the
+    state of the optical wires is a vector of amplitudes, one per wire,
+    and the classical wires hold values. A tick draws the amplitudes of
+    the source from its Glauber P function: fixed for a
+    :class:`PhaseLocked` laser, with a random phase for :class:`Coherent`
+    light, Gaussian for :class:`Thermal` light. A box of linear optics
+    multiplies the amplitudes by its mode matrix, read off its single
+    photon amplitudes and checked on two photons, so a non-linear box
+    raises. A number resolving detector draws a Poisson count of mean
+    :math:`|\\alpha|^2`, a threshold detector clicks with probability
+    :math:`1 - e^{-|\\alpha|^2}`, and a box with a `coherent` method, such
+    as :class:`optyx.photonic.Dephasing`, says itself what it does to
+    amplitudes. Classical boxes and classically controlled boxes are those
+    of the :class:`Unravelling`. Nothing is cut: a tick costs the number of
+    wires, not of photons.
+
+    A beam splitter fed back on itself by a laser with a phase
+    reference: the mean count of the samples is the exact mean of the
+    :class:`Interferometer`, its field included.
+
+    >>> from optyx.channel import qmode
+    >>> from optyx.photonic import BS, Create
+    >>> loop = BS.feedback(mem=qmode, state=Create(0))
+    >>> laser = PhaseLocked((1, ))
+    >>> samples = Fields(loop, source=laser).sample(4000, burn_in=20, seed=0)
+    >>> network = Interferometer.from_diagram(loop, source=laser)
+    >>> exact = network.advance(network.correlations(), (), network.field())[1]
+    >>> bool(abs(np.mean(samples) - exact[0]) < .05)
+    True
+    """
+    def __init__(self, diagram, source: Source = None):
+        super().__init__(diagram, cap=2, source=source)
+        if any(ob.name != "qmode" for ob in diagram.dom.inside) \
+                or self.levels:
+            raise NotImplementedError(
+                "Fields are fed on optical modes, by photons without "
+                "internal states.")
+
+    def __repr__(self):
+        return f"Fields({self.diagram!r}, source={self.source})"
+
+    def start(self, rng: np.random.Generator) -> list:
+        return self.run(self.initial, [CQState(
+            np.zeros(0, dtype=complex), [])], rng)
+
+    def matrix(self, box, values: tuple) -> np.ndarray:
+        """
+        The mode matrix of `box` on coherent amplitudes, its classical
+        inputs taking `values`: its amplitude from one photon in each
+        quantum input to one photon in each quantum output, with nothing
+        in its environment. Checked to send two photons in an input to the
+        squares of these, which linear optics does; raises otherwise.
+        """
+        key = id(box), values
+        if key in self.tensors:
+            return self.tensors[key][1]
+        quantum = [i for i, value in enumerate(values) if value is None]
+        outputs = [ob for ob in box.cod.inside if ob.name in QUANTUM]
+        if len(outputs) != len(box.cod):
+            raise NotImplementedError(
+                f"{box} has classical outputs and is not a detector.")
+        vacuum = self.transfer(box, values, 0, -1)
+        if not np.isclose(abs(vacuum[(0, ) * vacuum.ndim]), 1):
+            raise NotImplementedError(
+                f"{box} creates photons: only light that is a mixture of "
+                "coherent states is a field.")
+        matrix, squares = (np.array([[self.transfer(box, values, photons, i)[
+            tuple(photons * (j == k) for j in range(len(outputs) + len(
+                box.env)))] for k in range(len(outputs))]
+            for i, _ in enumerate(quantum)], dtype=complex).T.reshape(
+                len(outputs), len(quantum)) for photons in (1, 2))
+        if not np.allclose(squares, matrix ** 2):
+            raise NotImplementedError(
+                f"{box} is not linear optics: coherent states do not stay "
+                "coherent through it.")
+        self.tensors[key] = box, matrix
+        return matrix
+
+    def transfer(self, box, values: tuple, photons: int,
+                 mode: int) -> np.ndarray:
+        """
+        The output of `box`, its classical inputs taking `values`, from
+        `photons` photons in its quantum input `mode` and none in the
+        others: an axis per quantum output, then per mode of its
+        environment.
+        """
+        quantum = values.count(None)
+        vector = np.zeros((3, ) * quantum, dtype=complex)
+        vector[tuple(photons * (j == mode) for j in range(quantum))] = 1
+        vector, kept = self.embed(CQState(vector, list(values)), 0, box)
+        for inner, offset in zip(box.kraus.boxes, box.kraus.offsets):
+            vector = self.evolve(vector, kept + offset, inner)
+        return vector
+
+    def apply(self, state: CQState, offset: int, box,
+              rng: np.random.Generator) -> CQState:
+        stop = offset + len(box.dom)
+        values = state.values[offset:stop]
+        if isinstance(box, symmetric.Swap) or not hasattr(box, "kraus"):
+            return super().apply(state, offset, box, rng)
+        before = state.vector[:state.values[:offset].count(None)]
+        after = state.vector[state.values[:stop].count(None):]
+        inputs = state.vector[len(before):len(state.vector) - len(after)]
+        if hasattr(box, "coherent"):
+            return CQState(np.concatenate([before, box.coherent(
+                inputs, rng), after]), state.values, state.weight)
+        pool = getattr(box, "pool", None)
+        if pool is not None:
+            if any(ob.name not in QUANTUM for ob in box.dom.inside):
+                raise NotImplementedError(
+                    f"{box} measures classical wires.")
+            means = np.abs(inputs) ** 2
+            outcome = rng.poisson(means) if pool is sum \
+                else rng.random(len(means)) < 1 - np.exp(-means)
+            return CQState(np.concatenate([before, after]), state.values[
+                :offset] + [int(n) for n in outcome] + state.values[stop:],
+                state.weight)
+        matrix = self.matrix(box, tuple(values))
+        return CQState(np.concatenate([before, matrix @ inputs, after]),
+                       state.values[:offset] + [None] * len(box.cod)
+                       + state.values[stop:], state.weight)
+
+    @staticmethod
+    def occupations(colours: list) -> np.ndarray:
+        """
+        The mean photon numbers of the optical wires of the memory, the
+        squares of their amplitudes.
+        """
+        return np.sum([np.abs(state.vector) ** 2 for state in colours],
+                      axis=0)
+
+    def tick(self, colours: list, rng: np.random.Generator):
+        state = colours[0]
+        state = CQState(np.concatenate([self.source.amplitudes(rng),
+                                        state.vector]),
+                        [None] * len(self.diagram.dom) + state.values)
+        state, = self.run(self.step, [state], rng)
+        outputs = len(self.diagram.cod)
+        quantum = state.values[:outputs].count(None)
+        counts = iter(rng.poisson(np.abs(state.vector[:quantum]) ** 2))
+        pattern = tuple(int(next(counts)) if value is None else value
+                        for value in state.values[:outputs])
+        return pattern, [CQState(state.vector[quantum:],
+                                 state.values[outputs:])]
 
 
 def levels(diagram) -> int:

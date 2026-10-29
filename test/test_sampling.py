@@ -8,6 +8,7 @@ from scipy.stats import unitary_group
 
 from optyx.sampling import (
     Interferometer, FockState, Sweep, Unravelling, Fock, Coherent, Thermal,
+    PhaseLocked, Squeezed, Fields,
     Source, levels, sector, position, givens, interfere, twomode)
 
 
@@ -712,3 +713,106 @@ def test_dephased_correlations_match_the_unravelling():
         if time > 20:
             means.append(unravelling.occupations(colours))
     assert np.allclose(np.mean(means, axis=0), exact, atol=.03)
+
+
+def histories(sampler, ticks, shots=2000, burn_in=0):
+    return Counter(tuple(n for (n, *_) in sampler.sample(
+        ticks, burn_in=burn_in, seed=seed)) for seed in range(shots))
+
+
+def close(first, second, shots=2000, tol=.04):
+    return all(abs(first[key] - second[key]) / shots < tol
+               for key in set(first) | set(second))
+
+
+@pytest.mark.parametrize("source", [Coherent((.6, )), Thermal((.25, ))])
+def test_fields_match_the_unravelling_with_feed_forward(source):
+    from optyx.channel import qmode, bit
+    from optyx.photonic import Create
+    from optyx import classical
+    loop = switch_loop().feedback(
+        mem=qmode @ bit, state=Create(0) @ classical.Bit(0))
+    assert close(histories(Fields(loop, source), 3),
+                 histories(Unravelling(loop, cap=10, source=source), 3))
+
+
+def test_phase_locked_light_through_kets_and_fields():
+    from optyx.channel import qmode
+    from optyx.photonic import Create, MZI, PhotonLoss
+    loop = (MZI(.3, .1) >> qmode @ PhotonLoss(.7)).feedback(
+        mem=qmode, state=Create(0))
+    laser = PhaseLocked((.3j, ))
+    assert close(histories(Fields(loop, laser), 3),
+                 histories(Unravelling(loop, cap=8, source=laser), 3))
+    assert loop.sample(2, burn_in=1, seed=0, source=laser, cap=8) \
+        == Unravelling(loop, cap=8, source=laser).sample(2, 1, seed=0)
+    assert loop.sample(2, burn_in=1, seed=0, source=laser, fields=True) \
+        == Fields(loop, laser).sample(2, 1, seed=0)
+    with pytest.raises(NotImplementedError):
+        loop.sample(2, source=laser)
+    with pytest.raises(NotImplementedError):
+        Unravelling(loop, source=laser, indistinguishability=.5).sample(1)
+    with pytest.raises(NotImplementedError):
+        Interferometer.from_diagram(loop, source=laser).sample(1)
+
+
+def test_exact_means_with_a_field():
+    from optyx.channel import qmode
+    from optyx.photonic import Create, MZI, PhotonLoss
+    step = MZI(.2, .3) @ qmode >> qmode @ MZI(.35, .1) \
+        >> qmode @ PhotonLoss(.6) @ PhotonLoss(.8)
+    loop = step.feedback(mem=qmode @ qmode, state=Create(0, 0))
+    for source in (PhaseLocked((.8, )), Coherent((.64, ))):
+        network = Interferometer.from_diagram(loop, source=source)
+        field = network.field()
+        exact = network.advance(network.correlations(), (), field)[1][0]
+        sampled = np.mean(Fields(loop, source).sample(6000, 30, seed=1))
+        assert abs(sampled - exact) < .03
+    locked, random = (Interferometer.from_diagram(loop, source=source)
+                      for source in (PhaseLocked((.8, )), Coherent((.64, ))))
+    assert not np.isclose(np.trace(locked.correlations()),
+                          np.trace(random.correlations()))
+    assert np.allclose(locked.field(dephased=(0, 1)), locked.unitary[
+        :2, 2:] @ locked.source.field)
+
+
+def test_squeezed_light():
+    from optyx.channel import qmode
+    from optyx.photonic import Create, BS, PhotonLoss
+    squeezed = Squeezed((.2, ))
+    loop = (BS >> qmode @ PhotonLoss(.5)).feedback(
+        mem=qmode, state=Create(0))
+    network = Interferometer.from_diagram(loop, source=squeezed)
+    exact = network.advance(network.correlations())[1][0]
+    samples = Unravelling(loop, cap=14, source=squeezed).sample(
+        4000, 10, seed=2)
+    assert abs(np.mean(samples) - exact) < .02
+    with pytest.raises(NotImplementedError):
+        squeezed.amplitudes(np.random.default_rng(0))
+    assert squeezed.pad(1) == Squeezed((.2, 0.)) \
+        and squeezed @ squeezed == Squeezed((.2, .2))
+    assert PhaseLocked((1, )).shift((3., )) == PhaseLocked((2, )) \
+        and PhaseLocked((0, )).shift((4., )) == PhaseLocked((2, ))
+    assert repr(PhaseLocked((1j, ))) == "PhaseLocked((1j,))"
+    with pytest.raises(ValueError):
+        PhaseLocked((1, )).shift((-2., ))
+    assert (PhaseLocked((1, )) @ Fock((0, ))).superposed
+
+
+def test_fields_refuse_what_is_not_a_field():
+    from optyx.channel import qmode, Channel
+    from optyx.core import zw
+    from optyx.photonic import Create, BS
+    loop = BS.feedback(mem=qmode, state=Create(0))
+    with pytest.raises(NotImplementedError):
+        Fields(loop, Fock((1, ))).sample(1, seed=0)
+    assert Fields(loop, Fock((0, ))).sample(1, seed=0) == [(0, )]
+    kerr = Channel("Kerr", zw.ZBox(1, 1, lambda n: 1j ** (n * n)),
+                   qmode, qmode)
+    with pytest.raises(NotImplementedError):
+        Fields((BS >> qmode @ kerr).feedback(mem=qmode, state=Create(0)),
+               Coherent((1., ))).sample(1, seed=0)
+    with pytest.raises(NotImplementedError):
+        Fields((Create(1) @ qmode >> BS).feedback(
+            mem=qmode, state=Create(0))).sample(1, seed=0)
+    assert repr(Fields(loop, Coherent((1., )))).startswith("Fields(")

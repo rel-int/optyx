@@ -13,3 +13,12 @@ The second half, equilibrium propagation, stacked on #94, the samplers.
 - [ ] thermal sources in the grid, at a mean that stays under the cap
 - [ ] phase-locked coherent light (fields adding up coherently over the ticks), proposed in the session, awaiting a decision
 - [ ] API docs, `pflake8 optyx`, `coverage run -m pytest`, CI green
+
+---
+
+> claude --enable-data-mode Make a map of the sources and implement what's needed in optyx. In wiki, find the types of feedforward that converge to equilibrium and can be trained with equilibrium propagation
+
+The map and the new sources are in #94, merged here.
+
+- [WIP] @session_01XmqyhQuUzn8CQGX7CBCMw5-2026-10-29 10:30 `Equilibrium(fields=True)`: equilibrium propagation sampled by the `Fields` of classical light, phase-locked lasers included; the exact means with the field of a phase-locked source
+- [ ] the wiki page on the feed-forward that settles into equilibrium and can be trained, run against this branch
