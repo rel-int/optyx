@@ -237,7 +237,7 @@ from discopy.utils import AxiomError
 from pytket.extensions.pyzx import pyzx_to_tk
 from pyzx import extract_circuit
 from optyx.core import diagram, control
-from optyx.sampling import Interferometer, Unravelling
+from optyx.sampling import Fields, Interferometer, Unravelling
 
 
 class Ob(frobenius.Ob):
@@ -451,10 +451,11 @@ class Diagram(frobenius.Diagram):
             self, dom=dom, cod=cod, mem=mem, state=state, effect=effect)
 
     # pylint: disable=too-many-arguments
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
     def sample(self, ticks: int = 1, tol: float = 1e-3,
                indistinguishability: float = 1., seed=None,
                burn_in: int = None, cap: int = 4, shots: int = None,
-               source=None) -> list:
+               source=None, fields: bool = False) -> list:
         """
         Sample a diagram with feedback loops over `ticks` consecutive
         ticks, its inputs fed by `source` at every tick and its outputs
@@ -480,7 +481,12 @@ class Diagram(frobenius.Diagram):
             source : The :class:`optyx.sampling.Source` feeding the inputs,
                 one mode per input: :class:`optyx.sampling.Fock`,
                 :class:`optyx.sampling.Coherent`,
-                :class:`optyx.sampling.Thermal` or a tensor of them.
+                :class:`optyx.sampling.Thermal`,
+                :class:`optyx.sampling.PhaseLocked`,
+                :class:`optyx.sampling.Squeezed` or a tensor of them.
+            fields : Whether to sample classical light, a mixture of
+                coherent states, by its :class:`optyx.sampling.Fields`:
+                amplitudes rather than photons, with no cap.
 
         **Passive diagrams** — beam splitters, phase shifters and any other
         linear optics, :class:`optyx.photonic.Create` boxes, photon loss and
@@ -563,21 +569,32 @@ class Diagram(frobenius.Diagram):
         [[(1,)], [(1,)]]
         """
         sampler, burn_in = self.sampler(
-            tol, indistinguishability, burn_in, cap, source)
+            tol, indistinguishability, burn_in, cap, source, fields)
         if shots is None:
             return sampler.sample(ticks, burn_in, seed)
         return [sampler.sample(ticks, burn_in, child)
                 for child in np.random.SeedSequence(seed).spawn(shots)]
 
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
     def sampler(self, tol: float = 1e-3, indistinguishability: float = 1.,
-                burn_in: int = None, cap: int = 4, source=None) -> tuple:
+                burn_in: int = None, cap: int = 4, source=None,
+                fields: bool = False) -> tuple:
         """
         The sampler of :meth:`sample` and its burn-in: the
-        :class:`optyx.sampling.Interferometer` of a passive diagram, with
-        the burn-in it certifies within `tol` unless `burn_in` is given,
-        and the :class:`optyx.sampling.Unravelling` of any other, with the
-        `burn_in` given, both fed by `source`.
+        :class:`optyx.sampling.Interferometer` of a passive diagram fed by
+        photon numbers, with the burn-in it certifies within `tol` unless
+        `burn_in` is given; the :class:`optyx.sampling.Fields` of classical
+        light when asked; and the :class:`optyx.sampling.Unravelling` of
+        any other, a source with a phase reference included. These two
+        take the `burn_in` given.
         """
+        if fields or getattr(source, "superposed", False):
+            if burn_in is None:
+                raise NotImplementedError(
+                    "Fields and sources with a phase reference are sampled "
+                    "with an explicit burn_in.")
+            return (Fields(self, source) if fields else Unravelling(
+                self, cap, source, indistinguishability)), burn_in
         try:
             network = Interferometer.from_diagram(
                 self, indistinguishability, source)

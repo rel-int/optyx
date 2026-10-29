@@ -1104,6 +1104,14 @@ class Dephasing(Channel):
             "Dephasing", zw.ZBox(1, 2, lambda n: 1), qmode, qmode,
             env=qmode.single())
 
+    @staticmethod
+    def coherent(amplitudes, rng):
+        """
+        The amplitudes of a coherent state after dephasing, as sampled by
+        :class:`optyx.sampling.Fields`: a uniformly random phase each.
+        """
+        return amplitudes * np.exp(2j * np.pi * rng.random(len(amplitudes)))
+
 
 class FusionTypeII(Diagram):
     r"""
