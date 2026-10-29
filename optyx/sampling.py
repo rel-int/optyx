@@ -2336,7 +2336,13 @@ class Fields(Unravelling):
         return state
 
     def tick(self, colours: list, rng: np.random.Generator):
-        state = self.transit(colours, rng)
+        return self.detect(self.transit(colours, rng), rng)
+
+    def detect(self, state: CQState, rng: np.random.Generator):
+        """
+        The outputs of a :meth:`transit` measured, a Poisson count of mean
+        :math:`|\\alpha|^2` for each optical one, and the memory left.
+        """
         outputs = len(self.diagram.cod)
         quantum = state.values[:outputs].count(None)
         counts = iter(rng.poisson(np.abs(state.vector[:quantum]) ** 2))
