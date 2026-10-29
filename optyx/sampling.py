@@ -1342,6 +1342,25 @@ transmissivity=1.0, efficiency=1.0, visible=(0,), indistinguishability=1.0)
         return self.transmissivity * outputs[:self.loop, :self.loop], \
             counts[list(self.visible)]
 
+    def carry(self, field: np.ndarray, dephased: tuple = ()) -> tuple:
+        """
+        One round trip of the mean field of the loop: the field of the
+        loop after it, and the field reaching the visible detectors, from
+        the loop's `field`, the modes in `dephased` losing theirs, and the
+        field of the source.
+
+        >>> laser = Interferometer(
+        ...     [[0, 1], [1, 0]], 1, source=PhaseLocked((1j, )))
+        >>> [x.tolist() for x in laser.carry(np.array([2]))]
+        [[1j], [(2+0j)]]
+        """
+        kept = np.ones(self.loop)
+        kept[list(dephased)] = 0
+        outputs = self.unitary @ np.r_[np.asarray(field) * kept,
+                                       self.source.field]
+        return np.sqrt(self.transmissivity) * outputs[:self.loop], \
+            np.sqrt(self.efficiency) * outputs[self.loop:][list(self.visible)]
+
     def field(self, dephased: tuple = ()) -> np.ndarray:
         """
         The mean field of the loop in the stationary state, the fixed point
@@ -2304,12 +2323,20 @@ class Fields(Unravelling):
         return np.sum([np.abs(state.vector) ** 2 for state in colours],
                       axis=0)
 
-    def tick(self, colours: list, rng: np.random.Generator):
+    def transit(self, colours: list, rng: np.random.Generator) -> CQState:
+        """
+        One tick from the `colours` of the memory, its outputs left
+        unmeasured: their amplitudes or values first, then the memory.
+        """
         state = colours[0]
         state = CQState(np.concatenate([self.source.amplitudes(rng),
                                         state.vector]),
                         [None] * len(self.diagram.dom) + state.values)
         state, = self.run(self.step, [state], rng)
+        return state
+
+    def tick(self, colours: list, rng: np.random.Generator):
+        state = self.transit(colours, rng)
         outputs = len(self.diagram.cod)
         quantum = state.values[:outputs].count(None)
         counts = iter(rng.poisson(np.abs(state.vector[:quantum]) ** 2))
