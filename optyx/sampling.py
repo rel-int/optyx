@@ -109,19 +109,26 @@ whose fields from successive ticks interfere.
       - yes
       - yes
       - random
-      - :class:`Interferometer`, :class:`Unravelling`, :class:`Fields`
+      - :class:`Interferometer`, :class:`Unravelling`, :class:`Fields`,
+        :class:`Gaussian`
     * - :class:`PhaseLocked`
       - coherent state
       - yes
       - yes
       - locked
-      - :class:`Unravelling` (kets), :class:`Fields`
+      - :class:`Unravelling` (kets), :class:`Fields`, :class:`Gaussian`
     * - :class:`Squeezed`
       - squeezed vacuum
       - yes
       - no
       - locked
-      - :class:`Unravelling` (kets)
+      - :class:`Unravelling` (kets), :class:`Gaussian`
+    * - :class:`Displaced`
+      - its source, displaced
+      - as its source
+      - as its source
+      - locked
+      - :class:`Fields`, :class:`Gaussian`
 
 Every source has exact one-particle means through passive diagrams.
 
@@ -136,6 +143,9 @@ Every source has exact one-particle means through passive diagrams.
   cost exponential in its wires; superpositions enter as kets cut at its
   cap, which raises when the cut loses norm. Squeezed light with number
   resolving detectors is Gaussian boson sampling: exact but exponential.
+- The :class:`Gaussian` samples Gaussian light through passive diagrams,
+  its outputs read by homodyne detection: means and covariances of the
+  quadratures, a cost polynomial in the modes.
 - The :class:`Fields` sample classical light through linear optics,
   detectors and feed-forward, by drawing the amplitudes of coherent states
   from the P function of the source: no cap, a cost linear in the wires.
@@ -2438,6 +2448,11 @@ class Fields(Unravelling):
               rng: np.random.Generator) -> CQState:
         stop = offset + len(box.dom)
         values = state.values[offset:stop]
+        if isinstance(box, symmetric.Swap) and values.count(None) == 2:
+            first = state.values[:offset].count(None)
+            vector = state.vector.copy()
+            vector[[first, first + 1]] = vector[[first + 1, first]]
+            return CQState(vector, state.values, state.weight)
         if isinstance(box, symmetric.Swap) or not hasattr(box, "kraus"):
             return super().apply(state, offset, box, rng)
         before = state.vector[:state.values[:offset].count(None)]

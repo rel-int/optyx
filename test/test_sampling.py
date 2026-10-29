@@ -8,7 +8,7 @@ from scipy.stats import unitary_group
 
 from optyx.sampling import (
     Interferometer, FockState, Sweep, Unravelling, Fock, Coherent, Thermal,
-    PhaseLocked, Squeezed, Fields,
+    PhaseLocked, Squeezed, Fields, Displaced, Gaussian,
     Source, levels, sector, position, givens, interfere, twomode)
 
 
@@ -816,3 +816,73 @@ def test_fields_refuse_what_is_not_a_field():
         Fields((Create(1) @ qmode >> BS).feedback(
             mem=qmode, state=Create(0))).sample(1, seed=0)
     assert repr(Fields(loop, Coherent((1., )))).startswith("Fields(")
+
+
+def test_squeezed_quadratures_match_the_ket():
+    levels, squeezing = 40, .4
+    vector, = Squeezed((squeezing, )).inject(None, levels)
+    lower = np.diag(np.sqrt(np.arange(1, levels)), 1)
+    quadrature = (lower + lower.T) / 2
+    spread = np.real(vector.conj() @ quadrature @ quadrature @ vector)
+    assert np.isclose(spread, Squeezed((squeezing, )).quadratures()[1][0, 0])
+
+
+def test_quadratures_of_a_product():
+    means, covariance = (PhaseLocked((1 + 2j, )) @ Thermal((1., ))
+                         @ Squeezed((0., ))).quadratures()
+    assert means.tolist() == [1, 0, 0, 2, 0, 0]
+    assert np.allclose(np.diag(covariance), [.25, .75, .25] * 2)
+    with pytest.raises(NotImplementedError, match="not Gaussian"):
+        Coherent((1., )).quadratures()
+
+
+def test_gaussian_matches_the_exact_means():
+    network = Interferometer(
+        unitary_group.rvs(3, random_state=2), loop=2,
+        source=Displaced(Thermal((.5, )), (1.5, )), transmissivity=.8,
+        efficiency=.9)
+    exact = np.real(network.transfer() @ network.source.field)
+    gaussian = Gaussian(network)
+    memory = gaussian.start()
+    for _ in range(200):
+        mean, memory = gaussian.tick(memory)
+    assert np.allclose(mean, exact)
+    samples = gaussian.sample(4000, burn_in=20, seed=0)
+    assert np.allclose(np.mean(samples, axis=0), exact, atol=.04)
+    with pytest.raises(ValueError, match="more modes"):
+        network.padded(Fock((0, 0)))
+
+
+def test_displaced_classical_light_through_the_fields():
+    from optyx.channel import qmode
+    from optyx.photonic import BS, Create
+    loop = BS.feedback(mem=qmode, state=Create(0))
+    light = Displaced(Thermal((.5, )), (1j, ))
+    network = Interferometer.from_diagram(loop, source=light)
+    exact = network.advance(network.correlations(), (), network.field())[1]
+    samples = Fields(loop, light).sample(4000, burn_in=20, seed=0)
+    assert abs(np.mean(samples) - exact[0]) < .06
+    with pytest.raises(NotImplementedError, match="phase reference"):
+        light.draw(None)
+    assert light.pad(1) == Displaced(Thermal((.5, 0.)), (1j, 0))
+    assert light @ light == Displaced(Thermal((.5, .5)), (1j, 1j))
+
+
+def test_fields_through_swaps():
+    from optyx.channel import Diagram, qmode
+    from optyx.photonic import BS, Create
+    loop = (BS @ qmode >> qmode @ Diagram.swap(qmode, qmode)).feedback(
+        mem=qmode @ qmode, state=Create(0, 0))
+    light = PhaseLocked((1, ))
+    network = Interferometer.from_diagram(loop, source=light)
+    exact = network.advance(network.correlations(), (), network.field())[1]
+    samples = Fields(loop, light).sample(4000, burn_in=20, seed=0)
+    assert abs(np.mean(samples) - exact[0]) < .05
+
+
+def test_homodyne_needs_a_burn_in():
+    from optyx.channel import qmode
+    from optyx.photonic import BS, Create
+    loop = BS.feedback(mem=qmode, state=Create(0))
+    with pytest.raises(NotImplementedError, match="burn_in"):
+        loop.sample(2, source=PhaseLocked((1, )), homodyne=True)

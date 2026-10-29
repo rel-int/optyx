@@ -12,5 +12,6 @@ API
     optyx.qubits
     optyx.sampling
     optyx.equilibrium
+    optyx.hopfield
     optyx.compiler
 
