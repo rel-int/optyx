@@ -54,6 +54,14 @@ non-reciprocal optics and feed-forward, whose classical memory the means do
 not see, make it an approximation, measured against
 :meth:`Equilibrium.gradient`.
 
+Phase-locked light, a :class:`optyx.sampling.PhaseLocked` laser whose
+memory keeps its phase, is trained on its fields rather than its
+intensities: :meth:`Equilibrium.propagate_fields` nudges the field of the
+source by the conjugate error :math:`\\pm \\beta\\, c\\, \\bar y`, reads the
+response of the field of the memory, and is exact for a symmetric mode
+matrix. Intensities miss the interference of the fields from successive
+ticks, and :meth:`Equilibrium.propagate` is then biased.
+
 For passive diagrams, linear optics with losses whose step may start by
 dephasing memory modes, the means are exact one-particle quantities,
 :meth:`optyx.sampling.Interferometer.correlations`, independent of the
@@ -108,7 +116,8 @@ from __future__ import annotations
 import numpy as np
 
 from optyx.photonic import Dephasing
-from optyx.sampling import Fields, Interferometer, Source, Unravelling
+from optyx.sampling import (
+    Fields, Interferometer, PhaseLocked, Source, Unravelling)
 
 
 class Equilibrium:
@@ -150,11 +159,24 @@ class Equilibrium:
         """ The source with its means moved by `beta` times the cost. """
         return self.source.shift(beta * self.cost) if beta else self.source
 
-    def interferometer(self, theta, beta: float = 0.) -> tuple:
+    def steered(self, beta: float, error) -> Source:
+        """
+        The :class:`optyx.sampling.PhaseLocked` source with its field moved
+        by `beta` times the complex `error`: the nudge of
+        :meth:`propagate_fields`.
+        """
+        if not isinstance(self.source, PhaseLocked):
+            raise NotImplementedError(
+                f"The fields of {self.source} are not phase-locked.")
+        return PhaseLocked(np.add(self.source.coherent, beta * np.asarray(
+            error)))
+
+    def interferometer(self, theta, beta: float = 0.,
+                       source: Source = None) -> tuple:
         """
         The :class:`optyx.sampling.Interferometer` of a passive diagram of
-        the family, fed by the :meth:`nudged` source, and its loop modes
-        dephased at the start of its step.
+        the family, fed by `source`, the :meth:`nudged` source by default,
+        and its loop modes dephased at the start of its step.
         """
         diagram = self.family(theta)
         initial, _ = diagram.boundary()
@@ -165,19 +187,23 @@ class Equilibrium:
         dephased = [len(left) - inputs for left, _ in boxes[:depth]
                     if len(left) >= inputs]
         network = Interferometer.from_step(
-            initial, step[depth:], len(diagram.cod), self.nudged(beta),
+            initial, step[depth:], len(diagram.cod),
+            self.nudged(beta) if source is None else source,
             self.indistinguishability)
         return network, tuple(dephased)
 
-    def unravelling(self, theta, beta: float = 0.) -> Unravelling:
+    def unravelling(self, theta, beta: float = 0.,
+                    source: Source = None) -> Unravelling:
         """
-        The sampler of a diagram of the family, fed by the :meth:`nudged`
-        source: its :class:`optyx.sampling.Unravelling`, or its
+        The sampler of a diagram of the family, fed by `source`, the
+        :meth:`nudged` source by default: its
+        :class:`optyx.sampling.Unravelling`, or its
         :class:`optyx.sampling.Fields` with `fields`.
         """
+        source = self.nudged(beta) if source is None else source
         if self.fields:
-            return Fields(self.family(theta), self.nudged(beta))
-        return Unravelling(self.family(theta), self.cap, self.nudged(beta),
+            return Fields(self.family(theta), source)
+        return Unravelling(self.family(theta), self.cap, source,
                            self.indistinguishability)
 
     def exact(self, theta, beta: float = 0.) -> tuple:
@@ -284,3 +310,96 @@ class Equilibrium:
         weights = np.concatenate([adjoint, self.cost])
         return np.array([weights @ (ticks[2 * a] - ticks[2 * a + 1])
                          for a in range(len(theta))]) / (2 * step)
+
+    @staticmethod
+    def flowing(sampler: Fields, others: list, ticks: int, burn_in: int,
+                rng: np.random.Generator):
+        """
+        The ticks of one trajectory of the :class:`optyx.sampling.Fields`
+        `sampler` after `burn_in`: for each, the field of the memory at the
+        cut and the field of the outputs before they are detected, then the
+        fields of the memory and the outputs one tick later under each of
+        the `others`, the same randomness for all of them.
+        """
+        colours = sampler.start(rng)
+        for _ in range(burn_in):
+            _, colours = sampler.tick(colours, rng)
+        size = len(sampler.diagram.cod)
+        for _ in range(ticks):
+            branch = int(rng.integers(2 ** 63))
+            branched = [other.transit(colours, np.random.default_rng(branch))
+                        for other in others]
+            memory = colours[0].vector
+            state = sampler.transit(colours, rng)
+            yield np.r_[memory, state.vector[:size]], [
+                np.r_[after.vector[size:], after.vector[:size]]
+                for after in branched]
+            _, colours = sampler.detect(state, rng)
+
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
+    def flows(self, theta, source: Source = None, ticks: int = 1000,
+              burn_in: int = 100, seed=None, shots: int = 1,
+              shifts=()) -> tuple:
+        """
+        The mean fields of the memory at the cut and of the outputs before
+        detection, sampled by the :class:`optyx.sampling.Fields` fed by
+        `source`, and with `shifts` the same one tick later under each.
+        """
+        sampler = Fields(self.family(theta), source or self.source)
+        others = [Fields(self.family(shifted), source or self.source)
+                  for shifted in shifts]
+        records = [record for child in np.random.SeedSequence(seed).spawn(
+            shots) for record in self.flowing(
+                sampler, others, ticks, burn_in, np.random.default_rng(child))]
+        mean = np.mean([free for free, _ in records], axis=0)
+        size = len(mean) - len(self.cost)
+        return (mean[:size], mean[size:]), list(np.mean(
+            [branched for _, branched in records], axis=0))
+
+    def propagate_fields(self, theta, beta: float = .1, step: float = 1e-6,
+                         exact: bool = False, **sampling) -> np.ndarray:
+        """
+        Equilibrium propagation on the fields of phase-locked light, whose
+        memory keeps its phase. The cost is :math:`J = c \\cdot |y|^2` for
+        the mean field :math:`y` of the outputs, and its gradient is
+        :math:`2\\, \\mathrm{Re}\\,(\\lambda \\cdot \\partial_a x' + g \\cdot
+        \\partial_a y)` for :math:`g = c\\, \\bar y` and the adjoint
+        :math:`\\lambda` of the loop on fields. The nudge moves the field
+        of the source by :math:`\\pm \\beta g`, injecting the conjugate
+        error field where it is read, and the response
+        :math:`\\hat\\lambda` of the field of the memory is the adjoint
+        when the mode matrix is symmetric. The derivatives are those of
+        one tick from the free stationary fields.
+
+        >>> from optyx.channel import Diagram, qmode
+        >>> from optyx.photonic import Create, MZI, PhotonLoss
+        >>> def loop(theta):
+        ...     half = [MZI(theta[0], 0), MZI(theta[1], 0)]
+        ...     loss = qmode @ PhotonLoss(.8)
+        ...     step = Diagram.then(loss, *half, *half[::-1], loss)
+        ...     return step.feedback(mem=qmode, state=Create(0))
+        >>> ep = Equilibrium(loop, PhaseLocked((1, )), cost=(1., ))
+        >>> assert np.allclose(ep.propagate_fields((.2, .3), exact=True),
+        ...                    ep.gradient((.2, .3), exact=True), atol=1e-5)
+        """
+        theta = np.asarray(theta, dtype=float)
+        shifts = [theta + sign * step * unit
+                  for unit in np.eye(len(theta)) for sign in (1, -1)]
+        if exact:
+            network, dephased = self.interferometer(theta)
+            field = network.field(dephased)
+            error = self.cost * np.conj(network.carry(field, dephased)[1])
+            nudges = [self.interferometer(theta, source=self.steered(
+                sign * beta, error))[0].field(dephased) for sign in (1, -1)]
+            ticks = [np.r_[tuple(network.carry(field, dephased))] for
+                     network, dephased in map(self.interferometer, shifts)]
+        else:
+            (_, output), _ = self.flows(theta, **sampling)
+            error = self.cost * np.conj(output)
+            nudges = [self.flows(theta, self.steered(sign * beta, error),
+                                 **sampling)[0][0] for sign in (1, -1)]
+            _, ticks = self.flows(theta, shifts=shifts, **sampling)
+        weights = np.r_[(nudges[0] - nudges[1]) / (2 * beta), error]
+        return np.array([2 * np.real(weights @ (
+            ticks[2 * a] - ticks[2 * a + 1])) for a in range(len(theta))]) \
+            / (2 * step)

@@ -20,5 +20,6 @@ The second half, equilibrium propagation, stacked on #94, the samplers.
 
 The map and the new sources are in #94, merged here.
 
-- [WIP] @session_01XmqyhQuUzn8CQGX7CBCMw5-2026-10-29 10:30 `Equilibrium(fields=True)`: equilibrium propagation sampled by the `Fields` of classical light, phase-locked lasers included; the exact means with the field of a phase-locked source
-- [ ] the wiki page on the feed-forward that settles into equilibrium and can be trained, run against this branch
+- [x] `Equilibrium(fields=True)`: equilibrium propagation sampled by the `Fields` of classical light, phase-locked lasers included; the exact means with the field of a phase-locked source
+- [x] `Equilibrium.propagate_fields`: equilibrium propagation on the fields of phase-locked light, exact for a symmetric mode matrix where the intensities are biased
+- [WIP] @session_01XmqyhQuUzn8CQGX7CBCMw5-2026-10-29 12:00 the wiki page on the feed-forward that settles into equilibrium and can be trained, run against this branch

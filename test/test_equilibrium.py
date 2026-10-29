@@ -5,7 +5,7 @@ from optyx.channel import qmode, mode, bit, Diagram
 from optyx.photonic import (
     Create, MZI, Phase, PhotonLoss, Dephasing, NumberResolvingMeasurement)
 from optyx import classical
-from optyx.sampling import Fock, Coherent, Thermal
+from optyx.sampling import Fock, Coherent, Thermal, PhaseLocked
 from optyx.equilibrium import Equilibrium
 
 
@@ -105,3 +105,34 @@ def test_cost_on_the_ports():
         Equilibrium(palindrome(), Fock((1, )), (1., 1.))
     ep = Equilibrium(palindrome(), Fock((1, )), (1., ))
     assert ep.nudged(0) == Fock((1, )) and ep.nudged(.5).means == (1.5, )
+
+
+def test_fields_of_phase_locked_light():
+    locked = Equilibrium(palindrome(dephased=False), PhaseLocked((1., )),
+                         (1., ), fields=True)
+    gradient = locked.gradient(THETA, exact=True)
+    assert np.allclose(locked.propagate_fields(THETA, exact=True), gradient,
+                       atol=1e-5)
+    assert not np.allclose(locked.propagate(THETA, exact=True), gradient,
+                           atol=.1)
+    sampled = locked.propagate_fields(THETA, beta=.3, step=.02, ticks=60,
+                                      burn_in=40, seed=0)
+    assert np.allclose(sampled, gradient, rtol=.05, atol=.1)
+    skewed = Equilibrium(palindrome(dephased=False, reciprocal=False),
+                         PhaseLocked((1., )), (1., ))
+    assert not np.allclose(skewed.propagate_fields(THETA, exact=True),
+                           skewed.gradient(THETA, exact=True), atol=.1)
+    with pytest.raises(NotImplementedError):
+        Equilibrium(palindrome(), Fock((1, )), (1., )).steered(.1, (1., ))
+    assert Equilibrium(palindrome(), PhaseLocked((1., )), (1., )).steered(
+        .5, (2j, )) == PhaseLocked((1 + 1j, ))
+
+
+def test_fields_sample_the_means():
+    ep = Equilibrium(palindrome(feedforward=True), PhaseLocked((1., )), (1., ),
+                     fields=True)
+    (memory, counts), branches = ep.means(
+        THETA, ticks=50, burn_in=20, seed=0, shifts=[THETA])
+    assert memory.shape == (2, ) and counts.shape == (1, ) \
+        and len(branches) == 1
+    assert "Fields" in repr(ep.unravelling(THETA))
