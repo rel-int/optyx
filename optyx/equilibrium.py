@@ -108,7 +108,7 @@ from __future__ import annotations
 import numpy as np
 
 from optyx.photonic import Dephasing
-from optyx.sampling import CQState, Interferometer, Source, Unravelling
+from optyx.sampling import Fields, Interferometer, Source, Unravelling
 
 
 class Equilibrium:
@@ -128,14 +128,19 @@ class Equilibrium:
             source is in the internal state shared by all.
         cap : The most photons a mode holds in the
             :class:`optyx.sampling.Unravelling`.
+        fields : Whether to sample classical light by its
+            :class:`optyx.sampling.Fields` rather than its
+            :class:`optyx.sampling.Unravelling`: no cap, a cost linear in
+            the wires, phase-locked lasers included.
     """
     # pylint: disable=too-many-arguments,too-many-positional-arguments
     def __init__(self, family, source: Source, cost,
-                 indistinguishability: float = 1., cap: int = 4):
+                 indistinguishability: float = 1., cap: int = 4,
+                 fields: bool = False):
         self.family, self.source = family, source
         self.cost = np.asarray(cost, dtype=float)
         self.indistinguishability = float(indistinguishability)
-        self.cap = cap
+        self.cap, self.fields = cap, fields
         if len(self.cost) != len(source):
             raise ValueError(
                 f"Expected a cost on the {len(source)} ports of the source, "
@@ -166,20 +171,25 @@ class Equilibrium:
 
     def unravelling(self, theta, beta: float = 0.) -> Unravelling:
         """
-        The :class:`optyx.sampling.Unravelling` of a diagram of the family,
-        fed by the :meth:`nudged` source.
+        The sampler of a diagram of the family, fed by the :meth:`nudged`
+        source: its :class:`optyx.sampling.Unravelling`, or its
+        :class:`optyx.sampling.Fields` with `fields`.
         """
+        if self.fields:
+            return Fields(self.family(theta), self.nudged(beta))
         return Unravelling(self.family(theta), self.cap, self.nudged(beta),
                            self.indistinguishability)
 
     def exact(self, theta, beta: float = 0.) -> tuple:
         """
         The stationary one-particle correlation matrix of the memory of a
-        passive diagram and the mean counts of its outputs.
+        passive diagram, its mean field and the mean counts of its outputs.
         """
         network, dephased = self.interferometer(theta, beta)
-        correlations = network.correlations(dephased)
-        return correlations, network.advance(correlations, dephased)[1]
+        correlations, field = network.correlations(dephased), \
+            network.field(dephased)
+        return correlations, field, \
+            network.advance(correlations, dephased, field)[1]
 
     @staticmethod
     def stationary(sampler: Unravelling, others: list, ticks: int,
@@ -190,7 +200,7 @@ class Equilibrium:
         the tick, then the same one tick later under each of the `others`,
         the same randomness for all of them.
         """
-        colours = sampler.run(sampler.initial, [CQState.empty()], rng)
+        colours = sampler.start(rng)
         for _ in range(burn_in):
             _, colours = sampler.tick(colours, rng)
         for _ in range(ticks):
@@ -227,7 +237,7 @@ class Equilibrium:
 
     def value(self, theta, exact: bool = False, **sampling) -> float:
         """ The stationary cost :math:`J(\\theta) = c \\cdot o(\\theta)`. """
-        counts = self.exact(theta)[1] if exact \
+        counts = self.exact(theta)[2] if exact \
             else self.means(theta, **sampling)[0][1]
         return float(self.cost @ counts)
 
@@ -256,13 +266,14 @@ class Equilibrium:
         shifts = [theta + sign * step * unit
                   for unit in np.eye(len(theta)) for sign in (1, -1)]
         if exact:
-            correlations, _ = self.exact(theta)
+            correlations, field, _ = self.exact(theta)
             nudges = [np.real(np.diag(self.exact(theta, sign * beta)[0]))
                       for sign in (1, -1)]
             ticks = []
             for shifted in shifts:
                 network, dephased = self.interferometer(shifted)
-                after, counts = network.advance(correlations, dephased)
+                after, counts = network.advance(
+                    correlations, dephased, field)
                 ticks.append(np.concatenate([np.real(np.diag(after)),
                                              counts]))
         else:

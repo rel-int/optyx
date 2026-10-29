@@ -86,7 +86,7 @@ def test_sampled_estimates():
     assert memory.shape == (2, ) and counts.shape == (1, )
     assert ep.gradient(THETA, step=.05, **sampling).shape == (3, )
     assert ep.propagate(THETA, beta=.3, step=.05, **sampling).shape == (3, )
-    exact = ep.exact(THETA)[1]
+    exact = ep.exact(THETA)[2]
     assert abs(ep.value(THETA, ticks=400, burn_in=20, seed=1) - exact) < .1
 
 
