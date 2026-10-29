@@ -76,6 +76,7 @@ Other
     NumOp
     Scalar
     PhotonLoss
+    Dephasing
 
 
 Examples of usage
@@ -346,8 +347,12 @@ class PhotonThresholdMeasurement(Channel):
     """
     Ideal photon-number non-resolving detector
     from mode to bit from qmode to bit.
-    Detects whether one or more photons are present.
+    Detects whether one or more photons are present, of any internal
+    state: its :attr:`pool` over photons of different colours is the
+    maximum.
     """
+
+    pool = staticmethod(max)
 
     def __init__(self, n=1):
         super().__init__(
@@ -1069,6 +1074,43 @@ class PhotonLoss(Channel):
             qmode @ channel.Ty(),
             env=qmode.single()
         )
+
+
+class Dephasing(Channel):
+    """
+    Dephasing in the number basis,
+    :math:`\\rho \\mapsto \\sum_n |n\\rangle\\langle n| \\rho
+    |n\\rangle\\langle n|`: the photon number is copied to the
+    environment, as by a random phase that the light forgets. It removes
+    the coherence of a mode with every other, the limit of incoherent
+    light.
+
+    A photon split by a beam splitter no longer interferes with itself,
+    while two photons in number states still bunch:
+
+    >>> from optyx.channel import Diagram
+    >>> split = Create(1, 0) >> BS >> Dephasing() @ qmode >> BS
+    >>> probabilities = (split >> NumberResolvingMeasurement(2)).eval(
+    ...     ).prob_dist()
+    >>> assert np.isclose(probabilities[0, 1], .5)
+    >>> bunched = Create(1, 1) >> Dephasing() @ Dephasing() >> BS
+    >>> probabilities = (bunched >> NumberResolvingMeasurement(2)).eval(
+    ...     ).prob_dist()
+    >>> assert np.isclose(probabilities[1, 1], 0)
+    """
+
+    def __init__(self):
+        super().__init__(
+            "Dephasing", zw.ZBox(1, 2, lambda n: 1), qmode, qmode,
+            env=qmode.single())
+
+    @staticmethod
+    def coherent(amplitudes, rng):
+        """
+        The amplitudes of a coherent state after dephasing, as sampled by
+        :class:`optyx.sampling.Fields`: a uniformly random phase each.
+        """
+        return amplitudes * np.exp(2j * np.pi * rng.random(len(amplitudes)))
 
 
 class FusionTypeII(Diagram):
