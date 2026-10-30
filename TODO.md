@@ -43,4 +43,4 @@ A chip in an electronic loop of tanh units: the electronics hold `z`, modulate t
 > Write the story in the report as a paper to nature photonics where you discuss the potential of using EP on photonic chips instead of doing inference only. Define 4 chips organised on 2 axes where the microsoft chip is the first quadrant, axe 1 adding a photonic loop, axe 2 changing the light source, fix the measurement reading (mean number of photons). Then benchmark them on 1. the stability of EP under realistic types of noise (how well it approximates the gradient), 2. training them on a simple benchmark 1d task.
 
 - [x] `Hopfield(noise=, dark=)`: electronic noise on the readout and dark counts on the detectors, the realistic noise of the benchmark
-- [WIP] @session_01XmqyhQuUzn8CQGX7CBCMw5-2026-10-30 09:30 the wiki paper and its benchmarks, run against this branch
+- [x] the wiki paper and its benchmarks, run against this branch
