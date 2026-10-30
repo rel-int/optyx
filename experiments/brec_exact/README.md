@@ -40,6 +40,24 @@ copies, and the exact rule of the draft.
   coefficients: single photons, Fock states, coherent and thermal light
   share the tables. Checked against brute-force sums of permanents up to
   eight photons and against the coherent Monte Carlo.
+- `squeezed.py`, `test_squeezed.py`, `squeezed_app.py`, `launch_squeezed.py`,
+  `report_squeezed.py`: Gaussian squeezed light, one squeezed vacuum of mean
+  w per slot with a common phase. Its output is Gaussian, so every normally
+  ordered moment is a hafnian of the contractions w G and sqrt(w(1+w)) T
+  with G = W W^dag and T = W W^T, a polynomial in their entries on the set
+  of detectors split by the number j of T pairs, weighted by (1 + 1/w)^j:
+  j = 0 alone is thermal light and weight one the real Gaussian amplitude,
+  which the same run reproduces. No sum over slots past the two Gram
+  matrices, and one multiply-add per monomial and set (42,054 monomials for
+  all the patterns of order 4): a 63-vertex pair at order 4 in 10 s on an
+  H100. `results/raw_squeezed.json.gz`, `tables_squeezed.md`: the 16-pair
+  subset, four cells, order 4; `raw_squeezed_full.json.gz`,
+  `tables_squeezed_full.md`: all 400 pairs, four cells, at the orders of the
+  exact-noise run (4 up to 63 vertices, 3 up to 110, 2 above), 31 GPU-minutes.
+  `raw_squeezed_reach.json.gz`, `tables_squeezed_reach.md`: the same at the
+  orders of the reach run `raw_full` (4 up to 96 vertices, 3 above), with
+  its photon, coherent and thermal columns; the ideal counts of the other
+  sources are those of the exact-noise run, compared where the orders agree.
 - `write_page.py`: fills the wiki page from the aggregated results.
 
 `results/` holds the per-pair result files of each run, gzipped, and the
