@@ -168,3 +168,16 @@ def test_refusals():
                           Coherent((1., ) * 4))
     with pytest.raises(ValueError, match="exchanging the rails"):
         unbalanced.transfer(())
+
+
+def test_electronic_noise_and_dark_counts_spread_the_activations():
+    quiet = Hopfield(railed, Coherent((400., ) * 4), **electronics())
+    noisy = Hopfield(railed, Coherent((400., ) * 4), **electronics(
+        noise=.3, dark=50.))
+    spreads = [np.var(np.tanh(chip.trajectory(THETA[:4], ticks=300, seed=0)[
+        50:]), axis=0) for chip in (quiet, noisy)]
+    assert np.all(spreads[1] > 2 * spreads[0])
+    means = [chip.moments(THETA[:4], ticks=300, burn_in=30, seed=0)[0]
+             for chip in (quiet, noisy)]
+    assert np.allclose(*means, atol=.1)
+    assert np.allclose(noisy.settle(THETA[:4]), quiet.settle(THETA[:4]))

@@ -156,14 +156,20 @@ class Hopfield:
         target : The target :math:`y` of the output.
         indistinguishability : The probability that a photon of the light
             is in the internal state shared by all.
+        noise : The standard deviation of the electronic noise added to the
+            readout of the units at every electronic tick.
+        dark : The mean number of dark counts of a detector at every optical
+            tick, for intensities: a Poisson number added to its counts.
     """
     # pylint: disable=too-many-arguments,too-many-positional-arguments
     # pylint: disable=too-many-instance-attributes
     def __init__(self, family, light: Source, amplitude: float = None,
                  gain: float = 1., leak: float = .5, bias=None,
                  ratio: int = 1, output: int = -1, target: float = 0.,
-                 indistinguishability: float = 1.):
+                 indistinguishability: float = 1., noise: float = 0.,
+                 dark: float = 0.):
         self.family, self.light, self.amplitude = family, light, amplitude
+        self.noise, self.dark = float(noise), float(dark)
         self.gain, self.leak, self.ratio = float(gain), float(leak), ratio
         self.output, self.target = output, float(target)
         self.indistinguishability = float(indistinguishability)
@@ -218,15 +224,24 @@ class Hopfield:
             np.maximum(activations, 0), np.maximum(-activations, 0)]))
         return self.light.shift(np.multiply(self.light.means, rails - 1))
 
-    def read(self, outcome) -> np.ndarray:
+    def read(self, outcome, rng=None) -> np.ndarray:
         """
         The readout of the units from the `outcome` of the detectors:
         the homodyne outcomes over :math:`\\alpha`, or the difference of
-        the counts of the rails over their mean.
+        the counts of the rails over their mean, the detectors adding their
+        dark counts drawn from `rng`. Dark counts add the same mean to both
+        rails, so they cancel in the mean readout and only add noise.
+
+        >>> from optyx.photonic import BS
+        >>> chip = Hopfield(lambda theta: BS @ BS, Coherent((10., ) * 4))
+        >>> chip.read((7, 2, 0, 5)).tolist()
+        [0.5, -0.5]
         """
         outcome = np.asarray(outcome, dtype=float)
         if self.amplitude is not None:
             return outcome / self.amplitude
+        if self.dark and rng is not None:
+            outcome = outcome + rng.poisson(self.dark, len(outcome))
         return (outcome[0::2] - outcome[1::2]) / self.light.means[0]
 
     def transfer(self, theta) -> np.ndarray:
@@ -285,6 +300,18 @@ class Hopfield:
             return fields.start, fields.tick
         return lambda _: [FockState.vacuum(network.loop)], network.tick
 
+    def hold(self, step, memory, rng, light: Source) -> tuple:
+        """
+        The `ratio` optical ticks of one electronic tick, the modulators
+        holding the `light`: the mean readout and the memory left, from the
+        optical `step` of :meth:`optics`.
+        """
+        readouts = []
+        for _ in range(self.ratio):
+            outcome, memory = step(memory, rng, light)
+            readouts.append(self.read(outcome, rng))
+        return np.mean(readouts, axis=0), memory
+
     def run(self, theta, beta: float = 0., rng=None, start=None,
             exact: bool = False):
         """
@@ -298,12 +325,11 @@ class Hopfield:
             else np.array(start, dtype=float)
         while True:
             activations = np.tanh(state)
-            light = self.modulate(activations)
-            readouts = []
-            for _ in range(self.ratio):
-                outcome, memory = step(memory, rng, light)
-                readouts.append(self.read(outcome))
-            drive = self.gain * np.mean(readouts, axis=0) + self.bias
+            readout, memory = self.hold(
+                step, memory, rng, self.modulate(activations))
+            if self.noise and rng is not None:
+                readout = readout + rng.normal(0, self.noise, self.units)
+            drive = self.gain * readout + self.bias
             drive[self.output] -= beta * (
                 activations[self.output] - self.target)
             state = (1 - self.leak) * state + self.leak * drive
