@@ -892,3 +892,19 @@ def test_homodyne_needs_a_burn_in():
     loop = BS.feedback(mem=qmode, state=Create(0))
     with pytest.raises(NotImplementedError, match="burn_in"):
         loop.sample(2, source=PhaseLocked((1, )), homodyne=True)
+
+
+def test_shine_matches_the_fields():
+    from optyx.channel import qmode
+    from optyx.photonic import BS, Create, PhotonLoss
+    loop = (BS >> qmode @ PhotonLoss(.7)).feedback(mem=qmode, state=Create(0))
+    light = Thermal((2., ))
+    network = Interferometer.from_diagram(loop, source=light)
+    rng, field, counts = np.random.default_rng(0), np.zeros(1), []
+    for _ in range(4000):
+        count, field = network.shine(field, rng)
+        counts.append(count[0])
+    fields = Fields(loop, light).sample(4000, burn_in=20, seed=1)
+    exact = network.advance(network.correlations())[1][0]
+    assert abs(np.mean(counts[20:]) - exact) < .1
+    assert abs(np.var(counts[20:]) - np.var(fields)) < .15 * np.var(fields)

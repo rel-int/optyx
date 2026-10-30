@@ -181,3 +181,13 @@ def test_electronic_noise_and_dark_counts_spread_the_activations():
              for chip in (quiet, noisy)]
     assert np.allclose(*means, atol=.1)
     assert np.allclose(noisy.settle(THETA[:4]), quiet.settle(THETA[:4]))
+
+
+def test_inefficient_detectors_scale_the_couplings():
+    ideal = Hopfield(railed, Coherent((100., ) * 4), **electronics())
+    lossy = Hopfield(railed, Coherent((100., ) * 4), **electronics(
+        efficiency=.5))
+    assert np.allclose(lossy.transfer(THETA[:4]),
+                       ideal.transfer(THETA[:4]) / 2)
+    assert np.allclose(lossy.propagate(THETA[:4], beta=1e-4, exact=True),
+                       lossy.gradient(THETA[:4], exact=True), atol=1e-5)

@@ -1479,6 +1479,31 @@ transmissivity=1.0, efficiency=1.0, visible=(0,), indistinguishability=1.0)
         return np.sqrt(self.transmissivity) * outputs[:self.loop], \
             np.sqrt(self.efficiency) * outputs[self.loop:][list(self.visible)]
 
+    def shine(self, field: np.ndarray, rng: np.random.Generator,
+              source: Source = None) -> tuple:
+        """
+        One tick of classical light, a mixture of coherent states: the
+        amplitudes of the source, or of `source`, drawn from its P function,
+        and the `field` of the loop go through the mode matrix, the loop
+        loses its amplitude to the transmissivity and the visible outputs
+        to the efficiency, and each is counted with a Poisson number of mean
+        :math:`|\\alpha|^2`. Returns the counts and the field of the loop:
+        the :class:`Fields` of a passive network, a matrix product a tick.
+
+        >>> delay = Interferometer(
+        ...     [[0, 1], [1, 0]], 1, source=Coherent((4., )))
+        >>> rng = np.random.default_rng(0)
+        >>> counts, field = delay.shine(np.zeros(1), rng)
+        >>> counts.tolist(), round(abs(field[0]) ** 2, 6)
+        ([0], 4.0)
+        """
+        outputs = self.unitary @ np.r_[np.asarray(field, dtype=complex),
+                                       self.padded(source).amplitudes(rng)]
+        visible = np.sqrt(self.efficiency) * outputs[self.loop:][
+            list(self.visible)]
+        return rng.poisson(np.abs(visible) ** 2), \
+            np.sqrt(self.transmissivity) * outputs[:self.loop]
+
     def transfer(self) -> np.ndarray:
         """
         The stationary mode matrix from the external inputs to the visible

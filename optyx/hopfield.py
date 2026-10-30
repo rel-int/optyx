@@ -29,8 +29,9 @@ The units are written on the light in one of two ways:
   and :math:`[r_j]_-` of their means :math:`q`, and photon counting reads
   :math:`m_i = (n_{2i} - n_{2i + 1}) / q_{2i}`. The light is any light
   without a phase reference: :class:`optyx.sampling.Coherent` and
-  :class:`optyx.sampling.Thermal`, sampled by the
-  :class:`optyx.sampling.Fields`, and single photons,
+  :class:`optyx.sampling.Thermal`, sampled through the mode matrix of
+  the chip by :meth:`optyx.sampling.Interferometer.shine`, and single
+  photons,
   :class:`optyx.sampling.Fock`, partially distinguishable or not, thinned
   by the modulators and sampled by the
   :class:`optyx.sampling.Interferometer`. Every rail has the same mean
@@ -127,7 +128,7 @@ from itertools import islice
 import numpy as np
 
 from optyx.sampling import (
-    Coherent, Displaced, FockState, Fields, Gaussian, Interferometer, Source,
+    Coherent, Displaced, FockState, Gaussian, Interferometer, Source,
     Thermal)
 
 
@@ -160,6 +161,7 @@ class Hopfield:
             readout of the units at every electronic tick.
         dark : The mean number of dark counts of a detector at every optical
             tick, for intensities: a Poisson number added to its counts.
+        efficiency : The efficiency of the detectors.
     """
     # pylint: disable=too-many-arguments,too-many-positional-arguments
     # pylint: disable=too-many-instance-attributes
@@ -167,9 +169,11 @@ class Hopfield:
                  gain: float = 1., leak: float = .5, bias=None,
                  ratio: int = 1, output: int = -1, target: float = 0.,
                  indistinguishability: float = 1., noise: float = 0.,
-                 dark: float = 0.):
+                 dark: float = 0., efficiency: float = 1.):
         self.family, self.light, self.amplitude = family, light, amplitude
         self.noise, self.dark = float(noise), float(dark)
+        self.efficiency = float(efficiency)
+        self.networks = {}
         self.gain, self.leak, self.ratio = float(gain), float(leak), ratio
         self.output, self.target = output, float(target)
         self.indistinguishability = float(indistinguishability)
@@ -196,11 +200,19 @@ class Hopfield:
     def network(self, theta, light: Source = None) -> Interferometer:
         """
         The :class:`optyx.sampling.Interferometer` of the chip at
-        `theta`, fed by `light`, the light of the loop by default.
+        `theta`, fed by `light`, the light of the loop by default, built
+        once and kept in :attr:`networks`.
         """
-        return Interferometer.from_diagram(
-            self.family(theta), self.indistinguishability,
-            self.light if light is None else light)
+        key = tuple(np.ravel(theta))
+        if light is not None or key not in self.networks:
+            network = Interferometer.from_diagram(
+                self.family(theta), self.indistinguishability,
+                self.light if light is None else light)
+            network.efficiency = self.efficiency
+            if light is not None:
+                return network
+            self.networks[key] = network
+        return self.networks[key]
 
     def modulate(self, activations) -> Source:
         """
@@ -296,8 +308,8 @@ class Hopfield:
             return lambda _: np.zeros((network.loop, network.loop)), tick
         if isinstance(self.light, (Coherent, Thermal)) \
                 and self.indistinguishability == 1:
-            fields = Fields(self.family(theta), self.light)
-            return fields.start, fields.tick
+            return lambda _: np.zeros(network.loop, dtype=complex), \
+                network.shine
         return lambda _: [FockState.vacuum(network.loop)], network.tick
 
     def hold(self, step, memory, rng, light: Source) -> tuple:
