@@ -20,3 +20,9 @@
 
 - [WIP] @session_017fWFyGbNF3W2wpXaknNsMu-2026-10-30 18:00 Order 1 on full BREC with a reciprocal (symmetric) cell, the condition under which equilibrium propagation is exact
 - [ ] Order 1 on full BREC with the memory dephased every tick, alone and with the reciprocal cell
+
+> Find a feedforward rule that makes the setup BQP hard and non-linear, check if it converges, and if so, how expressive it is
+
+- [WIP] @session_017fWFyGbNF3W2wpXaknNsMu-2026-11-06 12:00 An equivariant feedforward rule for the photonic graph network, nonlinear, with a BQP-hardness argument checked adversarially
+- [WIP] @session_017fWFyGbNF3W2wpXaknNsMu-2026-11-06 12:00 Its convergence: two-start relaxation and autocorrelation on small BREC graphs
+- [WIP] @session_017fWFyGbNF3W2wpXaknNsMu-2026-11-06 12:00 Its expressivity at orders 1 to 3, in our sense (separation against budget) and in BREC's (paired comparison on relabelled copies), against the linear chip
