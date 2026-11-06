@@ -15,6 +15,13 @@ every N-set product is nonnegative as a coincidence is:
   forward pass per sample (random node initialisation).
 * ``coherent``: the photonic network with random-phase coherent light at
   brightness w, sampled: phases, one matrix-vector product, Poisson counts.
+* ``loop-coherent``, ``loop-thermal``: the same chip run tick by tick, with
+  random-phase coherent or thermal light at brightness w and measurement
+  feedforward: the count n_v(t) of the detector of chip v sets the phase
+  kappa pi n_v(t) / nbar on the memory mode of chip v, `delay` ticks later,
+  with nbar the mean count per detector of the linear chip.  The rule is the
+  same at every vertex, so the network stays equivariant; kappa = 0 is the
+  linear chip, the path-matrix ``coherent`` model read tick by tick.
 
 The linear models are Gaussian processes, so their moments are exact by
 Wick's theorem: E[prod_{a in S} z_a^2] is the hafnian of the covariance of
@@ -27,7 +34,7 @@ import numpy as np
 
 import brecphot as bp
 
-MODELS = ("step-lin", "step-tanh", "init-lin", "init-tanh", "coherent")
+MODELS = ("step-lin", "step-tanh", "init-lin", "init-tanh", "coherent", "loop-coherent", "loop-thermal")
 WIDTH = 8
 DEPTH = 4
 RHO = 0.95
@@ -62,7 +69,7 @@ class Sampler:
     """Streams chunks of readouts y (chunk, n) for one model on one graph."""
 
     def __init__(self, model, adj, seed, device, noise_seed=0, brightness=1.0,
-                 gamma=0.9, width=WIDTH, depth=DEPTH, chunk=1024):
+                 gamma=0.9, width=WIDTH, depth=DEPTH, chunk=1024, kappa=0.0, delay=1):
         """`seed` draws the cell or the weights, shared by every graph and
         copy of one experiment; `noise_seed` draws the light or the noise."""
         import torch
@@ -76,6 +83,17 @@ class Sampler:
             W = bp.path_matrix(bp.network(adj, bp.cell(seed), gamma), tol=1e-4)
             self.W = torch.as_tensor(W, dtype=torch.complex64, device=device)
             self.brightness = brightness
+            return
+        if model.startswith("loop"):
+            A, B, C, D = bp.network(adj, bp.cell(seed), gamma)
+            U = np.block([[A, B], [C, D]])
+            self.UT = torch.as_tensor(U.T, dtype=torch.complex64, device=device)
+            self.loop = A.shape[0]
+            self.memory = torch.arange(self.loop - self.n, self.loop, device=device)
+            W = bp.path_matrix((A, B, C, D))
+            self.nbar = float(brightness * np.mean(np.sum(np.abs(W) ** 2, axis=1)))
+            self.brightness, self.kappa, self.delay = brightness, kappa, delay
+            self.state = None
             return
         q, w = cell_weights(seed, width)
         lazy = (np.eye(self.n) + neighbour_mean(adj)) / 2
@@ -94,6 +112,8 @@ class Sampler:
         out = {"gen": self.gen.get_state().cpu().numpy()}
         if getattr(self, "state", None) is not None:
             out["state"] = self.state.cpu().numpy()
+        if getattr(self, "history", None) is not None:
+            out["history"] = self.history.cpu().numpy()
         return out
 
     def load_state_dict(self, state, device):
@@ -101,6 +121,30 @@ class Sampler:
         self.gen.set_state(torch.as_tensor(state["gen"]).to(torch.uint8).cpu())
         if "state" in state:
             self.state = torch.as_tensor(state["state"], device=device)
+        if "history" in state:
+            self.history = torch.as_tensor(state["history"], device=device)
+
+    def light(self, k):
+        """One pulse per source and stream: (k, n) amplitudes of mean |a|^2 = w."""
+        import torch
+        if self.model == "loop-coherent":
+            phases = torch.rand((k, self.n), generator=self.gen, device=self.device)
+            return torch.exp(2j * np.pi * phases).to(torch.complex64) * np.sqrt(self.brightness)
+        re, im = (torch.randn((k, self.n), generator=self.gen, device=self.device) for _ in range(2))
+        return (re + 1j * im).to(torch.complex64) * np.sqrt(self.brightness / 2)
+
+    def tick(self):
+        """One tick of every stream: interfere, count, and feed the counts of
+        `delay` ticks ago forward as phases on the memory modes."""
+        import torch
+        x = torch.cat([self.state, self.light(self.state.shape[0])], dim=1) @ self.UT
+        self.state, field = x[:, :self.loop], x[:, self.loop:]
+        counts = torch.poisson((field.abs() ** 2).float(), generator=self.gen)
+        if self.kappa:
+            self.history = torch.cat([self.history[1:], counts[None]])
+            phase = torch.exp(1j * (self.kappa * np.pi / self.nbar) * self.history[0]).to(torch.complex64)
+            self.state[:, self.memory] = self.state[:, self.memory] * phase
+        return counts
 
     def step(self, x, noise):
         """One update on a batch of states x (chunk, n, width)."""
@@ -124,6 +168,20 @@ class Sampler:
                 alpha = torch.exp(2j * np.pi * phases).to(torch.complex64) * np.sqrt(self.brightness)
                 intensity = (alpha @ self.W.T).abs() ** 2
                 yield torch.poisson(intensity, generator=self.gen).to(torch.float64)
+                done += k
+            return
+        if self.model.startswith("loop"):
+            # `chunk` independent streams from the vacuum, advanced in
+            # lockstep; stream i feeds batch i mod B, so batches are
+            # independent runs on the same schedule, stationary or not
+            if self.state is None:
+                self.state = torch.zeros((self.chunk, self.loop), dtype=torch.complex64, device=self.device)
+                self.history = torch.zeros((self.delay, self.chunk, self.n), device=self.device)
+                for _ in range(BURN_IN):
+                    self.tick()
+            while done < total:
+                k = min(self.chunk, total - done)
+                yield self.tick()[:k].to(torch.float64)
                 done += k
             return
         if self.model.startswith("init"):
@@ -222,7 +280,7 @@ def sampled_statistics(model, adj, seed, total, nmax, device, noise_seed=0, **kw
     sampler = Sampler(model, adj, seed, device, noise_seed=noise_seed,
                       chunk=chunk_size(adj.shape[0], nmax), **kw)
     acc = Accumulator(adj.shape[0], nmax, total, device)
-    stationary = model.startswith("step")
+    stationary = model.startswith(("step", "loop"))
     for y in sampler.chunks(total):
         acc.add(y, stationary)
     return acc.stats()
