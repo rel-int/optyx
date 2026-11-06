@@ -49,7 +49,7 @@ A chip in an electronic loop of tanh units: the electronics hold `z`, modulate t
 
 > Checkout our work on the expressive power of photonic chips in the wiki. I think the main problem of that result, if we compare it to an ML audience, is that we are using a different test then BREC with higher orders. With EP we can think of photonic chips as different types of learning machines. So how do we evaluate them in a coherent line? That work on expressivity could be a benchmark for these machines, along with others. Check the sources for expressivity and graph isomorphism tests. Can we now run the orginal BREC test thanks to EP?
 
-- [WIP] @session_01XmqyhQuUzn8CQGX7CBCMw5-2026-11-06 00:10 `experiments/brec_ep`: the photonic graph network of `brec_exact` as a Hopfield network trained by EP, with a reciprocal shared cell, its intensity couplings, BREC's Siamese cosine loss and BREC's own test, unchanged
-- [ ] EP against finite differences of the Siamese loss
-- [ ] BREC's protocol on a subset, then on all 400 pairs
+- [x] `experiments/brec_ep`: the photonic graph network of `brec_exact` as a Hopfield network trained by EP, with a reciprocal shared cell, its intensity couplings, BREC's Siamese cosine loss and BREC's own test, unchanged
+- [x] EP against finite differences of the Siamese loss: cosine 0.99999999
+- [x] BREC's protocol on 34 pairs of the 46-pair subset, stopped once the pattern was clear: 18 separated untrained, 6 after training on BREC's saturated loss (`results/subset_pilot.txt`); the full run waits on a readout and loss that train
 - [ ] the wiki: a coherent benchmark line for photonic learning machines, the sources on expressivity and graph isomorphism tests, and the results
