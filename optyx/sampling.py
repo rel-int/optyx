@@ -109,19 +109,26 @@ whose fields from successive ticks interfere.
       - yes
       - yes
       - random
-      - :class:`Interferometer`, :class:`Unravelling`, :class:`Fields`
+      - :class:`Interferometer`, :class:`Unravelling`, :class:`Fields`,
+        :class:`Gaussian`
     * - :class:`PhaseLocked`
       - coherent state
       - yes
       - yes
       - locked
-      - :class:`Unravelling` (kets), :class:`Fields`
+      - :class:`Unravelling` (kets), :class:`Fields`, :class:`Gaussian`
     * - :class:`Squeezed`
       - squeezed vacuum
       - yes
       - no
       - locked
-      - :class:`Unravelling` (kets)
+      - :class:`Unravelling` (kets), :class:`Gaussian`
+    * - :class:`Displaced`
+      - its source, displaced
+      - as its source
+      - as its source
+      - locked
+      - :class:`Fields`, :class:`Gaussian`
 
 Every source has exact one-particle means through passive diagrams.
 
@@ -136,6 +143,9 @@ Every source has exact one-particle means through passive diagrams.
   cost exponential in its wires; superpositions enter as kets cut at its
   cap, which raises when the cut loses norm. Squeezed light with number
   resolving detectors is Gaussian boson sampling: exact but exponential.
+- The :class:`Gaussian` samples Gaussian light through passive diagrams,
+  its outputs read by homodyne detection: means and covariances of the
+  quadratures, a cost polynomial in the modes.
 - The :class:`Fields` sample classical light through linear optics,
   detectors and feed-forward, by drawing the amplitudes of coherent states
   from the P function of the source: no cap, a cost linear in the wires.
@@ -155,11 +165,13 @@ Classes
     Thermal
     PhaseLocked
     Squeezed
+    Displaced
     Shifted
     FockState
     Sweep
     Unravelling
     Fields
+    Gaussian
     CQState
 
 Functions
@@ -731,6 +743,19 @@ class Source:
         """
         return np.zeros(len(self), dtype=complex)
 
+    def quadratures(self) -> tuple:
+        """
+        The means and the covariance of the quadratures
+        :math:`x = (a + a^\\dagger) / 2` and
+        :math:`p = (a - a^\\dagger) / 2i` of the inputs, all the :math:`x`
+        then all the :math:`p`, for Gaussian light: the vacuum has
+        covariance :math:`1 / 4`. Light that is not Gaussian raises.
+
+        >>> [x.tolist() for x in Fock((0, )).quadratures()]
+        [[0.0, 0.0], [[0.25, 0.0], [0.0, 0.25]]]
+        """
+        raise NotImplementedError(f"{self} is not Gaussian light.")
+
     def pad(self, modes: int) -> Source:
         """ The same source with `modes` more inputs in the vacuum. """
         return type(self)(self.means + (0, ) * modes)
@@ -802,6 +827,11 @@ class Fock(Source):
             return super().amplitudes(rng)
         return np.zeros(len(self), dtype=complex)
 
+    def quadratures(self) -> tuple:
+        if any(self.photons):
+            return super().quadratures()
+        return np.zeros(2 * len(self)), np.eye(2 * len(self)) / 4
+
 
 class Coherent(Source):
     """
@@ -835,6 +865,10 @@ class Thermal(Source):
     def amplitudes(self, rng: np.random.Generator) -> np.ndarray:
         return np.sqrt(np.array(self.means) / 2) * (
             rng.normal(size=len(self)) + 1j * rng.normal(size=len(self)))
+
+    def quadratures(self) -> tuple:
+        return np.zeros(2 * len(self)), np.diag(
+            np.tile(2 * np.array(self.means) + 1, 2) / 4)
 
     shift = Coherent.shift
 
@@ -894,6 +928,10 @@ sample with a larger cap.
     def field(self) -> np.ndarray:
         return np.array(self.coherent)
 
+    def quadratures(self) -> tuple:
+        return np.r_[np.real(self.coherent), np.imag(self.coherent)], \
+            np.eye(2 * len(self)) / 4
+
     def pad(self, modes: int) -> Source:
         return PhaseLocked(self.coherent + (0, ) * modes)
 
@@ -942,6 +980,11 @@ class Squeezed(Source):
         return tuple(ket(np.where(
             np.arange(levels) % 2, 0, (-np.tanh(r)) ** pairs * weights
             / np.sqrt(np.cosh(r)))) for r in self.squeezing)
+
+    def quadratures(self) -> tuple:
+        squeezing = np.array(self.squeezing)
+        return np.zeros(2 * len(self)), np.diag(
+            np.r_[np.exp(-2 * squeezing), np.exp(2 * squeezing)] / 4)
 
     def pad(self, modes: int) -> Source:
         return Squeezed(self.squeezing + (0, ) * modes)
@@ -1050,8 +1093,83 @@ class Product(Source):
     def field(self) -> np.ndarray:
         return np.concatenate([factor.field for factor in self.factors])
 
+    def quadratures(self) -> tuple:
+        offsets = np.cumsum([0] + [len(factor) for factor in self.factors])
+        order = np.concatenate([
+            np.r_[start:stop, len(self) + start:len(self) + stop]
+            for start, stop in zip(offsets, offsets[1:])])
+        means, covariance = np.zeros(2 * len(self)), np.zeros(
+            (2 * len(self), 2 * len(self)))
+        for start, stop, factor in zip(offsets, offsets[1:], self.factors):
+            block = order[2 * start:2 * stop]
+            means[block], covariance[np.ix_(block, block)] = \
+                factor.quadratures()
+        return means, covariance
+
     def pad(self, modes: int) -> Source:
         return self @ Fock((0, ) * modes)
+
+
+class Displaced(Source):
+    """
+    The light of `source` displaced by `displacement`, as a strong laser
+    mixed in on a beam splitter of transmissivity close to one does: its
+    field moves by the displacement and its fluctuations stay. This is the
+    modulator of a phase-locked electronic loop, which writes its signal on
+    light whose noise the source sets: the vacuum for a laser, thermal or
+    squeezed noise otherwise. It is sampled by the :class:`Fields` when the
+    source is classical, and by the :class:`Gaussian` when it is Gaussian.
+
+    >>> light = Displaced(Thermal((1., )), (2j, ))
+    >>> light.means, light.field.tolist()
+    ((5.0,), [2j])
+    >>> [x.tolist() for x in light.quadratures()]
+    [[0.0, 2.0], [[0.75, 0.0], [0.0, 0.75]]]
+    """
+    def __init__(self, source: Source, displacement):
+        self.source = source
+        self.displacement = tuple(complex(d) for d in displacement)
+        if len(self.displacement) != len(source):
+            raise ValueError(
+                f"Expected a displacement of {len(source)} modes, got "
+                f"{self.displacement}.")
+        super().__init__(np.array(source.means) + np.abs(self.field) ** 2
+                         - np.abs(source.field) ** 2)
+
+    def __repr__(self):
+        return f"Displaced({self.source!r}, {self.displacement})"
+
+    def __eq__(self, other):
+        return isinstance(other, Displaced) and (
+            self.source, self.displacement) == (
+                other.source, other.displacement)
+
+    def draw(self, rng: np.random.Generator) -> tuple:
+        raise NotImplementedError(
+            f"{self} has a phase reference: sample it with the Fields or "
+            "the Gaussian.")
+
+    superposed = PhaseLocked.superposed
+
+    def amplitudes(self, rng: np.random.Generator) -> np.ndarray:
+        return self.source.amplitudes(rng) + np.array(self.displacement)
+
+    @property
+    def field(self) -> np.ndarray:
+        return self.source.field + np.array(self.displacement)
+
+    def quadratures(self) -> tuple:
+        means, covariance = self.source.quadratures()
+        return means + np.r_[np.real(self.displacement),
+                             np.imag(self.displacement)], covariance
+
+    def pad(self, modes: int) -> Source:
+        return Displaced(self.source.pad(modes),
+                         self.displacement + (0, ) * modes)
+
+    def join(self, other: Source) -> Source:
+        return Displaced(self.source @ other.source,
+                         self.displacement + other.displacement)
 
 
 def feeding(diagram, source: Source = None) -> Source:
@@ -1361,6 +1479,51 @@ transmissivity=1.0, efficiency=1.0, visible=(0,), indistinguishability=1.0)
         return np.sqrt(self.transmissivity) * outputs[:self.loop], \
             np.sqrt(self.efficiency) * outputs[self.loop:][list(self.visible)]
 
+    def shine(self, field: np.ndarray, rng: np.random.Generator,
+              source: Source = None) -> tuple:
+        """
+        One tick of classical light, a mixture of coherent states: the
+        amplitudes of the source, or of `source`, drawn from its P function,
+        and the `field` of the loop go through the mode matrix, the loop
+        loses its amplitude to the transmissivity and the visible outputs
+        to the efficiency, and each is counted with a Poisson number of mean
+        :math:`|\\alpha|^2`. Returns the counts and the field of the loop:
+        the :class:`Fields` of a passive network, a matrix product a tick.
+
+        >>> delay = Interferometer(
+        ...     [[0, 1], [1, 0]], 1, source=Coherent((4., )))
+        >>> rng = np.random.default_rng(0)
+        >>> counts, field = delay.shine(np.zeros(1), rng)
+        >>> counts.tolist(), round(abs(field[0]) ** 2, 6)
+        ([0], 4.0)
+        """
+        outputs = self.unitary @ np.r_[np.asarray(field, dtype=complex),
+                                       self.padded(source).amplitudes(rng)]
+        visible = np.sqrt(self.efficiency) * outputs[self.loop:][
+            list(self.visible)]
+        return rng.poisson(np.abs(visible) ** 2), \
+            np.sqrt(self.transmissivity) * outputs[:self.loop]
+
+    def transfer(self) -> np.ndarray:
+        """
+        The stationary mode matrix from the external inputs to the visible
+        outputs: a field :math:`\\alpha` injected at every tick reaches
+        the detectors as :math:`T \\alpha` once the loop has settled,
+        summing over every number of round trips,
+        :math:`T = \\sqrt\\eta (U_{x x} + U_{x \\ell} (1 - \\sqrt\\gamma
+        U_{\\ell \\ell})^{-1} \\sqrt\\gamma U_{\\ell x})`.
+
+        >>> loop = Interferometer([[.6, .8], [.8, -.6]], 1, inputs=(0, ))
+        >>> loop.transfer().real.round(6).tolist()
+        [[1.0]]
+        """
+        loop, rows = self.loop, self.loop + np.array(self.visible, dtype=int)
+        settled = np.linalg.solve(
+            np.eye(loop) - self.block, np.sqrt(self.transmissivity)
+            * self.unitary[:loop, loop:])
+        return np.sqrt(self.efficiency) * (
+            self.unitary[rows, loop:] + self.unitary[rows, :loop] @ settled)
+
     def field(self, dephased: tuple = ()) -> np.ndarray:
         """
         The mean field of the loop in the stationary state, the fixed point
@@ -1502,22 +1665,58 @@ transmissivity=1.0, efficiency=1.0, visible=(0,), indistinguishability=1.0)
                     p=normalise([weight for weight, _ in outcomes]))][1]
         return pattern, state
 
-    def colour(self, rng: np.random.Generator):
+    def padded(self, source: Source = None) -> Source:
         """
-        The injection of one tick, drawn from the source, split into
-        colours: the photons in the shared internal state, then one single
-        photon per photon in an internal state of its own.
+        The light injected at a tick: `source` on the first external
+        inputs and the vacuum on the others, or the source of the network.
         """
-        return colouring(
-            self.source.draw(rng), self.indistinguishability, rng)
+        if source is None:
+            return self.source
+        if len(source) > len(self.source):
+            raise ValueError(
+                f"{source} has more modes than the {len(self.source)} "
+                "external inputs.")
+        if any(self.source.means[len(source):]):
+            raise NotImplementedError(
+                f"{self.source} feeds the inputs past those of {source}: "
+                "they are not the vacuum.")
+        return source.pad(len(self.source) - len(source))
 
-    def tick(self, colours: list, rng: np.random.Generator):
+    def fed(self, source: Source) -> Interferometer:
+        """
+        The same network fed by `source` on its first external inputs,
+        :meth:`padded` with the vacuum.
+
+        >>> delay = Interferometer([[0, 1], [1, 0]], loop=1, inputs=(1, ))
+        >>> delay.fed(Coherent((2., ))).occupation()
+        2.0
+        """
+        return Interferometer(
+            self.unitary, self.loop, source=self.padded(source),
+            transmissivity=self.transmissivity, efficiency=self.efficiency,
+            visible=self.visible,
+            indistinguishability=self.indistinguishability)
+
+    def colour(self, rng: np.random.Generator, source: Source = None):
+        """
+        The injection of one tick, drawn from the source, or from `source`
+        when given, split into colours: the photons in the shared internal
+        state, then one single photon per photon in an internal state of
+        its own.
+        """
+        return colouring(self.padded(source).draw(rng),
+                         self.indistinguishability, rng)
+
+    def tick(self, colours: list, rng: np.random.Generator,
+             source: Source = None):
         """
         One tick of a trajectory with one loop state per colour, the shared
         colour first: the recorded pattern and the next colours. A colour
-        of its own is forgotten once its photon has left the loop.
+        of its own is forgotten once its photon has left the loop. The
+        photons are drawn from `source` when given, as a modulator would
+        set it for this tick.
         """
-        shared, alone = self.colour(rng)
+        shared, alone = self.colour(rng, source)
         empty = (0, ) * len(self.source)
         work = [(colours[0], shared)] \
             + [(state, empty) for state in colours[1:]] \
@@ -2125,20 +2324,23 @@ class Unravelling:
             state.means(), state.values) if value is None]
             for state in colours], axis=0)
 
-    def tick(self, colours: list, rng: np.random.Generator):
+    def tick(self, colours: list, rng: np.random.Generator,
+             source: Source = None):
         """
         One tick from the `colours` of the memory, the shared colour first:
-        the inputs drawn from the source and coloured, the step, and the
-        outputs measured, the counts of the colours added up. Returns the
-        outputs and the colours of the memory, a colour of its own
-        forgotten once its photons have left.
+        the inputs drawn from the source, or from `source` when given, and
+        coloured, the step, and the outputs measured, the counts of the
+        colours added up. Returns the outputs and the colours of the
+        memory, a colour of its own forgotten once its photons have left.
         """
+        source = self.source if source is None else feeding(
+            self.diagram, source)
         optical = tuple(ob.name == "qmode" for ob in self.diagram.dom.inside)
-        if self.source.superposed and self.indistinguishability != 1:
+        if source.superposed and self.indistinguishability != 1:
             raise NotImplementedError(
-                f"{self.source} injects superpositions: its photons cannot "
+                f"{source} injects superpositions: its photons cannot "
                 "be coloured.")
-        shared, alone = colouring(self.source.inject(rng, self.cap + 1),
+        shared, alone = colouring(source.inject(rng, self.cap + 1),
                                   self.indistinguishability, rng, optical)
         empty = tuple(0 if light else n for n, light in zip(shared, optical))
         colours = self.run(self.step, [self.feed(colours[0], shared)] + [
@@ -2290,6 +2492,11 @@ class Fields(Unravelling):
               rng: np.random.Generator) -> CQState:
         stop = offset + len(box.dom)
         values = state.values[offset:stop]
+        if isinstance(box, symmetric.Swap) and values.count(None) == 2:
+            first = state.values[:offset].count(None)
+            vector = state.vector.copy()
+            vector[[first, first + 1]] = vector[[first + 1, first]]
+            return CQState(vector, state.values, state.weight)
         if isinstance(box, symmetric.Swap) or not hasattr(box, "kraus"):
             return super().apply(state, offset, box, rng)
         before = state.vector[:state.values[:offset].count(None)]
@@ -2323,20 +2530,25 @@ class Fields(Unravelling):
         return np.sum([np.abs(state.vector) ** 2 for state in colours],
                       axis=0)
 
-    def transit(self, colours: list, rng: np.random.Generator) -> CQState:
+    def transit(self, colours: list, rng: np.random.Generator,
+                source: Source = None) -> CQState:
         """
         One tick from the `colours` of the memory, its outputs left
-        unmeasured: their amplitudes or values first, then the memory.
+        unmeasured: their amplitudes or values first, then the memory. The
+        amplitudes are drawn from `source` when given.
         """
+        source = self.source if source is None else feeding(
+            self.diagram, source)
         state = colours[0]
-        state = CQState(np.concatenate([self.source.amplitudes(rng),
+        state = CQState(np.concatenate([source.amplitudes(rng),
                                         state.vector]),
                         [None] * len(self.diagram.dom) + state.values)
         state, = self.run(self.step, [state], rng)
         return state
 
-    def tick(self, colours: list, rng: np.random.Generator):
-        return self.detect(self.transit(colours, rng), rng)
+    def tick(self, colours: list, rng: np.random.Generator,
+             source: Source = None):
+        return self.detect(self.transit(colours, rng, source), rng)
 
     def detect(self, state: CQState, rng: np.random.Generator):
         """
@@ -2350,6 +2562,127 @@ class Fields(Unravelling):
                         for value in state.values[:outputs])
         return pattern, [CQState(state.vector[quantum:],
                                  state.values[outputs:])]
+
+
+class Gaussian:
+    """
+    The trajectories of Gaussian light through a passive recurrent
+    :class:`Interferometer`, its visible outputs read by homodyne detection
+    of their :math:`x` quadrature.
+
+    Gaussian light stays Gaussian through linear optics and loss, and so
+    does the loop conditioned on a homodyne outcome. The state of the loop
+    is then the means :math:`\\mu` and the covariance :math:`V` of its
+    quadratures :math:`x = (a + a^\\dagger) / 2` and
+    :math:`p = (a - a^\\dagger) / 2i`, all the :math:`x` then all the
+    :math:`p`, the vacuum having :math:`V = 1 / 4`. A tick:
+
+    1. stacks the loop with the quadratures of the source,
+       :meth:`Source.quadratures`, the environment in the vacuum;
+    2. applies the real form of the mode matrix,
+       :math:`S = \\begin{pmatrix} \\mathrm{Re}\\, U & -\\mathrm{Im}\\,
+       U \\\\ \\mathrm{Im}\\, U & \\mathrm{Re}\\, U \\end{pmatrix}`,
+       then mixes in the vacuum of the loss of the loop and of the
+       inefficiency of the detectors;
+    3. draws the :math:`x` quadratures of the visible outputs from their
+       Gaussian marginal and conditions the loop on them: its means move by
+       :math:`V_{\\ell o} V_{o o}^{-1} (x - \\mu_o)` and its covariance
+       becomes the Schur complement
+       :math:`V_{\\ell \\ell} - V_{\\ell o} V_{o o}^{-1} V_{o \\ell}`,
+       whatever the outcome.
+
+    Without a random generator the outcomes are their means: the
+    deterministic mean field of the network.
+
+    A beam splitter fed back on itself by a laser: once the loop has
+    settled, homodyne detection reads the real part of the stationary field,
+    with the spread of the vacuum, :math:`1 / 2`.
+
+    >>> loop = Interferometer([[.6, .8], [.8, -.6]], 1,
+    ...                       source=PhaseLocked((1, )))
+    >>> samples = Gaussian(loop).sample(4000, burn_in=20, seed=0)
+    >>> bool(abs(np.mean(samples) - loop.transfer()[0, 0].real) < .03)
+    True
+    >>> bool(abs(np.std(samples) - .5) < .03)
+    True
+
+    A delay line fed with squeezed light reads it below the vacuum noise:
+
+    >>> delay = Interferometer([[0, 1], [1, 0]], 1, source=Squeezed((.5, )))
+    >>> samples = Gaussian(delay).sample(4000, burn_in=2, seed=0)
+    >>> bool(abs(np.var(samples) - np.exp(-1) / 4) < .01)
+    True
+    """
+    def __init__(self, network: Interferometer):
+        self.network = network
+        unitary = network.unitary
+        self.symplectic = np.block([[unitary.real, -unitary.imag],
+                                    [unitary.imag, unitary.real]])
+        modes, loop = network.modes, network.loop
+        self.memory = np.r_[:loop, modes:modes + loop]
+        self.inputs = np.r_[loop:modes, modes + loop:2 * modes]
+        self.outputs = loop + np.array(network.visible, dtype=int)
+        self.gains = np.ones(2 * modes)
+        self.gains[self.memory] = np.sqrt(network.transmissivity)
+        self.gains[self.outputs] = np.sqrt(network.efficiency)
+
+    def __repr__(self):
+        return f"Gaussian({self.network!r})"
+
+    def __eq__(self, other):
+        return isinstance(other, Gaussian) and self.network == other.network
+
+    def start(self) -> tuple:
+        """ The vacuum loop: its means and its covariance. """
+        return np.zeros(2 * self.network.loop), np.eye(
+            2 * self.network.loop) / 4
+
+    def tick(self, memory: tuple, rng: np.random.Generator = None,
+             source: Source = None) -> tuple:
+        """
+        One tick from the `memory`, the means and the covariance of the
+        loop, fed by the source of the network or `source`: the homodyne
+        outcomes of the visible outputs, their means without `rng`, and the
+        memory they leave.
+        """
+        means, covariance = memory
+        inputs, spread = self.network.padded(source).quadratures()
+        size = len(self.gains)
+        state, joint = np.zeros(size), np.zeros((size, size))
+        state[self.memory], state[self.inputs] = means, inputs
+        joint[np.ix_(self.memory, self.memory)] = covariance
+        joint[np.ix_(self.inputs, self.inputs)] = spread
+        state = self.gains * (self.symplectic @ state)
+        joint = np.outer(self.gains, self.gains) * (
+            self.symplectic @ joint @ self.symplectic.T) + np.diag(
+                1 - self.gains ** 2) / 4
+        kept, read = self.memory, self.outputs
+        outcome = state[read] if rng is None else rng.multivariate_normal(
+            state[read], joint[np.ix_(read, read)])
+        regression = np.linalg.solve(joint[np.ix_(read, read)],
+                                     joint[np.ix_(read, kept)]).T
+        return outcome, (
+            state[kept] + regression @ (outcome - state[read]),
+            joint[np.ix_(kept, kept)] - regression @ joint[np.ix_(read, kept)])
+
+    def trajectory(self, ticks: int, seed=None) -> list:
+        """
+        The homodyne outcomes of `ticks` ticks of one trajectory started
+        from the vacuum loop.
+        """
+        rng = np.random.default_rng(seed)
+        memory, outcomes = self.start(), []
+        for _ in range(ticks):
+            outcome, memory = self.tick(memory, rng)
+            outcomes.append(tuple(float(x) for x in outcome))
+        return outcomes
+
+    def sample(self, ticks: int, burn_in: int = 0, seed=None) -> list:
+        """
+        A sample of the homodyne outcomes over `ticks` ticks, after
+        `burn_in` ticks.
+        """
+        return self.trajectory(burn_in + ticks, seed)[burn_in:]
 
 
 def levels(diagram) -> int:

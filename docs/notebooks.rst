@@ -9,6 +9,7 @@ Here we give examples of using ``optyx``:
 
     notebooks/what_is_a_channel
     notebooks/fixpoints
+    notebooks/equilibrium_propagation
     notebooks/feed_forward_example.ipynb
     notebooks/optyx-compilation.ipynb
     notebooks/optyx-vqe-experiment.ipynb

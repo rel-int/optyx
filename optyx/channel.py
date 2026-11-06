@@ -237,7 +237,7 @@ from discopy.utils import AxiomError
 from pytket.extensions.pyzx import pyzx_to_tk
 from pyzx import extract_circuit
 from optyx.core import diagram, control
-from optyx.sampling import Fields, Interferometer, Unravelling
+from optyx.sampling import Fields, Gaussian, Interferometer, Unravelling
 
 
 class Ob(frobenius.Ob):
@@ -455,7 +455,8 @@ class Diagram(frobenius.Diagram):
     def sample(self, ticks: int = 1, tol: float = 1e-3,
                indistinguishability: float = 1., seed=None,
                burn_in: int = None, cap: int = 4, shots: int = None,
-               source=None, fields: bool = False) -> list:
+               source=None, fields: bool = False,
+               homodyne: bool = False) -> list:
         """
         Sample a diagram with feedback loops over `ticks` consecutive
         ticks, its inputs fed by `source` at every tick and its outputs
@@ -487,6 +488,11 @@ class Diagram(frobenius.Diagram):
             fields : Whether to sample classical light, a mixture of
                 coherent states, by its :class:`optyx.sampling.Fields`:
                 amplitudes rather than photons, with no cap.
+            homodyne : Whether to read the outputs of a passive diagram
+                fed by Gaussian light by homodyne detection of their
+                :math:`x` quadrature, sampled by its
+                :class:`optyx.sampling.Gaussian`, rather than by counting
+                photons.
 
         **Passive diagrams** — beam splitters, phase shifters and any other
         linear optics, :class:`optyx.photonic.Create` boxes, photon loss and
@@ -569,7 +575,7 @@ class Diagram(frobenius.Diagram):
         [[(1,)], [(1,)]]
         """
         sampler, burn_in = self.sampler(
-            tol, indistinguishability, burn_in, cap, source, fields)
+            tol, indistinguishability, burn_in, cap, source, fields, homodyne)
         if shots is None:
             return sampler.sample(ticks, burn_in, seed)
         return [sampler.sample(ticks, burn_in, child)
@@ -578,16 +584,30 @@ class Diagram(frobenius.Diagram):
     # pylint: disable=too-many-arguments,too-many-positional-arguments
     def sampler(self, tol: float = 1e-3, indistinguishability: float = 1.,
                 burn_in: int = None, cap: int = 4, source=None,
-                fields: bool = False) -> tuple:
+                fields: bool = False, homodyne: bool = False) -> tuple:
         """
         The sampler of :meth:`sample` and its burn-in: the
         :class:`optyx.sampling.Interferometer` of a passive diagram fed by
         photon numbers, with the burn-in it certifies within `tol` unless
         `burn_in` is given; the :class:`optyx.sampling.Fields` of classical
-        light when asked; and the :class:`optyx.sampling.Unravelling` of
-        any other, a source with a phase reference included. These two
-        take the `burn_in` given.
+        light when asked, the :class:`optyx.sampling.Gaussian` of Gaussian
+        light read by homodyne detection when asked; and the
+        :class:`optyx.sampling.Unravelling` of any other, a source with a
+        phase reference included. These three take the `burn_in` given.
+
+        >>> from optyx.photonic import BS, Create
+        >>> from optyx.sampling import PhaseLocked
+        >>> loop = BS.feedback(mem=qmode, state=Create(0))
+        >>> loop.sampler(burn_in=10, source=PhaseLocked((1, )),
+        ...              homodyne=True)[0]  # doctest: +ELLIPSIS
+        Gaussian(Interferometer(...))
         """
+        if homodyne:
+            if burn_in is None:
+                raise NotImplementedError(
+                    "Homodyne detection is sampled with an explicit burn_in.")
+            return Gaussian(Interferometer.from_diagram(
+                self, indistinguishability, source)), burn_in
         if fields or getattr(source, "superposed", False):
             if burn_in is None:
                 raise NotImplementedError(
