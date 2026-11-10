@@ -1,5 +1,7 @@
 # Optyx: A ZX-based Python library for networked quantum architectures
 
+> **Optyx now lives on as [`discopy.optyx`](https://github.com/rel-int/discopy-next/tree/main/discopy/optyx)** in [rel-int/discopy-next](https://github.com/rel-int/discopy-next), since rel-int/discopy-next#276, with this repository's history and its Apache-2.0 licence. New work and issues go there; the open pull requests here have copies there as drafts.
+
 Optyx is an open-source Python library for designing, simulating, and optimizing networked, hybrid qubit–photon architectures. It offers a compositional, ZX/ZW-based, string-diagram front end (built within the [DisCoPy](https://github.com/discopy/discopy) ecosystem) that lets you specify experiments mixing qubit registers with discrete-variable photonic modes, lossy channels, heralded measurements, and classical/quantum feedback. Optyx compiles these diagrams to optimized tensor networks and executes them with state-of-the-art contraction backends ([Quimb](https://github.com/jcmgray/quimb) and [Cotengra](https://github.com/jcmgray/cotengra)), delivering substantial speedups on hybrid circuits. The result is an end-to-end workflow—from high-level syntax to numerics—well-suited for rapid prototyping of qubit-photon experiments.
 
 ## Basic syntax: the CNOT gate
